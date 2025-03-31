@@ -145,13 +145,15 @@ export class LatencyTester {
     // Check for RPC errors first
     if (getCodeResponse?.error) {
       status = "rpc_error";
-      const errMsg = `eth_getCode RPC error ${getCodeResponse.error.code} - ${getCodeResponse.error.message}`;
+      const errMsg =
+        `eth_getCode RPC error ${getCodeResponse.error.code} - ${getCodeResponse.error.message}`;
       this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
       return { url, latency: Infinity, status, error: errMsg };
     }
     if (syncingResponse?.error) {
       status = "rpc_error";
-      const errMsg = `eth_syncing RPC error ${syncingResponse.error.code} - ${syncingResponse.error.message}`;
+      const errMsg =
+        `eth_syncing RPC error ${syncingResponse.error.code} - ${syncingResponse.error.message}`;
       this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
       return { url, latency: Infinity, status, error: errMsg };
     }
@@ -159,7 +161,9 @@ export class LatencyTester {
     // Check sync status first
     if (syncingResponse?.result !== false) {
       status = "syncing";
-      const errMsg = `Node is not synced (eth_syncing returned ${JSON.stringify(syncingResponse?.result)})`;
+      const errMsg = `Node is not synced (eth_syncing returned ${
+        JSON.stringify(syncingResponse?.result)
+      })`;
       this.log("warn", `RPC ${url} is syncing: ${errMsg}`);
       // Return actual latency for syncing nodes so they can be used as fallback
       return { url, latency, status, error: errMsg };
@@ -178,11 +182,15 @@ export class LatencyTester {
     // Log first 100 chars of both expected and received for debugging (use debug level)
     this.log(
       "debug",
-      `\nExpected Permit2 prefix (first 100 chars): ${PERMIT2_BYTECODE_PREFIX.slice(0, 100)}`,
+      `\nExpected Permit2 prefix (first 100 chars): ${
+        PERMIT2_BYTECODE_PREFIX.slice(0, 100)
+      }`,
     );
     this.log(
       "debug",
-      `Received bytecode (first 100 chars): ${getCodeResponse.result.slice(0, 100)}`,
+      `Received bytecode (first 100 chars): ${
+        getCodeResponse.result.slice(0, 100)
+      }`,
     );
 
     if (!getCodeResponse.result.startsWith(PERMIT2_BYTECODE_PREFIX)) {

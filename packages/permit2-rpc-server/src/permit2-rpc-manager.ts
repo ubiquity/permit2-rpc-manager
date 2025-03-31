@@ -139,7 +139,9 @@ export class Permit2RpcManager {
       try {
         this._log(
           "debug",
-          `Attempt #${i + 1}: Trying RPC call to ${rpcUrl} for chain ${chainId}: ${method}`,
+          `Attempt #${
+            i + 1
+          }: Trying RPC call to ${rpcUrl} for chain ${chainId}: ${method}`,
         );
         // Pass unknown[] to executeRpcCall
         // Pass unknown[] to executeRpcCall

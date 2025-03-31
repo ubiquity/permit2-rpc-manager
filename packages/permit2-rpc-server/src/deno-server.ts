@@ -37,8 +37,11 @@ function isValidJsonRpcRequest(obj: unknown): obj is JsonRpcRequest {
   return (
     "jsonrpc" in obj && obj.jsonrpc === "2.0" &&
     "method" in obj && typeof obj.method === "string" &&
-    (!("params" in obj) || obj.params === undefined || Array.isArray(obj.params)) &&
-    ("id" in obj && (typeof obj.id === "string" || typeof obj.id === "number" || obj.id === null))
+    (!("params" in obj) || obj.params === undefined ||
+      Array.isArray(obj.params)) &&
+    ("id" in obj &&
+      (typeof obj.id === "string" || typeof obj.id === "number" ||
+        obj.id === null))
   );
 }
 
