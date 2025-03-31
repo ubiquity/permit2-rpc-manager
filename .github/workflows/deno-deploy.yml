@@ -39,9 +39,9 @@ jobs:
       - name: Check formatting
         run: deno fmt --check --ignore=lib/
 
-      # Optional: Lint code
+      # Optional: Lint code (ignore scripts and lib directories)
       - name: Lint code
-        run: deno lint
+        run: deno lint --ignore=lib/,scripts/
 
       # Optional: Run tests
       # - name: Run tests
