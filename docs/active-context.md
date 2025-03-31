@@ -50,7 +50,7 @@ adding batch support and local testing capabilities.
   `deno test`.
 - **Client SDK Refinement:** Add more robust error handling, potentially
   automatic batching, and more tests to the client SDK.
-- **Publishing:** Publish the `@ubiquity/permit2-rpc-client` package to npm.
+- **Publishing:** Publish the `@ubiquity-dao/permit2-rpc-client` package to npm.
 - **Abuse Prevention:** Consider implementing CORS origin restrictions or API
   keys for the deployed server.
 

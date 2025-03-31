@@ -8,17 +8,17 @@ Refer to the [root README.md](../../README.md) for overall project information.
 ## Installation
 
 ```bash
-npm install @ubiquity/permit2-rpc-client
+npm install @ubiquity-dao/permit2-rpc-client
 # or
-yarn add @ubiquity/permit2-rpc-client
+yarn add @ubiquity-dao/permit2-rpc-client
 # or
-bun add @ubiquity/permit2-rpc-client
+bun add @ubiquity-dao/permit2-rpc-client
 ```
 
 ## Usage
 
 ```typescript
-import { createRpcClient } from "@ubiquity/permit2-rpc-client";
+import { createRpcClient } from "@ubiquity-dao/permit2-rpc-client";
 
 // Initialize the client with the base URL of your deployed proxy service
 const client = createRpcClient({

@@ -61,7 +61,7 @@ providing an intelligent, CORS-friendly intermediary:
 ## 5. User Experience Goals (for the _developer_ using this proxy)
 
 - **Simplicity:** Easy integration via a single HTTP endpoint format or the
-  optional client SDK (`@ubiquity/permit2-rpc-client`).
+  optional client SDK (`@ubiquity-dao/permit2-rpc-client`).
 - **Reduced Boilerplate:** Eliminates the need for frontend CORS workarounds,
   RPC management logic, and manual `fetch` calls (when using the SDK).
 - **Improved Performance:** Leverages server-side intelligence for optimal RPC
