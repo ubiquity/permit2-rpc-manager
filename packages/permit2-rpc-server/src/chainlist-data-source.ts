@@ -3,7 +3,11 @@
 import fallbackWhitelistJson from "../rpc-whitelist.json" with { type: "json" };
 
 // Define a logger type
-type LoggerFn = (level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: any[]) => void;
+type LoggerFn = (
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  ...optionalParams: any[]
+) => void;
 
 // Interface for the structure of rpc-whitelist.json
 interface RpcWhitelist {
@@ -38,13 +42,21 @@ export class ChainlistDataSource {
       // Ensure rpcs object exists
       jsonData.rpcs = jsonData.rpcs || {};
       // Transform the provided data directly
-      this.whitelistData = Object.entries(jsonData.rpcs).map(([chainIdStr, urls]) => ({
+      this.whitelistData = Object.entries(jsonData.rpcs).map((
+        [chainIdStr, urls],
+      ) => ({
         chainId: parseInt(chainIdStr, 10),
-        rpcUrls: urls.filter((url) => typeof url === "string" && url.startsWith("https://") && !url.includes("${")), // Pre-filter valid URLs
+        rpcUrls: urls.filter((url) =>
+          typeof url === "string" && url.startsWith("https://") &&
+          !url.includes("${")
+        ), // Pre-filter valid URLs
       }));
 
       this.initialized = true;
-      this.log("info", `Successfully initialized whitelist data for ${this.whitelistData.length} chains.`);
+      this.log(
+        "info",
+        `Successfully initialized whitelist data for ${this.whitelistData.length} chains.`,
+      );
     } catch (error) {
       this.log("error", "Failed to process RPC whitelist data:", error);
       this.whitelistData = [];

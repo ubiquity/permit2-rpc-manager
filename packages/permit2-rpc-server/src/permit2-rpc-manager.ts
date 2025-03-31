@@ -36,7 +36,10 @@ export interface Permit2RpcManagerOptions {
 const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
 const DEFAULT_LOG_LEVEL = "warn";
 
-const LOG_LEVEL_HIERARCHY: Record<NonNullable<Permit2RpcManagerOptions["logLevel"]>, number> = {
+const LOG_LEVEL_HIERARCHY: Record<
+  NonNullable<Permit2RpcManagerOptions["logLevel"]>,
+  number
+> = {
   debug: 0,
   info: 1,
   warn: 2,
@@ -67,11 +70,21 @@ export class Permit2RpcManager {
       disableCache: options.disableCache, // Pass disableCache option
     });
     this.latencyTester = new LatencyTester(options.latencyTimeoutMs, logger);
-    this.rpcSelector = new RpcSelector(this.dataSource, this.cacheManager, this.latencyTester, logger);
-    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.rpcSelector = new RpcSelector(
+      this.dataSource,
+      this.cacheManager,
+      this.latencyTester,
+      logger,
+    );
+    this.requestTimeoutMs = options.requestTimeoutMs ??
+      DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
-  private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: any[]): void {
+  private _log(
+    level: "debug" | "info" | "warn" | "error",
+    message: string,
+    ...optionalParams: any[]
+  ): void {
     if (this.logLevel === "none") return;
     const messageLevelValue = LOG_LEVEL_HIERARCHY[level];
     if (messageLevelValue >= this.configuredLogLevelValue) {
@@ -84,12 +97,21 @@ export class Permit2RpcManager {
    * Sends a JSON-RPC request, trying available RPCs in a round-robin fashion based on the ranked list.
    * Handles fallback by iterating through the list.
    */
-  async send<T = any>(chainId: number, method: string, params: any[] = []): Promise<T> {
+  async send<T = any>(
+    chainId: number,
+    method: string,
+    params: any[] = [],
+  ): Promise<T> {
     const rankedRpcList = await this.rpcSelector.getRankedRpcList(chainId);
 
     if (rankedRpcList.length === 0) {
-      this._log("error", `No available RPC endpoints found for chainId ${chainId}. Cannot send request.`);
-      throw new Error(`No available RPC endpoints found for chainId ${chainId}.`);
+      this._log(
+        "error",
+        `No available RPC endpoints found for chainId ${chainId}. Cannot send request.`,
+      );
+      throw new Error(
+        `No available RPC endpoints found for chainId ${chainId}.`,
+      );
     }
 
     // --- Round-Robin Start Index ---
@@ -115,7 +137,12 @@ export class Permit2RpcManager {
       if (!rpcUrl) continue; // Should not happen, but safety check
 
       try {
-        this._log("debug", `Attempt #${i + 1}: Trying RPC call to ${rpcUrl} for chain ${chainId}: ${method}`);
+        this._log(
+          "debug",
+          `Attempt #${
+            i + 1
+          }: Trying RPC call to ${rpcUrl} for chain ${chainId}: ${method}`,
+        );
         const result = await this.executeRpcCall<T>(rpcUrl, method, params);
         this._log("debug", `RPC call successful for ${rpcUrl}`);
         return result; // Success! Return the result.
@@ -134,16 +161,25 @@ export class Permit2RpcManager {
       "error",
       `All available RPC endpoints failed for chainId ${chainId} after ${rankedRpcList.length} attempts. Last error: ${lastError?.message}`,
     );
-    throw new Error(`All available RPC endpoints failed for chainId ${chainId}. Last error: ${lastError?.message}`);
+    throw new Error(
+      `All available RPC endpoints failed for chainId ${chainId}. Last error: ${lastError?.message}`,
+    );
   }
 
   /**
    * Executes a single JSON-RPC call to the specified URL.
    * Made public temporarily FOR TESTING PURPOSES ONLY.
    */
-  public async executeRpcCall<T>(url: string, method: string, params: any[]): Promise<T> {
+  public async executeRpcCall<T>(
+    url: string,
+    method: string,
+    params: any[],
+  ): Promise<T> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      this.requestTimeoutMs,
+    );
 
     const requestBody: JsonRpcRequest = {
       jsonrpc: "2.0",
@@ -160,11 +196,15 @@ export class Permit2RpcManager {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
-      if (!response.ok) throw new Error(`HTTP error ${response.status} ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status} ${response.statusText}`);
+      }
       const responseData: JsonRpcResponse = await response.json();
       // Check if error exists before accessing its properties
       if (responseData.error) {
-        throw new Error(`RPC error ${responseData.error.code}: ${responseData.error.message}`);
+        throw new Error(
+          `RPC error ${responseData.error.code}: ${responseData.error.message}`,
+        );
       }
       // Check if result is explicitly undefined (it could be null which is valid JSON-RPC)
       if (responseData.result === undefined) {
@@ -175,7 +215,9 @@ export class Permit2RpcManager {
       return responseData.result as T;
     } catch (error: any) {
       clearTimeout(timeoutId);
-      if (error.name === "AbortError") throw new Error(`Request timed out after ${this.requestTimeoutMs}ms`);
+      if (error.name === "AbortError") {
+        throw new Error(`Request timed out after ${this.requestTimeoutMs}ms`);
+      }
       throw error;
     }
   }

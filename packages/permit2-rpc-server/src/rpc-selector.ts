@@ -3,13 +3,24 @@ import { ChainlistDataSource } from "./chainlist-data-source.ts";
 import { LatencyTester, LatencyTestResult } from "./latency-tester.ts";
 
 // Define a logger type
-type LoggerFn = (level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: any[]) => void;
+type LoggerFn = (
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  ...optionalParams: any[]
+) => void;
 
 // Define acceptable statuses for selection
-const ACCEPTABLE_STATUSES: LatencyTestResult["status"][] = ["ok", "wrong_bytecode", "syncing"];
+const ACCEPTABLE_STATUSES: LatencyTestResult["status"][] = [
+  "ok",
+  "wrong_bytecode",
+  "syncing",
+];
 
 // Map to track ongoing latency tests for specific chains
-const ongoingLatencyTests = new Map<number, Promise<Record<string, LatencyTestResult>>>();
+const ongoingLatencyTests = new Map<
+  number,
+  Promise<Record<string, LatencyTestResult>>
+>();
 
 export class RpcSelector {
   private dataSource: ChainlistDataSource;
@@ -54,18 +65,27 @@ export class RpcSelector {
           `Cached fastest RPC ${fastestCachedRpc} for chain ${chainId} is no longer valid or missing in map. Re-testing.`,
         );
       } else {
-        this.log("info", `No valid cache for chain ${chainId}. Performing latency tests...`);
+        this.log(
+          "info",
+          `No valid cache for chain ${chainId}. Performing latency tests...`,
+        );
       }
 
       // --- Latency Test Locking ---
       let testPromise = ongoingLatencyTests.get(chainId);
       if (testPromise) {
-        this.log("debug", `Latency test already in progress for chain ${chainId}, awaiting result...`);
+        this.log(
+          "debug",
+          `Latency test already in progress for chain ${chainId}, awaiting result...`,
+        );
         latencyMap = await testPromise; // Wait for the ongoing test
       } else {
         const rpcUrls = this.dataSource.getRpcUrls(chainId);
         if (rpcUrls.length === 0) {
-          this.log("warn", `No RPC URLs found for chain ${chainId} in data source.`);
+          this.log(
+            "warn",
+            `No RPC URLs found for chain ${chainId} in data source.`,
+          );
           return []; // No URLs to test
         }
 
@@ -78,7 +98,11 @@ export class RpcSelector {
           latencyMap = await testPromise;
           // Find the new fastest based on the fresh test results
           const newFastest = this._findFastestInMap(latencyMap);
-          await this.cacheManager.updateChainCache(chainId, latencyMap, newFastest?.url ?? null);
+          await this.cacheManager.updateChainCache(
+            chainId,
+            latencyMap,
+            newFastest?.url ?? null,
+          );
           if (newFastest) {
             this.log(
               "info",
@@ -114,7 +138,9 @@ export class RpcSelector {
   /**
    * Helper to find the single best RPC from a latency map based on status and latency.
    */
-  private _findFastestInMap(latencyMap: Record<string, LatencyTestResult> | null): LatencyTestResult | null {
+  private _findFastestInMap(
+    latencyMap: Record<string, LatencyTestResult> | null,
+  ): LatencyTestResult | null {
     if (!latencyMap) return null;
 
     let bestResult: LatencyTestResult | null = null;
@@ -140,7 +166,9 @@ export class RpcSelector {
   /**
    * Helper to filter and rank RPC results based on status and latency.
    */
-  private _rankResults(latencyMap: Record<string, LatencyTestResult> | null): string[] {
+  private _rankResults(
+    latencyMap: Record<string, LatencyTestResult> | null,
+  ): string[] {
     if (!latencyMap) return [];
 
     const validResults = Object.values(latencyMap).filter(

@@ -1,13 +1,13 @@
 // Basic JSON-RPC types (can be shared or refined)
 export interface JsonRpcRequest {
-  jsonrpc: '2.0';
+  jsonrpc: "2.0";
   method: string;
   params: unknown[];
   id: number | string | null;
 }
 
 export interface JsonRpcResponse {
-  jsonrpc: '2.0';
+  jsonrpc: "2.0";
   id: number | string | null;
   result?: unknown;
   error?: {
@@ -23,27 +23,35 @@ export interface ClientOptions {
 }
 
 export interface Permit2RpcClient {
-  request: <T = unknown>(chainId: number, payload: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | T>;
+  request: <T = unknown>(
+    chainId: number,
+    payload: JsonRpcRequest | JsonRpcRequest[],
+  ) => Promise<JsonRpcResponse | JsonRpcResponse[] | T>;
 }
 
 export function createRpcClient(options: ClientOptions): Permit2RpcClient {
-  if (!options.baseUrl || !options.baseUrl.startsWith('http')) {
-    throw new Error('Invalid baseUrl provided. Must be a valid HTTP(S) URL.');
+  if (!options.baseUrl || !options.baseUrl.startsWith("http")) {
+    throw new Error("Invalid baseUrl provided. Must be a valid HTTP(S) URL.");
   }
 
   // Ensure baseUrl doesn't end with a slash
-  const baseUrl = options.baseUrl.endsWith('/') ? options.baseUrl.slice(0, -1) : options.baseUrl;
+  const baseUrl = options.baseUrl.endsWith("/")
+    ? options.baseUrl.slice(0, -1)
+    : options.baseUrl;
 
   const client: Permit2RpcClient = {
-    request: async <T = unknown>(chainId: number, payload: JsonRpcRequest | JsonRpcRequest[]): Promise<JsonRpcResponse | JsonRpcResponse[] | T> => {
+    request: async <T = unknown>(
+      chainId: number,
+      payload: JsonRpcRequest | JsonRpcRequest[],
+    ): Promise<JsonRpcResponse | JsonRpcResponse[] | T> => {
       const url = `${baseUrl}/rpc/${chainId}`;
 
       try {
         const response = await fetch(url, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
+            "Content-Type": "application/json",
+            "Accept": "application/json",
             ...(options.fetchOptions?.headers || {}),
           },
           body: JSON.stringify(payload),
@@ -66,32 +74,41 @@ export function createRpcClient(options: ClientOptions): Permit2RpcClient {
           return [] as JsonRpcResponse[]; // Example: return empty array for batch notifications
         }
 
-        const responseData: JsonRpcResponse | JsonRpcResponse[] = await response.json();
+        const responseData: JsonRpcResponse | JsonRpcResponse[] = await response
+          .json();
 
         // Basic validation: Check if the response structure matches the request structure (single vs batch)
         if (Array.isArray(payload) && !Array.isArray(responseData)) {
-          throw new Error('Invalid Response: Expected batch response (array) but received single object.');
+          throw new Error(
+            "Invalid Response: Expected batch response (array) but received single object.",
+          );
         }
         if (!Array.isArray(payload) && Array.isArray(responseData)) {
-          throw new Error('Invalid Response: Expected single response object but received array.');
+          throw new Error(
+            "Invalid Response: Expected single response object but received array.",
+          );
         }
 
         // TODO: More robust validation? Match IDs?
 
         // If the caller expects a specific type T and it's a single, successful response, return just the result
-        if (!Array.isArray(responseData) && responseData.result !== undefined && responseData.error === undefined) {
-           // This assumes the caller knows what type T to expect.
-           // Might be safer to always return the full JsonRpcResponse.
-           // Let's return the full response for now for clarity.
-           // return responseData.result as T;
-           return responseData;
+        if (
+          !Array.isArray(responseData) && responseData.result !== undefined &&
+          responseData.error === undefined
+        ) {
+          // This assumes the caller knows what type T to expect.
+          // Might be safer to always return the full JsonRpcResponse.
+          // Let's return the full response for now for clarity.
+          // return responseData.result as T;
+          return responseData;
         }
 
-
         return responseData;
-
       } catch (error) {
-        console.error(`[Permit2RpcClient] Error sending request to ${url}:`, error);
+        console.error(
+          `[Permit2RpcClient] Error sending request to ${url}:`,
+          error,
+        );
         // Re-throw or wrap the error
         throw error;
       }

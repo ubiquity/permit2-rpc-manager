@@ -2,7 +2,11 @@
 import type { LatencyTestResult } from "./latency-tester.ts";
 
 // Define a logger type
-type LoggerFn = (level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: any[]) => void;
+type LoggerFn = (
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  ...optionalParams: any[]
+) => void;
 
 // Define the structure for cached data per chain
 interface ChainCache {
@@ -64,7 +68,11 @@ export class CacheManager {
         this.kv = await Deno.openKv();
         this.log("debug", "CacheManager (Deno): Deno KV store opened.");
       } catch (error) {
-        this.log("error", "CacheManager (Deno): Failed to open Deno KV store:", error);
+        this.log(
+          "error",
+          "CacheManager (Deno): Failed to open Deno KV store:",
+          error,
+        );
         throw new Error(`Failed to open Deno KV store: ${error.message}`);
       }
     }
@@ -75,7 +83,10 @@ export class CacheManager {
     if (this.disabled || this.cacheLoaded) return; // Skip if disabled
 
     // --- Deno KV Implementation ---
-    this.log("debug", `CacheManager (Deno): Attempting to load cache from Deno KV (key: ${this.cacheKey})`);
+    this.log(
+      "debug",
+      `CacheManager (Deno): Attempting to load cache from Deno KV (key: ${this.cacheKey})`,
+    );
     try {
       const kv = await this.ensureKvOpen();
       // Use a single key to store the entire cache object
@@ -83,13 +94,23 @@ export class CacheManager {
 
       if (result.value !== null) {
         this.cache = result.value;
-        this.log("debug", `CacheManager (Deno): Loaded cache from Deno KV (key: ${this.cacheKey})`);
+        this.log(
+          "debug",
+          `CacheManager (Deno): Loaded cache from Deno KV (key: ${this.cacheKey})`,
+        );
       } else {
-        this.log("debug", `CacheManager (Deno): No cache found in Deno KV (key: ${this.cacheKey})`);
+        this.log(
+          "debug",
+          `CacheManager (Deno): No cache found in Deno KV (key: ${this.cacheKey})`,
+        );
         this.cache = {}; // Initialize empty if not found
       }
     } catch (error) {
-      this.log("error", `CacheManager (Deno): Failed to load cache from Deno KV (key: ${this.cacheKey}):`, error);
+      this.log(
+        "error",
+        `CacheManager (Deno): Failed to load cache from Deno KV (key: ${this.cacheKey}):`,
+        error,
+      );
       this.cache = {}; // Initialize empty on error
     }
     // --- End Deno KV ---
@@ -100,19 +121,33 @@ export class CacheManager {
   private async saveCache(): Promise<void> {
     if (this.disabled || !this.cacheLoaded) { // Skip if disabled
       // Log if attempting to save while disabled, but don't warn if just not loaded yet
-      if (this.disabled) this.log("debug", "CacheManager: Caching disabled, skipping save.");
-      else this.log("warn", "CacheManager: Attempted to save cache before loading.");
+      if (this.disabled) {
+        this.log("debug", "CacheManager: Caching disabled, skipping save.");
+      } else {this.log(
+          "warn",
+          "CacheManager: Attempted to save cache before loading.",
+        );}
       return;
     }
 
     // --- Deno KV Implementation ---
-    this.log("debug", `CacheManager (Deno): Attempting to save cache to Deno KV (key: ${this.cacheKey})`);
+    this.log(
+      "debug",
+      `CacheManager (Deno): Attempting to save cache to Deno KV (key: ${this.cacheKey})`,
+    );
     try {
       const kv = await this.ensureKvOpen();
       await kv.set([this.cacheKey], this.cache);
-      this.log("debug", `CacheManager (Deno): Saved cache to Deno KV (key: ${this.cacheKey})`);
+      this.log(
+        "debug",
+        `CacheManager (Deno): Saved cache to Deno KV (key: ${this.cacheKey})`,
+      );
     } catch (error) {
-      this.log("error", `CacheManager (Deno): Failed to save cache to Deno KV (key: ${this.cacheKey}):`, error);
+      this.log(
+        "error",
+        `CacheManager (Deno): Failed to save cache to Deno KV (key: ${this.cacheKey}):`,
+        error,
+      );
     }
     // --- End Deno KV ---
   }
@@ -126,14 +161,20 @@ export class CacheManager {
   // Public methods need to check the disabled flag
   async getChainCache(chainId: number): Promise<ChainCache | null> {
     if (this.disabled) {
-      this.log("debug", `CacheManager: Caching disabled, forcing cache miss for chainId ${chainId}`);
+      this.log(
+        "debug",
+        `CacheManager: Caching disabled, forcing cache miss for chainId ${chainId}`,
+      );
       return null; // Always return null (cache miss) if disabled
     }
     const chainCache = await this.getRawChainCache(chainId);
     if (chainCache && Date.now() - chainCache.lastTested < this.cacheTtlMs) {
       return chainCache;
     }
-    this.log("debug", `CacheManager: Cache miss or expired for chainId ${chainId}`);
+    this.log(
+      "debug",
+      `CacheManager: Cache miss or expired for chainId ${chainId}`,
+    );
     return null;
   }
 
@@ -143,7 +184,10 @@ export class CacheManager {
     fastestRpc: string | null,
   ): Promise<void> {
     if (this.disabled) {
-      this.log("debug", `CacheManager: Caching disabled, skipping cache update for chainId ${chainId}`);
+      this.log(
+        "debug",
+        `CacheManager: Caching disabled, skipping cache update for chainId ${chainId}`,
+      );
       return; // Do nothing if disabled
     }
     await this.loadCache(); // Ensure loaded before update
@@ -164,7 +208,9 @@ export class CacheManager {
     return chainCache?.fastestRpc ?? null;
   }
 
-  async getLatencyMap(chainId: number): Promise<Record<string, LatencyTestResult> | null> {
+  async getLatencyMap(
+    chainId: number,
+  ): Promise<Record<string, LatencyTestResult> | null> {
     const chainCache = await this.getRawChainCache(chainId);
     return chainCache?.latencyMap ?? null;
   }

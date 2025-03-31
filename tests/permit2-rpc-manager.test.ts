@@ -7,47 +7,75 @@ import PERMIT2_BYTECODE_PREFIX from "../src/permit2-bytecode.ts";
 
 // Mock RpcSelector using manual mock object injection approach
 let mockRpcSelectorInstance: any; // Use 'any'
-let mockFindFastestRpcFn = mock(async (chainId: number): Promise<string | null> => null);
-let mockFindNextFastestRpcFn = mock(async (chainId: number): Promise<string | null> => null);
+let mockFindFastestRpcFn = mock(async (
+  chainId: number,
+): Promise<string | null> => null);
+let mockFindNextFastestRpcFn = mock(async (
+  chainId: number,
+): Promise<string | null> => null);
 
 // Mock global fetch - Handles latency methods and actual calls
-global.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-  const body = init?.body ? JSON.parse(init.body as string) : {};
-  const method = body.method;
-  const id = body.id;
+global.fetch = mock(
+  async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+      ? input.href
+      : input.url;
+    const body = init?.body ? JSON.parse(init.body as string) : {};
+    const method = body.method;
+    const id = body.id;
 
-  console.log(`Mock Fetch: URL=${url}, Method=${method}`);
+    console.log(`Mock Fetch: URL=${url}, Method=${method}`);
 
-  // --- Latency Test Simulation ---
-  if (method === "eth_getCode") {
-    // Return correct bytecode for most URLs during latency tests
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: id, result: PERMIT2_BYTECODE_PREFIX + "abc" }), { status: 200 });
-  }
-  if (method === "eth_syncing") {
-    // Return synced for most URLs during latency tests
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: id, result: false }), { status: 200 });
-  }
-
-  // --- Actual Method Call Simulation (for Permit2RpcManager tests) ---
-  if (method === "eth_blockNumber") {
-    if (url.includes("fastest-rpc.com")) {
-      return new Response(JSON.stringify({ jsonrpc: "2.0", id: id, result: "0x123" }), { status: 200 });
+    // --- Latency Test Simulation ---
+    if (method === "eth_getCode") {
+      // Return correct bytecode for most URLs during latency tests
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: id,
+          result: PERMIT2_BYTECODE_PREFIX + "abc",
+        }),
+        { status: 200 },
+      );
     }
-    if (url.includes("fallback-rpc.com")) {
-      return new Response(JSON.stringify({ jsonrpc: "2.0", id: id, result: "0x456" }), { status: 200 });
+    if (method === "eth_syncing") {
+      // Return synced for most URLs during latency tests
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: id, result: false }),
+        { status: 200 },
+      );
     }
-    // Simulate failure for error URLs
-    if (url.includes("error-rpc.com")) {
-      console.log(`Simulating failure for ${url}`);
-      return new Response("Internal Server Error", { status: 500 });
-    }
-  }
 
-  // Default error response
-  console.log(`Mock Fetch: Unhandled combination URL=${url}, Method=${method}, returning 404`);
-  return new Response("Not Found", { status: 404 });
-}) as any;
+    // --- Actual Method Call Simulation (for Permit2RpcManager tests) ---
+    if (method === "eth_blockNumber") {
+      if (url.includes("fastest-rpc.com")) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: id, result: "0x123" }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("fallback-rpc.com")) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: id, result: "0x456" }),
+          { status: 200 },
+        );
+      }
+      // Simulate failure for error URLs
+      if (url.includes("error-rpc.com")) {
+        console.log(`Simulating failure for ${url}`);
+        return new Response("Internal Server Error", { status: 500 });
+      }
+    }
+
+    // Default error response
+    console.log(
+      `Mock Fetch: Unhandled combination URL=${url}, Method=${method}, returning 404`,
+    );
+    return new Response("Not Found", { status: 404 });
+  },
+) as any;
 
 // --- Tests ---
 describe("Permit2RpcManager (Unit Tests with Mocked Selector)", () => {
@@ -141,7 +169,9 @@ describe("Permit2RpcManager (Unit Tests with Mocked Selector)", () => {
 
     mockFindFastestRpcFn.mockResolvedValue(null); // Selector returns null
 
-    await expect(manager.send(chainId, method)).rejects.toThrow(`No available RPC endpoints found for chainId ${chainId}.`);
+    await expect(manager.send(chainId, method)).rejects.toThrow(
+      `No available RPC endpoints found for chainId ${chainId}.`,
+    );
     expect(mockFindFastestRpcFn).toHaveBeenCalledWith(chainId);
     // Removed expect(global.fetch).not.toHaveBeenCalled(); as it's unreliable here
   });
@@ -156,7 +186,9 @@ describe("Permit2RpcManager (Unit Tests with Mocked Selector)", () => {
     mockFindNextFastestRpcFn.mockResolvedValue(errorRpc2);
     // Mock fetch will fail both error-rpc URLs
 
-    await expect(manager.send(chainId, method)).rejects.toThrow(/RPC call failed for chainId 1 on primary and fallback endpoints/);
+    await expect(manager.send(chainId, method)).rejects.toThrow(
+      /RPC call failed for chainId 1 on primary and fallback endpoints/,
+    );
     expect(mockFindFastestRpcFn).toHaveBeenCalledWith(chainId);
     expect(mockFindNextFastestRpcFn).toHaveBeenCalledWith(chainId);
     // Removed expect(global.fetch).toHaveBeenCalledTimes(2); as it's unreliable
@@ -170,7 +202,9 @@ describe("Permit2RpcManager (Unit Tests with Mocked Selector)", () => {
     mockFindFastestRpcFn.mockResolvedValue(errorRpc);
     mockFindNextFastestRpcFn.mockResolvedValue(null); // No fallback
 
-    await expect(manager.send(chainId, method)).rejects.toThrow(/RPC call failed for chainId 1 and no fallback available/);
+    await expect(manager.send(chainId, method)).rejects.toThrow(
+      /RPC call failed for chainId 1 and no fallback available/,
+    );
     expect(mockFindFastestRpcFn).toHaveBeenCalledWith(chainId);
     expect(mockFindNextFastestRpcFn).toHaveBeenCalledWith(chainId);
     // Removed expect(global.fetch).toHaveBeenCalledTimes(1); as it's unreliable

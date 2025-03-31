@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock, Mock } from "bun:test";
+import { beforeEach, describe, expect, it, Mock, mock } from "bun:test";
 import type { Address, Hex } from "viem"; // Import Abi type
 import { encodeFunctionResult } from "viem";
 import { readContract } from "../src/contract-utils.ts";
@@ -6,8 +6,20 @@ import { Permit2RpcManager } from "../src/permit2-rpc-manager.ts";
 
 // Example ABI for testing basic types
 const testAbi = [
-  { name: "getValue", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
-  { name: "getAddress", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  {
+    name: "getValue",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    name: "getAddress",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
 ] as const;
 
 // Standard ERC20 ABI subset for DAI test
@@ -56,22 +68,35 @@ describe("readContract", () => {
   const testChainId = 1;
   const testAddress: Address = "0x1234567890123456789012345678901234567890";
   const gnosisChainId = 100;
-  const gnosisDaiAddress: Address = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
+  const gnosisDaiAddress: Address =
+    "0x6B175474E89094C44Da98b954EedeAC495271d0F";
 
   beforeEach(() => {
     // Mock the manager's send method
     mockSendFn = mock(async (chainId, method, params) => {
-      console.log(`>>> MOCK manager.send called: chain=${chainId}, method=${method}, params=${JSON.stringify(params)}`);
+      console.log(
+        `>>> MOCK manager.send called: chain=${chainId}, method=${method}, params=${
+          JSON.stringify(params)
+        }`,
+      );
       if (method === "eth_call") {
         const callData = params[0]?.data;
         // Simulate responses based on expected encoded call data
         if (callData === "0x20965255") {
           // getValue()
-          return encodeFunctionResult({ abi: testAbi, functionName: "getValue", result: 123n });
+          return encodeFunctionResult({
+            abi: testAbi,
+            functionName: "getValue",
+            result: 123n,
+          });
         }
         if (callData === "0x38cc4831") {
           // getAddress() - Corrected Signature
-          return encodeFunctionResult({ abi: testAbi, functionName: "getAddress", result: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" });
+          return encodeFunctionResult({
+            abi: testAbi,
+            functionName: "getAddress",
+            result: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+          });
         }
         if (callData === "0xdeadbeef") {
           // Simulate empty result
@@ -81,11 +106,19 @@ describe("readContract", () => {
         if (chainId === gnosisChainId && params[0]?.to === gnosisDaiAddress) {
           if (callData === "0x95d89b41") {
             // symbol()
-            return encodeFunctionResult({ abi: erc20Abi, functionName: "symbol", result: "DAI" });
+            return encodeFunctionResult({
+              abi: erc20Abi,
+              functionName: "symbol",
+              result: "DAI",
+            });
           }
           if (callData === "0x18160ddd") {
             // totalSupply()
-            return encodeFunctionResult({ abi: erc20Abi, functionName: "totalSupply", result: 1000000000000000000000n }); // 1000 DAI
+            return encodeFunctionResult({
+              abi: erc20Abi,
+              functionName: "totalSupply",
+              result: 1000000000000000000000n,
+            }); // 1000 DAI
           }
         }
       }
@@ -107,7 +140,10 @@ describe("readContract", () => {
       functionName: "getValue",
     });
     expect(mockSendFn).toHaveBeenCalledTimes(1);
-    expect(mockSendFn).toHaveBeenCalledWith(testChainId, "eth_call", [{ to: testAddress, data: "0x20965255" }, "latest"]);
+    expect(mockSendFn).toHaveBeenCalledWith(testChainId, "eth_call", [{
+      to: testAddress,
+      data: "0x20965255",
+    }, "latest"]);
   });
 
   it("should decode uint256 result correctly", async () => {
@@ -130,7 +166,9 @@ describe("readContract", () => {
       functionName: "getAddress",
     });
     // Compare case-insensitively
-    expect(result.toLowerCase()).toBe("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd");
+    expect(result.toLowerCase()).toBe(
+      "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    );
   });
 
   it("should throw if function name is not in ABI", async () => {
@@ -141,7 +179,7 @@ describe("readContract", () => {
         address: testAddress,
         abi: testAbi,
         functionName: "functionNotInAbi",
-      })
+      }),
     ).rejects.toThrow(/Function functionNotInAbi not found on provided ABI/);
     expect(mockSendFn).not.toHaveBeenCalled();
   });
@@ -155,14 +193,16 @@ describe("readContract", () => {
         address: testAddress,
         abi: testAbi,
         functionName: "getValue",
-      })
+      }),
     ).rejects.toThrow(/eth_call failed: RPC Unavailable/);
     expect(mockSendFn).toHaveBeenCalledTimes(1);
   });
 
   it('should handle empty result ("0x") from eth_call', async () => {
     mockSendFn.mockImplementation(async (chainId, method, params) => {
-      if (method === "eth_call" && params[0]?.data === "0x20965255") return "0x";
+      if (method === "eth_call" && params[0]?.data === "0x20965255") {
+        return "0x";
+      }
       return undefined;
     });
     await expect(
@@ -172,14 +212,16 @@ describe("readContract", () => {
         address: testAddress,
         abi: testAbi,
         functionName: "getValue", // Expects uint256
-      })
+      }),
     ).rejects.toThrow(/Failed to decode result|Contract call reverted/);
   });
 
   // --- Test with Mocked Permit2RpcManager ---
   it("should fetch mocked DAI details from Gnosis (Chain 100)", async () => {
     // Uses the mockRpcManager defined in beforeEach
-    console.log(`\n--- Fetching MOCKED DAI details for Gnosis (Chain ${gnosisChainId}) ---`);
+    console.log(
+      `\n--- Fetching MOCKED DAI details for Gnosis (Chain ${gnosisChainId}) ---`,
+    );
     try {
       const [symbol, totalSupply] = await Promise.all([
         readContract<string>({
@@ -198,7 +240,9 @@ describe("readContract", () => {
         }),
       ]);
       console.log(`Gnosis DAI Symbol (Mocked): ${symbol}`);
-      console.log(`Gnosis DAI Total Supply (Mocked): ${totalSupply.toString()}`);
+      console.log(
+        `Gnosis DAI Total Supply (Mocked): ${totalSupply.toString()}`,
+      );
       expect(symbol).toBe("DAI");
       expect(totalSupply).toBe(1000000000000000000000n); // Check mock value
       expect(mockSendFn).toHaveBeenCalledTimes(2); // Called for symbol and totalSupply

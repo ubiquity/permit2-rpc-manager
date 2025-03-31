@@ -3,7 +3,7 @@ name: Publish Client SDK to npm
 on:
   push:
     tags:
-      - 'client-v*.*.*' # Trigger on tags like client-v0.1.0, client-v1.2.3
+      - "client-v*.*.*" # Trigger on tags like client-v0.1.0, client-v1.2.3
 
 jobs:
   publish:
@@ -33,8 +33,8 @@ jobs:
       - name: Setup Node.js for npm publish
         uses: actions/setup-node@v4
         with:
-          node-version: '20' # Use Node LTS compatible with your setup
-          registry-url: 'https://registry.npmjs.org/' # Point to the public npm registry
+          node-version: "20" # Use Node LTS compatible with your setup
+          registry-url: "https://registry.npmjs.org/" # Point to the public npm registry
 
       - name: Publish to npm
         run: npm publish --access public
