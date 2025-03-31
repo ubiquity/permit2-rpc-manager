@@ -20,15 +20,14 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": "./dist/index.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --format=esm --target=browser --sourcemap && tsc --emitDeclarationOnly --outDir dist", // Changed format to esm only
+    "build": "bun build ./src/index.ts --outdir ./dist --format=esm --target=browser --sourcemap && tsc --emitDeclarationOnly --outDir dist",
     "dev": "bun run build --watch",
     "test": "bun test",
     "lint": "echo \"Lint not configured\" && exit 0",
