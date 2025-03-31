@@ -22,9 +22,7 @@ interface JsonRpcResponse {
 
 type EthSyncingResult =
   | false
-  | {
-    /* ... */
-  }; // Keep simple for type check
+  | Record<string, unknown>; // Use Record<string, unknown> instead of {}
 
 // Restore 'wrong_bytecode' status
 type LatencyTestStatus =

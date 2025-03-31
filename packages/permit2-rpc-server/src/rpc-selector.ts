@@ -52,7 +52,8 @@ export class RpcSelector {
    */
   async getRankedRpcList(chainId: number): Promise<string[]> {
     let latencyMap = await this.cacheManager.getLatencyMap(chainId);
-    let fastestCachedRpc = await this.cacheManager.getFastestRpc(chainId); // Check if cache is valid
+    // Use const as this variable is not reassigned before the next block
+    const fastestCachedRpc = await this.cacheManager.getFastestRpc(chainId);
 
     // If cache is invalid (no map or fastest RPC doesn't match map status), re-test
     if (
