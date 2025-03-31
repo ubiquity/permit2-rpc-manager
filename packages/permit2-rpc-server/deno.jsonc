@@ -7,9 +7,9 @@
     "test": "deno test --unstable-kv --allow-net --allow-read --allow-env" // Use --unstable-kv
   },
   "lint": {
-    "files": {
-      "include": ["src/"]
-    },
+    // Use newer include/exclude directly
+    "include": ["src/"],
+    // "exclude": ["optional/exclude/patterns"],
     "rules": {
       "tags": ["recommended"],
       "exclude": ["no-explicit-any"] // Example: adjust rules as needed

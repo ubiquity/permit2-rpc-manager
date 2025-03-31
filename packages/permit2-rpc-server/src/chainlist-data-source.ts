@@ -6,7 +6,7 @@ import fallbackWhitelistJson from "../rpc-whitelist.json" with { type: "json" };
 type LoggerFn = (
   level: "debug" | "info" | "warn" | "error",
   message: string,
-  ...optionalParams: any[]
+  ...optionalParams: unknown[] // Changed any[] to unknown[]
 ) => void;
 
 // Interface for the structure of rpc-whitelist.json

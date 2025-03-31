@@ -29,15 +29,16 @@ interface JsonRpcResponse {
 }
 
 // Type guard to check for valid JSON-RPC request object structure
-function isValidJsonRpcRequest(obj: any): obj is JsonRpcRequest {
+function isValidJsonRpcRequest(obj: unknown): obj is JsonRpcRequest {
+  if (typeof obj !== "object" || obj === null) {
+    return false;
+  }
+  // Use 'in' operator for safer property checks on unknown
   return (
-    typeof obj === "object" &&
-    obj !== null &&
-    obj.jsonrpc === "2.0" &&
-    typeof obj.method === "string" &&
-    (obj.params === undefined || Array.isArray(obj.params)) &&
-    (typeof obj.id === "string" || typeof obj.id === "number" ||
-      obj.id === null)
+    "jsonrpc" in obj && obj.jsonrpc === "2.0" &&
+    "method" in obj && typeof obj.method === "string" &&
+    (!("params" in obj) || obj.params === undefined || Array.isArray(obj.params)) &&
+    ("id" in obj && (typeof obj.id === "string" || typeof obj.id === "number" || obj.id === null))
   );
 }
 

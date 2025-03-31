@@ -6,7 +6,7 @@ import { LatencyTester, LatencyTestResult } from "./latency-tester.ts";
 type LoggerFn = (
   level: "debug" | "info" | "warn" | "error",
   message: string,
-  ...optionalParams: any[]
+  ...optionalParams: unknown[] // Changed any[] to unknown[]
 ) => void;
 
 // Define acceptable statuses for selection

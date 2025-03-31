@@ -4,7 +4,7 @@ import PERMIT2_BYTECODE_PREFIX from "./permit2-bytecode.ts";
 interface JsonRpcRequest {
   jsonrpc: "2.0";
   method: string;
-  params?: any[];
+  params?: unknown[]; // Changed any[] to unknown[]
   id: number | string;
 }
 
@@ -16,7 +16,7 @@ interface JsonRpcError {
 interface JsonRpcResponse {
   jsonrpc: "2.0";
   id: number | string;
-  result?: any;
+  result?: unknown; // Changed any to unknown
   error?: JsonRpcError;
 }
 
@@ -47,7 +47,7 @@ export interface LatencyTestResult {
 type LoggerFn = (
   level: "debug" | "info" | "warn" | "error",
   message: string,
-  ...optionalParams: any[]
+  ...optionalParams: unknown[] // Changed any[] to unknown[]
 ) => void;
 
 // --- Constants ---
@@ -68,7 +68,7 @@ export class LatencyTester {
   private async _makeRpcCall(
     url: string,
     method: string,
-    params: any[],
+    params: unknown[], // Changed any[] to unknown[]
   ): Promise<JsonRpcResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -86,9 +86,9 @@ export class LatencyTester {
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
-    } catch (error: any) {
+    } catch (e) { // Catch as unknown
       clearTimeout(timeoutId);
-      throw error; // Re-throw network/abort errors
+      throw e; // Re-throw network/abort errors
     }
     clearTimeout(timeoutId);
     if (!response.ok) {
@@ -104,9 +104,9 @@ export class LatencyTester {
    */
   private async testSingleRpc(url: string): Promise<LatencyTestResult> {
     const startTime = Date.now();
-    let getCodeResponse: JsonRpcResponse | null = null; // Restore getCode response variable
+    let getCodeResponse: JsonRpcResponse | null = null;
     let syncingResponse: JsonRpcResponse | null = null;
-    let error: any = null;
+    // let error: unknown = null; // Removed unused variable
     let status: LatencyTestStatus = "network_error"; // Default to network error
 
     try {
@@ -115,8 +115,9 @@ export class LatencyTester {
         this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]),
         this._makeRpcCall(url, "eth_syncing", []),
       ]);
-    } catch (err: any) {
-      error = err; // Capture error from Promise.all
+    } catch (e) { // Catch as unknown
+      const err = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
+      // error = err; // Assign if needed, currently unused
       if (err.name === "AbortError") {
         status = "timeout";
       } else {

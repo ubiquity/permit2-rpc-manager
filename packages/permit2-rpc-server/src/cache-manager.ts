@@ -5,7 +5,7 @@ import type { LatencyTestResult } from "./latency-tester.ts";
 type LoggerFn = (
   level: "debug" | "info" | "warn" | "error",
   message: string,
-  ...optionalParams: any[]
+  ...optionalParams: unknown[] // Changed any[] to unknown[]
 ) => void;
 
 // Define the structure for cached data per chain
@@ -67,7 +67,8 @@ export class CacheManager {
         // Deno Deploy automatically provides the path. For local dev, it uses default.
         this.kv = await Deno.openKv();
         this.log("debug", "CacheManager (Deno): Deno KV store opened.");
-      } catch (error) {
+      } catch (e) { // Catch as unknown
+        const error = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
         this.log(
           "error",
           "CacheManager (Deno): Failed to open Deno KV store:",
@@ -105,7 +106,8 @@ export class CacheManager {
         );
         this.cache = {}; // Initialize empty if not found
       }
-    } catch (error) {
+    } catch (e) { // Catch as unknown
+      const error = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
       this.log(
         "error",
         `CacheManager (Deno): Failed to load cache from Deno KV (key: ${this.cacheKey}):`,
@@ -142,7 +144,8 @@ export class CacheManager {
         "debug",
         `CacheManager (Deno): Saved cache to Deno KV (key: ${this.cacheKey})`,
       );
-    } catch (error) {
+    } catch (e) { // Catch as unknown
+      const error = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
       this.log(
         "error",
         `CacheManager (Deno): Failed to save cache to Deno KV (key: ${this.cacheKey}):`,
