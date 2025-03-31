@@ -35,9 +35,9 @@ jobs:
       #     restore-keys: |
       #       ${{ runner.os }}-deno-
 
-      # Optional: Check formatting
+      # Optional: Check formatting (ignore lib directory)
       - name: Check formatting
-        run: deno fmt --check
+        run: deno fmt --check --ignore=lib/
 
       # Optional: Lint code
       - name: Lint code
