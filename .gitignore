@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+# node
+node_modules
+# yarn2
+.yarn
+.pnp.cjs
+.pnp.loader.mjs
+.env
+dist
+
+# Bun cache directory
+.bun
+
+coverage
+junit.xml
+dynamic.ts
+test-dashboard.md
