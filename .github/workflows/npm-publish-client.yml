@@ -1,0 +1,43 @@
+name: Publish Client SDK to npm
+
+on:
+  push:
+    tags:
+      - 'client-v*.*.*' # Trigger on tags like client-v0.1.0, client-v1.2.3
+
+jobs:
+  publish:
+    name: Build and Publish Client SDK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # Needed to checkout the repository
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        # No with: bun-version needed, uses latest by default
+
+      - name: Install Root Dependencies (if any needed for build tools)
+        run: bun install --frozen-lockfile # Use frozen lockfile for CI
+
+      - name: Build Client SDK
+        run: |
+          cd packages/permit2-rpc-client
+          bun install --frozen-lockfile # Install client-specific devDeps if needed
+          bun run build
+        working-directory: . # Run commands relative to root, but cd inside
+
+      - name: Setup Node.js for npm publish
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Use Node LTS compatible with your setup
+          registry-url: 'https://registry.npmjs.org/' # Point to the public npm registry
+
+      - name: Publish to npm
+        run: npm publish --access public
+        working-directory: ./packages/permit2-rpc-client # Run publish from the package dir
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} # Use the secret token

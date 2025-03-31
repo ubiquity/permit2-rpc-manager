@@ -1,5 +1,5 @@
 {
-  "name": "@pavlovcik/permit2-rpc-client",
+  "name": "@ubiquity/permit2-rpc-client",
   "version": "0.1.0",
   "description": "Client SDK for interacting with the Permit2 RPC Proxy service",
   "keywords": [
@@ -46,7 +46,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pavlovcik/permit2-rpc-manager.git",
+    "url": "git+https://github.com/ubiquity/permit2-rpc-manager.git",
     "directory": "packages/permit2-rpc-client"
   }
 }

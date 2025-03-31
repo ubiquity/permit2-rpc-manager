@@ -58,6 +58,6 @@
 
 - **Server Testing:** Implement Deno tests for the server logic.
 - **Client SDK Refinement:** Add features like automatic batching, typed helpers, more tests.
-- **Publishing:** Publish `@pavlovcik/permit2-rpc-client` to npm.
+- **Publishing:** Publish `@ubiquity/permit2-rpc-client` to npm.
 - **Abuse Prevention:** Implement CORS origin restrictions or API keys on the deployed server.
 - **Whitelist Curation:** Ongoing maintenance of `rpc-whitelist.json` is important.

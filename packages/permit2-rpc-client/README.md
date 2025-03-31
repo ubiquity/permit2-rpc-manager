@@ -7,17 +7,17 @@ Refer to the [root README.md](../../README.md) for overall project information.
 ## Installation
 
 ```bash
-npm install @pavlovcik/permit2-rpc-client
+npm install @ubiquity/permit2-rpc-client
 # or
-yarn add @pavlovcik/permit2-rpc-client
+yarn add @ubiquity/permit2-rpc-client
 # or
-bun add @pavlovcik/permit2-rpc-client
+bun add @ubiquity/permit2-rpc-client
 ```
 
 ## Usage
 
 ```typescript
-import { createRpcClient } from '@pavlovcik/permit2-rpc-client';
+import { createRpcClient } from '@ubiquity/permit2-rpc-client';
 
 // Initialize the client with the base URL of your deployed proxy service
 const client = createRpcClient({

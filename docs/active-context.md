@@ -38,7 +38,7 @@ The project has been restructured into a monorepo containing the Deno Deploy pro
 - **Finalize Documentation:** Update `docs/progress.md` and `.clinerules`. (Current task)
 - **Server Testing:** Implement proper tests for the Deno server package using `deno test`.
 - **Client SDK Refinement:** Add more robust error handling, potentially automatic batching, and more tests to the client SDK.
-- **Publishing:** Publish the `@pavlovcik/permit2-rpc-client` package to npm.
+- **Publishing:** Publish the `@ubiquity/permit2-rpc-client` package to npm.
 - **Abuse Prevention:** Consider implementing CORS origin restrictions or API keys for the deployed server.
 
 ## 4. Decisions Made & Considerations
