@@ -137,13 +137,20 @@ export class CacheManager {
     return null;
   }
 
-  async updateChainCache(chainId: number, latencyMap: Record<string, LatencyTestResult>, fastestRpc: string | null): Promise<void> {
+  async updateChainCache(
+    chainId: number,
+    latencyMap: Record<string, LatencyTestResult>,
+    fastestRpc: string | null,
+  ): Promise<void> {
     if (this.disabled) {
-       this.log("debug", `CacheManager: Caching disabled, skipping cache update for chainId ${chainId}`);
-       return; // Do nothing if disabled
+      this.log("debug", `CacheManager: Caching disabled, skipping cache update for chainId ${chainId}`);
+      return; // Do nothing if disabled
     }
     await this.loadCache(); // Ensure loaded before update
-    this.log("debug", `CacheManager: Updating cache for chainId ${chainId}`, { fastestRpc, latencyMapCount: Object.keys(latencyMap || {}).length });
+    this.log("debug", `CacheManager: Updating cache for chainId ${chainId}`, {
+      fastestRpc,
+      latencyMapCount: Object.keys(latencyMap || {}).length,
+    });
     this.cache[chainId] = {
       fastestRpc,
       latencyMap: latencyMap || {},

@@ -23,8 +23,8 @@ interface JsonRpcResponse {
 type EthSyncingResult =
   | false
   | {
-      /* ... */
-    }; // Keep simple for type check
+    /* ... */
+  }; // Keep simple for type check
 
 // Restore 'wrong_bytecode' status
 type LatencyTestStatus = "ok" | "syncing" | "wrong_bytecode" | "timeout" | "http_error" | "rpc_error" | "network_error";
@@ -113,7 +113,9 @@ export class LatencyTester {
         }
       }
       // Log expected "Failed to fetch" (likely CORS) at debug level, others at warn
-      const logLevel = status === "network_error" && err instanceof TypeError && err.message === "Failed to fetch" ? "debug" : "warn";
+      const logLevel = status === "network_error" && err instanceof TypeError && err.message === "Failed to fetch"
+        ? "debug"
+        : "warn";
       this.log(logLevel, `Latency test failed for ${url}: ${status} - ${err.message}`);
       return { url, latency: Infinity, status, error: err.message };
     }
@@ -199,7 +201,12 @@ export class LatencyTester {
         resultMap[url] = result.value;
       } else {
         this.log("error", `Unexpected rejection during latency test promise for ${url}:`, result.reason);
-        resultMap[url] = { url, latency: Infinity, status: "network_error", error: result.reason?.message || "Unknown rejection" };
+        resultMap[url] = {
+          url,
+          latency: Infinity,
+          status: "network_error",
+          error: result.reason?.message || "Unknown rejection",
+        };
       }
     });
 

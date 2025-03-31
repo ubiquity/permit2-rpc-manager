@@ -37,7 +37,11 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
 const DEFAULT_LOG_LEVEL = "warn";
 
 const LOG_LEVEL_HIERARCHY: Record<NonNullable<Permit2RpcManagerOptions["logLevel"]>, number> = {
-  debug: 0, info: 1, warn: 2, error: 3, none: 4,
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+  none: 4,
 };
 
 export class Permit2RpcManager {
@@ -93,7 +97,12 @@ export class Permit2RpcManager {
     const startIndex = currentIndex % rankedRpcList.length; // Ensure start index is valid
     // Immediately update the index for the *next* concurrent call
     this.rpcIndexMap.set(chainId, (currentIndex + 1) % rankedRpcList.length);
-    this._log("debug", `Starting RPC attempt loop for chain ${chainId} at index ${startIndex} (of ${rankedRpcList.length}). Next call starts at index ${this.rpcIndexMap.get(chainId)}.`);
+    this._log(
+      "debug",
+      `Starting RPC attempt loop for chain ${chainId} at index ${startIndex} (of ${rankedRpcList.length}). Next call starts at index ${
+        this.rpcIndexMap.get(chainId)
+      }.`,
+    );
     // --- End Round-Robin ---
 
     let lastError: any = null;
@@ -112,13 +121,19 @@ export class Permit2RpcManager {
         return result; // Success! Return the result.
       } catch (error: any) {
         lastError = error;
-        this._log("warn", `RPC call attempt failed for ${rpcUrl} (chain ${chainId}): ${error.message}. Trying next RPC...`);
+        this._log(
+          "warn",
+          `RPC call attempt failed for ${rpcUrl} (chain ${chainId}): ${error.message}. Trying next RPC...`,
+        );
         // Continue to the next RPC in the list
       }
     }
 
     // If the loop finishes, all RPCs failed.
-    this._log("error", `All available RPC endpoints failed for chainId ${chainId} after ${rankedRpcList.length} attempts. Last error: ${lastError?.message}`);
+    this._log(
+      "error",
+      `All available RPC endpoints failed for chainId ${chainId} after ${rankedRpcList.length} attempts. Last error: ${lastError?.message}`,
+    );
     throw new Error(`All available RPC endpoints failed for chainId ${chainId}. Last error: ${lastError?.message}`);
   }
 
@@ -131,7 +146,10 @@ export class Permit2RpcManager {
     const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
     const requestBody: JsonRpcRequest = {
-      jsonrpc: "2.0", method, params, id: `rpc-call-${Date.now()}`,
+      jsonrpc: "2.0",
+      method,
+      params,
+      id: `rpc-call-${Date.now()}`,
     };
 
     try {
@@ -146,12 +164,12 @@ export class Permit2RpcManager {
       const responseData: JsonRpcResponse = await response.json();
       // Check if error exists before accessing its properties
       if (responseData.error) {
-           throw new Error(`RPC error ${responseData.error.code}: ${responseData.error.message}`);
+        throw new Error(`RPC error ${responseData.error.code}: ${responseData.error.message}`);
       }
       // Check if result is explicitly undefined (it could be null which is valid JSON-RPC)
       if (responseData.result === undefined) {
-          this._log("warn", `RPC response for ${method} had undefined result.`);
-          // Depending on expected behavior, might need to throw or return differently
+        this._log("warn", `RPC response for ${method} had undefined result.`);
+        // Depending on expected behavior, might need to throw or return differently
       }
       // Cast should be safe now if no error was thrown
       return responseData.result as T;

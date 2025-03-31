@@ -17,7 +17,12 @@ export class RpcSelector {
   private latencyTester: LatencyTester;
   private log: LoggerFn;
 
-  constructor(dataSource: ChainlistDataSource, cacheManager: CacheManager, latencyTester: LatencyTester, logger?: LoggerFn) {
+  constructor(
+    dataSource: ChainlistDataSource,
+    cacheManager: CacheManager,
+    latencyTester: LatencyTester,
+    logger?: LoggerFn,
+  ) {
     this.dataSource = dataSource;
     this.cacheManager = cacheManager;
     this.latencyTester = latencyTester;
@@ -39,11 +44,17 @@ export class RpcSelector {
     let fastestCachedRpc = await this.cacheManager.getFastestRpc(chainId); // Check if cache is valid
 
     // If cache is invalid (no map or fastest RPC doesn't match map status), re-test
-    if (!latencyMap || !fastestCachedRpc || !latencyMap[fastestCachedRpc] || !ACCEPTABLE_STATUSES.includes(latencyMap[fastestCachedRpc].status)) {
+    if (
+      !latencyMap || !fastestCachedRpc || !latencyMap[fastestCachedRpc] ||
+      !ACCEPTABLE_STATUSES.includes(latencyMap[fastestCachedRpc].status)
+    ) {
       if (fastestCachedRpc && latencyMap) {
-         this.log("info", `Cached fastest RPC ${fastestCachedRpc} for chain ${chainId} is no longer valid or missing in map. Re-testing.`);
+        this.log(
+          "info",
+          `Cached fastest RPC ${fastestCachedRpc} for chain ${chainId} is no longer valid or missing in map. Re-testing.`,
+        );
       } else {
-         this.log("info", `No valid cache for chain ${chainId}. Performing latency tests...`);
+        this.log("info", `No valid cache for chain ${chainId}. Performing latency tests...`);
       }
 
       // --- Latency Test Locking ---
@@ -64,27 +75,34 @@ export class RpcSelector {
         this.log("debug", `Initiated latency test for chain ${chainId}.`);
 
         try {
-            latencyMap = await testPromise;
-            // Find the new fastest based on the fresh test results
-            const newFastest = this._findFastestInMap(latencyMap);
-            await this.cacheManager.updateChainCache(chainId, latencyMap, newFastest?.url ?? null);
-            if (newFastest) {
-               this.log("info", `Selected fastest RPC for chain ${chainId}: ${newFastest.url} (${newFastest.latency}ms, status: ${newFastest.status})`);
-            } else {
-               this.log("warn", `No responsive RPCs found meeting criteria (${ACCEPTABLE_STATUSES.join(" > ")}) for chain ${chainId} after testing.`);
-            }
+          latencyMap = await testPromise;
+          // Find the new fastest based on the fresh test results
+          const newFastest = this._findFastestInMap(latencyMap);
+          await this.cacheManager.updateChainCache(chainId, latencyMap, newFastest?.url ?? null);
+          if (newFastest) {
+            this.log(
+              "info",
+              `Selected fastest RPC for chain ${chainId}: ${newFastest.url} (${newFastest.latency}ms, status: ${newFastest.status})`,
+            );
+          } else {
+            this.log(
+              "warn",
+              `No responsive RPCs found meeting criteria (${
+                ACCEPTABLE_STATUSES.join(" > ")
+              }) for chain ${chainId} after testing.`,
+            );
+          }
         } catch (error) {
-             this.log("error", `Latency test failed for chain ${chainId}`, error);
-             latencyMap = {}; // Set empty map on error
+          this.log("error", `Latency test failed for chain ${chainId}`, error);
+          latencyMap = {}; // Set empty map on error
         } finally {
-            ongoingLatencyTests.delete(chainId); // Remove promise once done
-            this.log("debug", `Latency test finished for chain ${chainId}.`);
+          ongoingLatencyTests.delete(chainId); // Remove promise once done
+          this.log("debug", `Latency test finished for chain ${chainId}.`);
         }
       }
       // --- End Latency Test Locking ---
-
     } else {
-       this.log("debug", `Using valid cached latency map for chain ${chainId}.`);
+      this.log("debug", `Using valid cached latency map for chain ${chainId}.`);
     }
 
     // Filter and sort the results from the (potentially updated) latency map
@@ -126,7 +144,7 @@ export class RpcSelector {
     if (!latencyMap) return [];
 
     const validResults = Object.values(latencyMap).filter(
-      (result) => result && ACCEPTABLE_STATUSES.includes(result.status)
+      (result) => result && ACCEPTABLE_STATUSES.includes(result.status),
     );
 
     // Sort by status priority, then latency
