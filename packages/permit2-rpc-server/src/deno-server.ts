@@ -110,16 +110,17 @@ const handler = async (request: Request): Promise<Response> => {
   // Assign to variable after check to help type narrowing
   const checkedUrl = request.url;
   const url = new URL(checkedUrl);
-  const pathParts = url.pathname.split("/").filter(Boolean); // e.g., ['rpc', '1']
+  const pathParts = url.pathname.split("/").filter(Boolean); // e.g., ['100']
 
-  if (pathParts.length !== 2 || pathParts[0] !== "rpc") {
-    return new Response("Not Found: Expected path /rpc/{chainId}", {
+  // Expect only one path part: the chainId
+  if (pathParts.length !== 1) {
+    return new Response("Not Found: Expected path /{chainId}", { // Updated error message
       status: 404,
       headers: corsHeaders,
     });
   }
 
-  const chainIdStr = pathParts[1];
+  const chainIdStr = pathParts[0]; // Get chainId from the first part
   const chainId = parseInt(chainIdStr, 10);
 
   if (isNaN(chainId)) {

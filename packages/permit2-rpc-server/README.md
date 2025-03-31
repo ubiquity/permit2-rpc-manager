@@ -5,6 +5,16 @@ This package contains the Deno Deploy service code for the Permit2 RPC Proxy.
 Refer to the [root README.md](../../README.md) for overall project information
 and core features.
 
+## API Endpoint
+
+The service exposes the following endpoint:
+
+`POST /{chainId}`
+
+-   Replace `{chainId}` with the desired EVM chain ID.
+-   The request body should be a standard JSON-RPC 2.0 request object or an array of request objects (for batching).
+-   The response will be a JSON-RPC 2.0 response object or an array of response objects.
+
 ## Development
 
 Use Deno tasks defined in `deno.jsonc`:

@@ -17,12 +17,14 @@ bun add @ubiquity-dao/permit2-rpc-client
 
 ## Usage
 
+The client interacts with the proxy service endpoint (`/{chainId}`).
+
 ```typescript
 import { createRpcClient } from "@ubiquity-dao/permit2-rpc-client";
 
 // Initialize the client with the base URL of your deployed proxy service
 const client = createRpcClient({
-  baseUrl: "https://your-permit2-rpc-proxy.deno.dev", // Replace with your deployment URL
+  baseUrl: "https://rpc.ubq.fi", // Use your custom domain or the .deno.dev URL
 });
 
 async function example() {

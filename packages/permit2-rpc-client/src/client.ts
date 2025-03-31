@@ -44,7 +44,7 @@ export function createRpcClient(options: ClientOptions): Permit2RpcClient {
       chainId: number,
       payload: JsonRpcRequest | JsonRpcRequest[],
     ): Promise<JsonRpcResponse | JsonRpcResponse[] | T> => {
-      const url = `${baseUrl}/rpc/${chainId}`;
+      const url = `${baseUrl}/${chainId}`; // Removed /rpc segment
 
       try {
         const response = await fetch(url, {

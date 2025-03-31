@@ -1,6 +1,6 @@
 {
   "name": "@ubiquity-dao/permit2-rpc-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Client SDK for interacting with the Permit2 RPC Proxy service",
   "keywords": [
     "rpc",
