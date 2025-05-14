@@ -41,6 +41,7 @@ jobs:
         uses: denoland/deployctl@v1
         with:
           project: "permit2-rpc-proxy"
-          entrypoint: "packages/permit2-rpc-server/src/deno-server.ts" # Full path from repo root
-          # root: "packages/permit2-rpc-server" # Removed root parameter
-          # The action automatically determines production vs preview based on the ref
+          entrypoint: "packages/permit2-rpc-server/src/deno-server.ts"
+          token: ${{ secrets.DENO_DEPLOY_TOKEN }}
+          production: true
+          exclude: "node_modules,lib,.git,.github,scripts"
