@@ -14,10 +14,10 @@ on:
         default: false
 
 jobs:
-  update-whitelist:
+  setup:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,11 +27,6 @@ jobs:
         uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v1
-        with:
-          deno-version: v1.x
 
       - name: Install chainlist dependencies
         working-directory: lib/chainlist
@@ -47,18 +42,113 @@ jobs:
       - name: Install root dependencies
         run: bun install
 
-      - name: Update whitelist
-        id: update
+      - name: Set up matrix
+        id: set-matrix
         run: |
-          bun run scripts/update-whitelist.mjs
-          echo "::set-output name=changed::$(git diff --quiet packages/permit2-rpc-server/rpc-whitelist.json || echo 'true')"
+          CHAINS=$(node -e "console.log(JSON.stringify(Array.from(require('./tests/constants.ts').CRITICAL_CHAINS)))")
+          echo "matrix=${CHAINS}" >> $GITHUB_OUTPUT
 
-      - name: Test updated whitelist
-        if: steps.update.outputs.changed == 'true' || inputs.force_update
-        run: bun run scripts/test-whitelist.mjs
+  update-and-test:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        chain: ${{ fromJson(needs.setup.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Install chainlist dependencies
+        working-directory: lib/chainlist
+        run: bun install
+
+      - name: Generate chainlist JSON
+        working-directory: lib/chainlist
+        run: |
+          mkdir -p out
+          bun generate-json.js
+
+      - name: Update and test chain ${{ matrix.chain }}
+        run: |
+          # Update whitelist for this chain
+          UPDATE_CHAIN=${{ matrix.chain }} bun run scripts/update-whitelist.mjs
+          # Test the updated whitelist for this chain
+          TEST_CHAIN=${{ matrix.chain }} bun run scripts/test-whitelist.mjs
+
+      - name: Upload partial whitelist
+        uses: actions/upload-artifact@v4
+        with:
+          name: whitelist-chain-${{ matrix.chain }}
+          path: packages/permit2-rpc-server/rpc-whitelist.json
+          if-no-files-found: error
+
+  finalize:
+    needs: [update-and-test]
+    runs-on: ubuntu-latest
+    if: always() && !contains(needs.*.result, 'failure')
+    permissions:
+      contents: write # For git push
+      actions: write # For repository dispatch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: whitelist-chain-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Merge whitelists
+        run: |
+          # Create a fresh whitelist with combined RPCs
+          node -e '
+          const fs = require("fs");
+          const path = require("path");
+
+          // Read all whitelist files
+          const whitelists = fs.readdirSync("artifacts")
+            .filter(f => f.startsWith("whitelist-chain-"))
+            .map(f => JSON.parse(fs.readFileSync(path.join("artifacts", f), "utf8")));
+
+          // Combine all RPCs
+          const merged = {
+            rpcs: Object.assign({}, ...whitelists.map(w => w.rpcs))
+          };
+
+          // Write merged whitelist
+          fs.writeFileSync("packages/permit2-rpc-server/rpc-whitelist.json",
+            JSON.stringify(merged, null, 2));
+          '
+
+      - name: Check for changes
+        id: check
+        run: |
+          echo "changed=$(git diff --quiet packages/permit2-rpc-server/rpc-whitelist.json || echo 'true')" >> $GITHUB_OUTPUT
 
       - name: Commit and push changes
-        if: steps.update.outputs.changed == 'true' || inputs.force_update
+        if: steps.check.outputs.changed == 'true' || inputs.force_update
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -66,8 +156,9 @@ jobs:
           git commit -m "chore: weekly whitelist update"
           git push
 
-      - name: Deploy to Deno Deploy
-        if: steps.update.outputs.changed == 'true' || inputs.force_update
-        run: |
-          cd packages/permit2-rpc-server
-          deno task deploy
+      - name: Trigger Deno Deploy workflow
+        if: steps.check.outputs.changed == 'true' || inputs.force_update
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: trigger-deno-deploy
