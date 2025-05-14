@@ -2,9 +2,15 @@ name: Deno Deploy
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+    paths:
+      - 'packages/permit2-rpc-server/**'
   pull_request:
-    branches: [main]
+    branches:
+      - main
+    paths:
+      - 'packages/permit2-rpc-server/**'
 
 jobs:
   deploy:
@@ -17,13 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: denoland/setup-deno@v1
-        with:
-          deno-version: "1.40.x"
-
       - name: Deploy to Deno Deploy
         uses: denoland/deployctl@v1
         with:
           project: "permit2-rpc-proxy"
-          entrypoint: "./src/deno-server.ts"
-          root: "packages/permit2-rpc-server"
+          entrypoint: "packages/permit2-rpc-server/src/deno-server.ts"
