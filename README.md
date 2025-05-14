@@ -57,6 +57,19 @@ This repository uses GitHub Actions for automated deployment and maintenance:
 This repository uses `bun` for managing root-level scripts and potentially
 workspaces in the future.
 
+### Scripts
+
+The `scripts/` directory contains helper scripts for project maintenance and testing:
+
+- **merge-whitelists.mjs**: Merges multiple per-chain whitelist JSON files from an artifacts directory into a single `rpc-whitelist.json` for the server. Usage:
+  `bun run scripts/merge-whitelists.mjs [artifactsDir] [outputPath]`
+- **perf-test.mjs**: Benchmarks the latency and reliability of the Permit2 RPC proxy versus direct RPC calls using Puppeteer. Useful for performance regression testing and validation.
+- **manual-deploy.sh**: Manually deploys the server package to Deno Deploy.
+- **update-whitelist.mjs**: Updates the server's whitelist file from generated chainlist data.
+- **test-whitelist.mjs**: Tests connectivity and validity of all RPC endpoints in the whitelist.
+
+Other common tasks:
+
 - **Update Whitelist Source Data:** `bun run submodule:update` (Updates
   `lib/chainlist`)
 - **Generate Whitelist JSON:** `bun run chainlist:generate` (Generates JSON in
