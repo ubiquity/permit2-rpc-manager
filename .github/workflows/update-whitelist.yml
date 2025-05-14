@@ -14,10 +14,11 @@ on:
         default: false
 
 jobs:
-  update-whitelist:
+  setup:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      changed: ${{ steps.update.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,14 +52,58 @@ jobs:
         id: update
         run: |
           bun run scripts/update-whitelist.mjs
-          echo "::set-output name=changed::$(git diff --quiet packages/permit2-rpc-server/rpc-whitelist.json || echo 'true')"
+          echo "changed=$(git diff --quiet packages/permit2-rpc-server/rpc-whitelist.json || echo 'true')" >> $GITHUB_OUTPUT
 
-      - name: Test updated whitelist
-        if: steps.update.outputs.changed == 'true' || inputs.force_update
-        run: bun run scripts/test-whitelist.mjs
+      - name: Set up matrix
+        id: set-matrix
+        run: |
+          CHAINS=$(node -e "console.log(JSON.stringify(Array.from(require('./tests/constants.ts').CRITICAL_CHAINS)))")
+          echo "matrix=${CHAINS}" >> $GITHUB_OUTPUT
+
+  test-chains:
+    needs: setup
+    if: needs.setup.outputs.changed == 'true' || inputs.force_update
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        chain: ${{ fromJson(needs.setup.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Test chain ${{ matrix.chain }}
+        run: TEST_CHAIN=${{ matrix.chain }} bun run scripts/test-whitelist.mjs
+
+  finalize:
+    needs: [setup, test-chains]
+    if: always() && !contains(needs.*.result, 'failure') && (needs.setup.outputs.changed == 'true' || inputs.force_update)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
 
       - name: Commit and push changes
-        if: steps.update.outputs.changed == 'true' || inputs.force_update
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -67,7 +112,6 @@ jobs:
           git push
 
       - name: Deploy to Deno Deploy
-        if: steps.update.outputs.changed == 'true' || inputs.force_update
         run: |
           cd packages/permit2-rpc-server
           deno task deploy

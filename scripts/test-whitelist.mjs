@@ -24,11 +24,15 @@ async function testWhitelist() {
     const ourWhitelist = JSON.parse(ourWhitelistRaw);
     console.log(`Whitelist contains ${Object.keys(ourWhitelist.rpcs || {}).length} chains.`);
 
-    for (const chainIdStr of Object.keys(ourWhitelist.rpcs)) {
+    // Support single chain testing via TEST_CHAIN env var
+    const chainsToTest = process.env.TEST_CHAIN
+      ? [process.env.TEST_CHAIN]
+      : Object.keys(ourWhitelist.rpcs).filter(chainIdStr =>
+          CRITICAL_CHAINS.has(parseInt(chainIdStr, 10))
+        );
+
+    for (const chainIdStr of chainsToTest) {
       const chainId = parseInt(chainIdStr, 10);
-      if (!CRITICAL_CHAINS.has(chainId)) {
-        continue; // Skip non-critical chains for this test
-      }
 
       console.log(`\nTesting critical chain ${chainId}...`);
       const rpcUrls = ourWhitelist.rpcs[chainIdStr] || [];
