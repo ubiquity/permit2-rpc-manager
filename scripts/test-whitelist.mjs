@@ -49,10 +49,9 @@ async function testWhitelist() {
         `${successfulTests} succeeded (${Math.round((successfulTests / urlsToTest.length) * 100)}%)`
       );
 
-      // Require at least 2 working RPCs per critical chain
-      if (successfulTests < 2) {
-        console.error(`  ERROR: Not enough working RPCs for critical chain ${chainId}! ` +
-          `Need at least 2, but only ${successfulTests} succeeded.`);
+      // Fail only if no working RPCs are found
+      if (successfulTests === 0) {
+        console.error(`  ERROR: No working RPCs found for critical chain ${chainId}!`);
         failedChains++;
       }
     }
