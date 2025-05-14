@@ -24,8 +24,8 @@ async function updateWhitelist() {
     // Support single chain processing via UPDATE_CHAIN env var
     const chainlistRpcsMap = {};
     const chainsToProcess = process.env.UPDATE_CHAIN
-      ? chainlistData.filter(chain => chain.chainId.toString() === process.env.UPDATE_CHAIN)
-      : chainlistData.filter(chain => CRITICAL_CHAINS.has(chain.chainId));
+      ? chainlistData.filter((chain) => chain.chainId.toString() === process.env.UPDATE_CHAIN)
+      : chainlistData.filter((chain) => CRITICAL_CHAINS.has(chain.chainId));
 
     for (const chain of chainsToProcess) {
       console.log(`Processing chain ${chain.chainId}...`);
@@ -52,9 +52,7 @@ async function updateWhitelist() {
 
     // Create whitelist, merging with existing if in single chain mode
     const newWhitelist = {
-      rpcs: process.env.UPDATE_CHAIN
-        ? { ...existingWhitelist.rpcs, ...chainlistRpcsMap }
-        : chainlistRpcsMap,
+      rpcs: process.env.UPDATE_CHAIN ? { ...existingWhitelist.rpcs, ...chainlistRpcsMap } : chainlistRpcsMap,
     };
 
     await fs.writeFile(ourWhitelistPath, JSON.stringify(newWhitelist, null, 2));

@@ -27,9 +27,7 @@ async function testWhitelist() {
     // Support single chain testing via TEST_CHAIN env var
     const chainsToTest = process.env.TEST_CHAIN
       ? [process.env.TEST_CHAIN]
-      : Object.keys(ourWhitelist.rpcs).filter(chainIdStr =>
-          CRITICAL_CHAINS.has(parseInt(chainIdStr, 10))
-        );
+      : Object.keys(ourWhitelist.rpcs).filter((chainIdStr) => CRITICAL_CHAINS.has(parseInt(chainIdStr, 10)));
 
     for (const chainIdStr of chainsToTest) {
       const chainId = parseInt(chainIdStr, 10);
@@ -50,7 +48,7 @@ async function testWhitelist() {
 
       console.log(
         `  Tested ${urlsToTest.length} RPCs for chain ${chainId}: ` +
-        `${successfulTests} succeeded (${Math.round((successfulTests / urlsToTest.length) * 100)}%)`
+          `${successfulTests} succeeded (${Math.round((successfulTests / urlsToTest.length) * 100)}%)`
       );
 
       // Fail only if no working RPCs are found

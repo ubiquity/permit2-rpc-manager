@@ -11,6 +11,7 @@
 ## 2. What Works
 
 - **CI/CD & Deployment:**
+
   - Automated whitelist updates via GitHub Actions (weekly cron + manual trigger).
   - Enhanced deployment workflow using repository dispatch pattern.
   - Proper permissions configuration for inter-workflow communication.

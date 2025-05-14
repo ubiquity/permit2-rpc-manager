@@ -1,5 +1,5 @@
-import { TEST_TIMEOUT, MAX_RETRIES, CONCURRENT_TESTS, RPC_REQUESTS } from './constants.ts';
-import PERMIT2_BYTECODE from './fixtures/permit2-bytecode.ts';
+import { TEST_TIMEOUT, MAX_RETRIES, CONCURRENT_TESTS, RPC_REQUESTS } from "./constants.ts";
+import PERMIT2_BYTECODE from "./fixtures/permit2-bytecode.ts";
 
 type RpcEndpointResult = {
   url: string;
@@ -17,10 +17,10 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, operation: string
     const result = await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        controller.signal.addEventListener('abort', () => {
+        controller.signal.addEventListener("abort", () => {
           reject(new Error(controller.signal.reason));
         });
-      })
+      }),
     ]);
     return result;
   } finally {
@@ -31,9 +31,9 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, operation: string
 // Test a single endpoint
 async function testRpcEndpoint(url: string): Promise<boolean> {
   const stages = {
-    fetch: Math.floor(TEST_TIMEOUT * 0.6),    // 6000ms for network
-    parse: Math.floor(TEST_TIMEOUT * 0.3),    // 3000ms for parsing
-    validate: Math.floor(TEST_TIMEOUT * 0.1)   // 1000ms for validation
+    fetch: Math.floor(TEST_TIMEOUT * 0.6), // 6000ms for network
+    parse: Math.floor(TEST_TIMEOUT * 0.3), // 3000ms for parsing
+    validate: Math.floor(TEST_TIMEOUT * 0.1), // 1000ms for validation
   };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -45,10 +45,10 @@ async function testRpcEndpoint(url: string): Promise<boolean> {
         fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(RPC_REQUESTS.getCode)
+          body: JSON.stringify(RPC_REQUESTS.getCode),
         }),
         stages.fetch,
-        'fetch'
+        "fetch"
       );
 
       if (!response.ok) {
@@ -57,11 +57,7 @@ async function testRpcEndpoint(url: string): Promise<boolean> {
       }
 
       // Stage 2: Parse JSON
-      const data = await withTimeout(
-        response.json(),
-        stages.parse,
-        'JSON parse'
-      );
+      const data = await withTimeout(response.json(), stages.parse, "JSON parse");
 
       if (data.error) {
         console.log(`  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - RPC returned error: ${data.error.message || JSON.stringify(data.error)}`);
@@ -87,13 +83,12 @@ async function testRpcEndpoint(url: string): Promise<boolean> {
           return true;
         })(),
         stages.validate,
-        'bytecode validation'
+        "bytecode validation"
       );
 
       return true;
-
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       console.log(`  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - ${errorMessage}`);
 
       if (attempt === MAX_RETRIES) {
@@ -128,5 +123,5 @@ export async function testRpcs(urls: string[]): Promise<string[]> {
     results.push(...batchResults);
   }
 
-  return results.filter(r => r.valid).map(r => r.url);
+  return results.filter((r) => r.valid).map((r) => r.url);
 }

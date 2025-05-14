@@ -10,10 +10,10 @@ type RpcInput = string | RpcUrlObject | null;
 
 // Normalize RPC URL string - handle cases where URL might be in an object
 export function normalizeRpcUrl(rpc: RpcInput): string | null {
-  if (typeof rpc === 'string') {
+  if (typeof rpc === "string") {
     return rpc;
   }
-  if (typeof rpc === 'object' && rpc !== null) {
+  if (typeof rpc === "object" && rpc !== null) {
     return rpc.url || rpc.http || rpc.https || rpc.endpoint || null;
   }
   return null;
@@ -26,8 +26,8 @@ export function normalizeRpcUrls(rpcList: RpcInput[]): string[] {
   }
 
   return rpcList
-    .map(rpc => normalizeRpcUrl(rpc))
+    .map((rpc) => normalizeRpcUrl(rpc))
     .filter((url): url is string => url !== null && typeof url === "string")
-    .map(url => url.trim())
-    .filter(url => url.length > 0);
+    .map((url) => url.trim())
+    .filter((url) => url.length > 0);
 }

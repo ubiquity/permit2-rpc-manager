@@ -37,6 +37,7 @@ This monorepo includes the following packages:
 This repository uses GitHub Actions for automated deployment and maintenance:
 
 - **Whitelist Updates (`update-whitelist.yml`):**
+
   - Runs automatically every Sunday at midnight UTC
   - Can be manually triggered with optional force update
   - Tests RPC endpoints for each critical chain

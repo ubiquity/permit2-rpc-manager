@@ -38,6 +38,7 @@ containing the Deno proxy server and the client SDK.
 ## 3. Development Environment & Tooling
 
 - **CI/CD:**
+
   - GitHub Actions workflows:
     - `update-whitelist.yml`: Weekly RPC whitelist updates (cron + manual trigger)
     - `deno-deploy.yml`: Deployment to Deno Deploy
