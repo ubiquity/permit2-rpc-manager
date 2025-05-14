@@ -1,10 +1,11 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import type { JsonRpcResponse, Permit2RpcClient } from "./index";
-import { createRpcClient } from "./index"; // Import from index to test exports
+import type { JsonRpcResponse, Permit2RpcClient } from "./index.ts";
+import { createRpcClient } from "./index.ts";
+import process from "node:process";
 
 // --- Test Configuration ---
 // Read target URL from environment variable, default to deployed URL
-const SERVER_BASE_URL = process.env.TEST_TARGET_URL || "https://permit2-rpc-proxy.deno.dev";
+const SERVER_BASE_URL = process.env.TEST_TARGET_URL ?? "https://permit2-rpc-proxy.deno.dev";
 const LOCAL_SERVER_URL = "http://localhost:8000"; // Default local Deno port
 const GNOSIS_CHAIN_ID = 100;
 const WXDAI_CONTRACT = "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d"; // WXDAI on Gnosis
@@ -14,35 +15,6 @@ const BALANCE_OF_DATA = `0x70a08231000000000000000000000000${HOLDER_ADDRESS.subs
 
 describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
   let client: Permit2RpcClient;
-  // let localServerProcess: ChildProcess | null = null; // Keep commented for now
-
-  // --- Optional: Start local server before tests ---
-  // beforeAll(async () => {
-  //   console.log("Starting local Deno server for tests...");
-  //   // Adjust path as needed relative to the root of the monorepo
-  //   const serverPath = "../../packages/permit2-rpc-server";
-  //   localServerProcess = spawn("deno", ["task", "start"], {
-  //     cwd: serverPath,
-  //     stdio: ["ignore", "pipe", "pipe"], // Ignore stdin, pipe stdout/stderr
-  //     detached: false, // Keep it attached
-  //   });
-
-  //   localServerProcess.stdout?.on('data', (data) => console.log(`Server stdout: ${data}`));
-  //   localServerProcess.stderr?.on('data', (data) => console.error(`Server stderr: ${data}`));
-
-  //   // Wait for the server to be ready (simple delay, might need refinement)
-  //   await new Promise(resolve => setTimeout(resolve, 5000));
-  //   console.log("Local server should be ready.");
-  // });
-
-  // --- Optional: Stop local server after tests ---
-  // afterAll(() => {
-  //   if (localServerProcess) {
-  //     console.log("Stopping local Deno server...");
-  //     localServerProcess.kill();
-  //     console.log("Local server stopped.");
-  //   }
-  // });
 
   beforeAll(() => {
     // Initialize client pointing to the server (local or deployed)
