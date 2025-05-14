@@ -21,19 +21,15 @@ async function updateWhitelist() {
     const chainlistRaw = await fs.readFile(chainlistGeneratedPath, "utf-8");
     const chainlistData = JSON.parse(chainlistRaw);
 
-    // 2. Process RPCs for critical chains
+    // Support single chain processing via UPDATE_CHAIN env var
     const chainlistRpcsMap = {};
-    for (const chain of chainlistData) {
-      if (!CRITICAL_CHAINS.has(chain.chainId)) {
-        continue;
-      }
+    const chainsToProcess = process.env.UPDATE_CHAIN
+      ? chainlistData.filter(chain => chain.chainId.toString() === process.env.UPDATE_CHAIN)
+      : chainlistData.filter(chain => CRITICAL_CHAINS.has(chain.chainId));
 
+    for (const chain of chainsToProcess) {
       console.log(`Processing chain ${chain.chainId}...`);
-
-      // Filter and normalize URLs
       const urls = normalizeRpcUrls(chain.rpc);
-
-      // Test all URLs in parallel batches
       const validUrls = await testRpcs(urls);
 
       if (validUrls.length > 0) {
@@ -42,12 +38,25 @@ async function updateWhitelist() {
       }
     }
 
-    // 3. Create fresh whitelist with only critical chains
+    // Get existing whitelist to merge if in single chain mode
+    let existingWhitelist = { rpcs: {} };
+    if (process.env.UPDATE_CHAIN) {
+      try {
+        const existingContent = await fs.readFile(ourWhitelistPath, "utf-8");
+        existingWhitelist = JSON.parse(existingContent);
+      } catch (error) {
+        // If file doesn't exist or is invalid, use empty whitelist
+        console.log("No existing whitelist found, creating new one");
+      }
+    }
+
+    // Create whitelist, merging with existing if in single chain mode
     const newWhitelist = {
-      rpcs: chainlistRpcsMap,
+      rpcs: process.env.UPDATE_CHAIN
+        ? { ...existingWhitelist.rpcs, ...chainlistRpcsMap }
+        : chainlistRpcsMap,
     };
 
-    // 4. Write updated whitelist
     await fs.writeFile(ourWhitelistPath, JSON.stringify(newWhitelist, null, 2));
     console.log("Whitelist updated successfully with critical chains only.");
   } catch (error) {
