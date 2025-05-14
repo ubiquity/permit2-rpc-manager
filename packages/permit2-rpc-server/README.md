@@ -11,9 +11,9 @@ The service exposes the following endpoint:
 
 `POST /{chainId}`
 
--   Replace `{chainId}` with the desired EVM chain ID.
--   The request body should be a standard JSON-RPC 2.0 request object or an array of request objects (for batching).
--   The response will be a JSON-RPC 2.0 response object or an array of response objects.
+- Replace `{chainId}` with the desired EVM chain ID.
+- The request body should be a standard JSON-RPC 2.0 request object or an array of request objects (for batching).
+- The response will be a JSON-RPC 2.0 response object or an array of response objects.
 
 ## Development
 

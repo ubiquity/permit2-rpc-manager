@@ -35,22 +35,18 @@ function isValidJsonRpcRequest(obj: unknown): obj is JsonRpcRequest {
   }
   // Use 'in' operator for safer property checks on unknown
   return (
-    "jsonrpc" in obj && obj.jsonrpc === "2.0" &&
-    "method" in obj && typeof obj.method === "string" &&
-    (!("params" in obj) || obj.params === undefined ||
-      Array.isArray(obj.params)) &&
-    ("id" in obj &&
-      (typeof obj.id === "string" || typeof obj.id === "number" ||
-        obj.id === null))
+    "jsonrpc" in obj &&
+    obj.jsonrpc === "2.0" &&
+    "method" in obj &&
+    typeof obj.method === "string" &&
+    (!("params" in obj) || obj.params === undefined || Array.isArray(obj.params)) &&
+    "id" in obj &&
+    (typeof obj.id === "string" || typeof obj.id === "number" || obj.id === null)
   );
 }
 
 // Helper to create a JSON-RPC error response
-function createJsonRpcError(
-  id: number | string | null,
-  code: number,
-  message: string,
-): JsonRpcResponse {
+function createJsonRpcError(id: number | string | null, code: number, message: string): JsonRpcResponse {
   return {
     jsonrpc: "2.0",
     id,
@@ -64,13 +60,10 @@ console.log("Initializing Permit2 RPC Manager Proxy...");
 
 // Check environment variable to potentially disable cache
 const disableCacheEnv = Deno.env.get("DISABLE_RPC_CACHE");
-const shouldDisableCache = disableCacheEnv === "true" ||
-  disableCacheEnv === "1";
+const shouldDisableCache = disableCacheEnv === "true" || disableCacheEnv === "1";
 
 if (shouldDisableCache) {
-  console.warn(
-    "RPC Caching is DISABLED via DISABLE_RPC_CACHE environment variable.",
-  );
+  console.warn("RPC Caching is DISABLED via DISABLE_RPC_CACHE environment variable.");
 }
 
 // Instantiate Permit2RpcManager, passing initial data and cache option.
@@ -114,7 +107,8 @@ const handler = async (request: Request): Promise<Response> => {
 
   // Expect only one path part: the chainId
   if (pathParts.length !== 1) {
-    return new Response("Not Found: Expected path /{chainId}", { // Updated error message
+    return new Response("Not Found: Expected path /{chainId}", {
+      // Updated error message
       status: 404,
       headers: corsHeaders,
     });
@@ -137,11 +131,7 @@ const handler = async (request: Request): Promise<Response> => {
     const error = e instanceof Error ? e : new Error(String(e));
     console.error("Failed to parse request body:", error);
     // Return JSON-RPC error for parse error
-    const errorResponse = createJsonRpcError(
-      null,
-      -32700,
-      `Parse error: ${error.message}`,
-    );
+    const errorResponse = createJsonRpcError(null, -32700, `Parse error: ${error.message}`);
     return new Response(JSON.stringify(errorResponse), {
       status: 400, // Bad Request for parse errors
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -150,16 +140,10 @@ const handler = async (request: Request): Promise<Response> => {
 
   // --- Handle Batch Request ---
   if (Array.isArray(requestBody)) {
-    console.log(
-      `Received batch request for chain ${chainId} with ${requestBody.length} calls.`,
-    );
+    console.log(`Received batch request for chain ${chainId} with ${requestBody.length} calls.`);
 
     if (requestBody.length === 0) {
-      const errorResponse = createJsonRpcError(
-        null,
-        -32600,
-        "Invalid Request: Received empty batch.",
-      );
+      const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Received empty batch.");
       return new Response(JSON.stringify(errorResponse), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -168,11 +152,7 @@ const handler = async (request: Request): Promise<Response> => {
 
     // Validate all requests in the batch first
     if (!requestBody.every(isValidJsonRpcRequest)) {
-      const errorResponse = createJsonRpcError(
-        null,
-        -32600,
-        "Invalid Request: Batch contains invalid JSON-RPC object(s).",
-      );
+      const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Batch contains invalid JSON-RPC object(s).");
       return new Response(JSON.stringify(errorResponse), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -182,24 +162,13 @@ const handler = async (request: Request): Promise<Response> => {
     // Process batch requests concurrently
     const promises = requestBody.map(async (req) => {
       try {
-        const result = await manager.send(
-          chainId,
-          req.method,
-          req.params ?? [],
-        );
+        const result = await manager.send(chainId, req.method, req.params ?? []);
         return { jsonrpc: "2.0", id: req.id, result } as JsonRpcResponse;
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
-        console.error(
-          `Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`,
-          error,
-        );
+        console.error(`Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`, error);
         // Return individual error for this specific request in the batch
-        return createJsonRpcError(
-          req.id,
-          -32000,
-          `Internal Server Error: ${error.message}`,
-        );
+        return createJsonRpcError(req.id, -32000, `Internal Server Error: ${error.message}`);
       }
     });
 
@@ -211,15 +180,9 @@ const handler = async (request: Request): Promise<Response> => {
     });
   } // --- Handle Single Request ---
   else if (isValidJsonRpcRequest(requestBody)) {
-    console.log(
-      `Received single request for chain ${chainId}: ${requestBody.method}`,
-    );
+    console.log(`Received single request for chain ${chainId}: ${requestBody.method}`);
     try {
-      const result = await manager.send(
-        chainId,
-        requestBody.method,
-        requestBody.params ?? [],
-      );
+      const result = await manager.send(chainId, requestBody.method, requestBody.params ?? []);
       const rpcResponse: JsonRpcResponse = {
         jsonrpc: "2.0",
         id: requestBody.id,
@@ -231,15 +194,8 @@ const handler = async (request: Request): Promise<Response> => {
       });
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
-      console.error(
-        `Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`,
-        error,
-      );
-      const errorResponse = createJsonRpcError(
-        requestBody.id,
-        -32000,
-        `Internal Server Error: ${error.message}`,
-      );
+      console.error(`Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`, error);
+      const errorResponse = createJsonRpcError(requestBody.id, -32000, `Internal Server Error: ${error.message}`);
       return new Response(JSON.stringify(errorResponse), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -248,11 +204,7 @@ const handler = async (request: Request): Promise<Response> => {
   } // --- Handle Invalid Request Structure ---
   else {
     console.error("Invalid request body structure:", requestBody);
-    const errorResponse = createJsonRpcError(
-      null,
-      -32600,
-      "Invalid Request: Not a valid JSON-RPC object or batch.",
-    );
+    const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Not a valid JSON-RPC object or batch.");
     return new Response(JSON.stringify(errorResponse), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -4,15 +4,12 @@ import { createRpcClient } from "./index"; // Import from index to test exports
 
 // --- Test Configuration ---
 // Read target URL from environment variable, default to deployed URL
-const SERVER_BASE_URL = process.env.TEST_TARGET_URL ||
-  "https://permit2-rpc-proxy.deno.dev";
+const SERVER_BASE_URL = process.env.TEST_TARGET_URL || "https://permit2-rpc-proxy.deno.dev";
 const LOCAL_SERVER_URL = "http://localhost:8000"; // Default local Deno port
 const GNOSIS_CHAIN_ID = 100;
 const WXDAI_CONTRACT = "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d"; // WXDAI on Gnosis
 const HOLDER_ADDRESS = "0x054Ec26398549588F3c958719bD17CC1e6E97c3C";
-const BALANCE_OF_DATA = `0x70a08231000000000000000000000000${
-  HOLDER_ADDRESS.substring(2)
-}`;
+const BALANCE_OF_DATA = `0x70a08231000000000000000000000000${HOLDER_ADDRESS.substring(2)}`;
 // --- End Configuration ---
 
 describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
@@ -98,9 +95,7 @@ describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
     expect(singleResponse.result).toBeDefined();
     expect(typeof singleResponse.result).toBe("string");
     // Check if it's the expected balance hex
-    expect(singleResponse.result).toBe(
-      "0x0000000000000000000000000000000000000000000000056bcaebac07d68000",
-    );
+    expect(singleResponse.result).toBe("0x0000000000000000000000000000000000000000000000056bcaebac07d68000");
   });
 
   it("should handle a batch request", async () => {
@@ -143,9 +138,7 @@ describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
     expect(res12).toBeDefined();
     expect(res12?.jsonrpc).toBe("2.0");
     expect(res12?.error).toBeUndefined();
-    expect(res12?.result).toBe(
-      "0x0000000000000000000000000000000000000000000000056bcaebac07d68000",
-    );
+    expect(res12?.result).toBe("0x0000000000000000000000000000000000000000000000056bcaebac07d68000");
   });
 
   it("should handle errors in batch requests gracefully", async () => {

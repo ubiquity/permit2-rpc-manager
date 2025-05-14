@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ESNext", "deno.ns", "deno.unstable"],
     "allowImportingTsExtensions": true,
     /* Base Options: */
     "esModuleInterop": true,
