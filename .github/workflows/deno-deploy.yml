@@ -7,6 +7,8 @@ on:
   pull_request:
     branches:
       - main # Trigger on PRs targeting main (for preview deployments)
+  repository_dispatch:
+    types: [trigger-deno-deploy]
 
 jobs:
   deploy:

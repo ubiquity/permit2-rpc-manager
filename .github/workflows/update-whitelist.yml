@@ -96,6 +96,9 @@ jobs:
     needs: [update-and-test]
     runs-on: ubuntu-latest
     if: always() && !contains(needs.*.result, 'failure')
+    permissions:
+      contents: write # For git push
+      actions: write # For repository dispatch
     steps:
       - uses: actions/checkout@v4
         with:
@@ -153,8 +156,9 @@ jobs:
           git commit -m "chore: weekly whitelist update"
           git push
 
-      - name: Deploy to Deno Deploy
+      - name: Trigger Deno Deploy workflow
         if: steps.check.outputs.changed == 'true' || inputs.force_update
-        run: |
-          cd packages/permit2-rpc-server
-          deno task deploy
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: trigger-deno-deploy
