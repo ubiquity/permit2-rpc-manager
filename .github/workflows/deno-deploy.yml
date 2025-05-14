@@ -26,20 +26,14 @@ jobs:
       - name: Setup Deno
         uses: denoland/setup-deno@v1
         with:
-          deno-version: v1.x # Use the latest stable Deno version
+          deno-version: v1.x
 
-      # Uncomment if you have dependencies that need caching
-      # - name: Cache Deno dependencies
-      #   uses: actions/cache@v3
-      #   with:
-      #     path: ~/.cache/deno
-      #     key: ${{ runner.os }}-deno-${{ hashFiles('**/lock.json') }} # Adjust if using a different lock file
-      #     restore-keys: |
-      #       ${{ runner.os }}-deno-
+      - name: Install deployctl
+        run: deno install -A -r https://deno.land/x/deploy/deployctl.ts
 
-      - name: Deploy to Deno Deploy
-        uses: denoland/deployctl@v1
-        with:
-          project: "permit2-rpc-proxy"
-          entrypoint: "packages/permit2-rpc-server/src/deno-server.ts"
-          exclude: "node_modules,lib,.git,.github,scripts"
+      - name: Deploy using manual script
+        env:
+          DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+        run: |
+          chmod +x scripts/manual-deploy.sh
+          ./scripts/manual-deploy.sh
