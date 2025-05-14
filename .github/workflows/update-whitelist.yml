@@ -104,11 +104,24 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Create artifacts directory
+        run: mkdir -p artifacts
+
       - uses: actions/download-artifact@v4
         with:
           pattern: whitelist-chain-*
-          merge-multiple: true
           path: artifacts
+
+      - name: Debug artifacts
+        run: |
+          echo "Full directory structure:"
+          find artifacts -type f -ls
+
+          echo "\nArtifact contents:"
+          for f in artifacts/whitelist-chain-*/rpc-whitelist.json; do
+            echo "\nFile: $f"
+            cat "$f"
+          done
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1

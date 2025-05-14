@@ -10,21 +10,32 @@ async function mergeWhitelists(artifactsDir, outputPath) {
 
   // List and validate artifacts
   const files = await fs.readdir(artifactsDir);
-  const whitelistFiles = files.filter(f => f.startsWith("whitelist-chain-"));
+  // Get all subdirectories that match our pattern
+  const chainDirs = files.filter((f) => f.startsWith("whitelist-chain-"));
+  if (chainDirs.length === 0) {
+    throw new Error("No whitelist chain directories found in artifacts directory");
+  }
+  console.log(`Found ${chainDirs.length} chain directories: ${chainDirs.join(", ")}`);
+
+  const whitelistFiles = chainDirs.map((dir) => ({
+    dir,
+    path: path.join(artifactsDir, dir, "rpc-whitelist.json"),
+  }));
   console.log(`Found ${whitelistFiles.length} whitelist files: ${whitelistFiles.join(", ")}`);
 
   if (whitelistFiles.length === 0) {
     throw new Error("No whitelist files found in artifacts directory");
   }
 
-  // Read and parse each whitelist
+  // Read and parse each whitelist file
   const whitelists = [];
   for (const file of whitelistFiles) {
-    console.log(`\nProcessing ${file}...`);
-    const content = await fs.readFile(path.join(artifactsDir, file), "utf8");
-    console.log(`File content for ${file}:`, content);
+    console.log(`\nProcessing ${file.dir}...`);
 
     try {
+      const content = await fs.readFile(file.path, "utf8");
+      console.log(`File content for ${file.dir}:`, content);
+
       const data = JSON.parse(content);
       if (!data.rpcs || typeof data.rpcs !== "object") {
         throw new Error("Invalid whitelist structure - missing or invalid rpcs object");
@@ -42,7 +53,7 @@ async function mergeWhitelists(artifactsDir, outputPath) {
   // Merge RPCs
   console.log("\nMerging whitelists...");
   const merged = {
-    rpcs: {}
+    rpcs: {},
   };
 
   for (const whitelist of whitelists) {
@@ -80,7 +91,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const artifactsDir = process.argv[2] || "artifacts";
   const outputPath = process.argv[3] || "packages/permit2-rpc-server/rpc-whitelist.json";
 
-  mergeWhitelists(artifactsDir, outputPath).catch(err => {
+  mergeWhitelists(artifactsDir, outputPath).catch((err) => {
     console.error("Merge failed:", err);
     process.exit(1);
   });
