@@ -32,6 +32,25 @@ This monorepo includes the following packages:
 - **Batch Request Support:** Accepts arrays of JSON-RPC requests for efficient
   data fetching.
 
+## CI/CD & Automation
+
+This repository uses GitHub Actions for automated deployment and maintenance:
+
+- **Whitelist Updates (`update-whitelist.yml`):**
+  - Runs automatically every Sunday at midnight UTC
+  - Can be manually triggered with optional force update
+  - Tests RPC endpoints for each critical chain
+  - Auto-commits changes if whitelist is updated
+  - Triggers deployment workflow after successful updates
+
+- **Deployment (`deno-deploy.yml`):**
+  - Deploys server to Deno Deploy platform
+  - Triggered by:
+    - Pushes to main branch
+    - Pull requests (preview deployments)
+    - Successful whitelist updates (via workflow dispatch)
+  - Performs format and lint checks before deployment
+
 ## Development
 
 This repository uses `bun` for managing root-level scripts and potentially

@@ -10,6 +10,12 @@
 
 ## 2. What Works
 
+- **CI/CD & Deployment:**
+  - Automated whitelist updates via GitHub Actions (weekly cron + manual trigger).
+  - Enhanced deployment workflow using repository dispatch pattern.
+  - Proper permissions configuration for inter-workflow communication.
+  - Reliable deployment trigger after successful whitelist updates.
+
 - **Monorepo Structure:**
   - Project organized into `packages/permit2-rpc-server` and
     `packages/permit2-rpc-client`.
@@ -52,6 +58,7 @@
 
 ## 3. Completed Tasks (Recent)
 
+- ✅ **Workflow Enhancement:** Implemented workflow reuse pattern for deployments, configured permissions and inter-workflow communication.
 - ✅ **Monorepo Restructure:** Created `packages/` structure, moved server,
   created client package skeleton.
 - ✅ **Server Batch Support:** Implemented batch request handling in

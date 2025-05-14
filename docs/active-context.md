@@ -9,6 +9,12 @@ adding batch support and local testing capabilities.
 
 ## 2. Recent Activities & Findings
 
+- **Workflow Automation Enhancement:**
+  - Enhanced deployment workflow by implementing workflow reuse pattern
+  - Added repository dispatch event trigger from whitelist update to Deno Deploy workflow
+  - Configured proper permissions for inter-workflow communication
+  - Improved reliability of deployment after whitelist updates
+
 - **Monorepo Restructuring:**
   - Created `packages/` directory structure.
   - Moved server code to `packages/permit2-rpc-server`.
