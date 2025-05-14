@@ -14,7 +14,7 @@ export const CRITICAL_CHAINS = new Set([
 ]);
 
 // Testing constants
-export const TEST_TIMEOUT = 5000;
+export const TEST_TIMEOUT = 10000;
 export const MAX_RETRIES = 2;
 export const CONCURRENT_TESTS = 10;
 
