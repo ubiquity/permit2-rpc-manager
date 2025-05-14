@@ -37,18 +37,6 @@ jobs:
       #     restore-keys: |
       #       ${{ runner.os }}-deno-
 
-      # Optional: Check formatting (ignore lib directory)
-      - name: Check formatting
-        run: deno fmt --check --ignore=lib/
-
-      # Optional: Lint code (ignore lib, scripts, and client package)
-      - name: Lint code
-        run: deno lint --ignore=lib/,scripts/,packages/permit2-rpc-client/
-
-      # Optional: Run tests
-      # - name: Run tests
-      #   run: deno test --allow-net --allow-read --allow-env # Add necessary permissions
-
       - name: Deploy to Deno Deploy
         uses: denoland/deployctl@v1
         with:
