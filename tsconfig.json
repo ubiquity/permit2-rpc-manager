@@ -1,8 +1,11 @@
 {
   "compilerOptions": {
-    "types": ["node"],
-    "lib": ["ESNext", "deno.ns", "deno.unstable"],
-    "allowImportingTsExtensions": true,
+    /* Types */
+    "types": ["node", "bun-types"],
+
+    /* Lib */
+    "lib": ["ESNext", "DOM"],
+
     /* Base Options: */
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -11,6 +14,7 @@
     "resolveJsonModule": true,
     "moduleDetection": "force",
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
 
     /* Strictness */
     "strict": true,
@@ -25,14 +29,8 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "declarationMap": true,
-    "sourceMap": true, // Add this to generate source maps for declaration files
+    "sourceMap": true,
     "outDir": "dist",
-
-    /* Lib */
-    "lib": ["ESNext", "DOM"],
-
-    /* Types */
-    "types": ["node", "bun-types"],
 
     /* Path Aliases */
     "baseUrl": ".",

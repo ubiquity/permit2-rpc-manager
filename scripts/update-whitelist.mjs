@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CRITICAL_CHAINS } from "../tests/constants.ts";
+import { testRpcs } from "../tests/endpoint.ts";
+import { normalizeRpcUrls } from "../tests/url-utils.ts";
+import process from "node:process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,73 +14,45 @@ const chainlistGeneratedPath = path.join(projectRoot, "lib/chainlist/out/rpcs.js
 const ourWhitelistPath = path.join(projectRoot, "packages/permit2-rpc-server/rpc-whitelist.json");
 
 async function updateWhitelist() {
-  console.log("Starting whitelist update...");
+  console.log("Starting whitelist update for critical chains...");
 
   try {
     // 1. Read the generated Chainlist rpcs.json
-    console.log(`Reading generated Chainlist data from: ${chainlistGeneratedPath}`);
     const chainlistRaw = await fs.readFile(chainlistGeneratedPath, "utf-8");
-    // Assuming the generated file is an array of objects like:
-    // { chainId: number, rpc: string[], name: string, ... }
-    // Adjust parsing if the structure is different
     const chainlistData = JSON.parse(chainlistRaw);
-    console.log(`Successfully read ${chainlistData.length} entries from Chainlist data.`);
 
-    // 2. Read our existing rpc-whitelist.json
-    console.log(`Reading existing whitelist from: ${ourWhitelistPath}`);
-    const ourWhitelistRaw = await fs.readFile(ourWhitelistPath, "utf-8");
-    const ourWhitelist = JSON.parse(ourWhitelistRaw);
-    console.log(`Existing whitelist contains ${Object.keys(ourWhitelist.rpcs || {}).length} chains.`);
-
-    // 3. Merge/Update Logic (NEEDS DEFINITION - Placeholder: Overwrite)
-    console.log("Merging data (using Overwrite strategy - placeholder)...");
-    const chainlistRpcsMap = chainlistData.reduce((acc, chain) => {
-      // Filter for valid HTTPS URLs, excluding placeholders
-      const validUrls = (chain.rpc || []).filter((url) => typeof url === "string" && url.startsWith("https://") && !url.includes("${"));
-      if (validUrls.length > 0) {
-        acc[chain.chainId.toString()] = validUrls;
+    // 2. Process RPCs for critical chains
+    const chainlistRpcsMap = {};
+    for (const chain of chainlistData) {
+      if (!CRITICAL_CHAINS.has(chain.chainId)) {
+        continue;
       }
-      return acc;
-    }, {});
 
-    // Merge/Add strategy:
-    console.log("Merging data (using Merge/Add strategy)...");
-    for (const chainIdStr in chainlistRpcsMap) {
-      const newUrls = chainlistRpcsMap[chainIdStr];
-      // Ensure the rpcs object exists
-      ourWhitelist.rpcs = ourWhitelist.rpcs || {};
-      if (ourWhitelist.rpcs[chainIdStr]) {
-        // Chain exists, merge URLs ensuring uniqueness
-        const existingUrls = new Set(ourWhitelist.rpcs[chainIdStr]);
-        let addedCount = 0;
-        newUrls.forEach((url) => {
-          if (!existingUrls.has(url)) {
-            existingUrls.add(url);
-            addedCount++;
-          }
-        });
-        ourWhitelist.rpcs[chainIdStr] = Array.from(existingUrls);
-        if (addedCount > 0) {
-          console.log(`Merged/Added ${addedCount} new URLs for chain ${chainIdStr}.`);
-        } else {
-          console.log(`No new URLs to add for existing chain ${chainIdStr}.`);
-        }
-      } else {
-        // New chain, add it
-        console.log(`Adding new chain ${chainIdStr} with ${newUrls.length} URLs from Chainlist data...`);
-        ourWhitelist.rpcs[chainIdStr] = newUrls;
+      console.log(`Processing chain ${chain.chainId}...`);
+
+      // Filter and normalize URLs
+      const urls = normalizeRpcUrls(chain.rpc);
+
+      // Test all URLs in parallel batches
+      const validUrls = await testRpcs(urls);
+
+      if (validUrls.length > 0) {
+        console.log(`Found ${validUrls.length} valid RPCs for chain ${chain.chainId}`);
+        chainlistRpcsMap[chain.chainId.toString()] = validUrls;
       }
     }
-    // Note: This strategy doesn't remove chains present in our whitelist but missing from Chainlist.
 
-    // 4. Write back the updated whitelist
-    console.log(`Writing updated whitelist back to: ${ourWhitelistPath}`);
-    await fs.writeFile(ourWhitelistPath, JSON.stringify(ourWhitelist, null, 2));
+    // 3. Create fresh whitelist with only critical chains
+    const newWhitelist = {
+      rpcs: chainlistRpcsMap,
+    };
 
-    console.log("Whitelist update completed successfully.");
+    // 4. Write updated whitelist
+    await fs.writeFile(ourWhitelistPath, JSON.stringify(newWhitelist, null, 2));
+    console.log("Whitelist updated successfully with critical chains only.");
   } catch (error) {
     console.error("Error updating whitelist:", error);
-    process.exit(1); // Exit with error code
+    process.exit(1);
   }
 }
 
