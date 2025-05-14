@@ -120,27 +120,16 @@ jobs:
         with:
           deno-version: v1.x
 
+      - name: List artifacts directory
+        run: |
+          echo "Artifacts directory contents:"
+          ls -la artifacts/
+          echo "Checking whitelist files:"
+          ls -la artifacts/whitelist-chain-*
+
       - name: Merge whitelists
         run: |
-          # Create a fresh whitelist with combined RPCs
-          node -e '
-          const fs = require("fs");
-          const path = require("path");
-
-          // Read all whitelist files
-          const whitelists = fs.readdirSync("artifacts")
-            .filter(f => f.startsWith("whitelist-chain-"))
-            .map(f => JSON.parse(fs.readFileSync(path.join("artifacts", f), "utf8")));
-
-          // Combine all RPCs
-          const merged = {
-            rpcs: Object.assign({}, ...whitelists.map(w => w.rpcs))
-          };
-
-          // Write merged whitelist
-          fs.writeFileSync("packages/permit2-rpc-server/rpc-whitelist.json",
-            JSON.stringify(merged, null, 2));
-          '
+          bun run scripts/merge-whitelists.mjs artifacts packages/permit2-rpc-server/rpc-whitelist.json
 
       - name: Check for changes
         id: check
