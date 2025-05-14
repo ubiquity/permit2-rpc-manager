@@ -52,7 +52,8 @@ async function testRpcEndpoint(url: string): Promise<boolean> {
       if (attempt === MAX_RETRIES) {
         return false;
       }
-      await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, attempt), 4000)));
+      // No delay between retries - if it fails, try again immediately
+      continue;
     }
   }
 

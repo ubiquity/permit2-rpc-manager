@@ -5,20 +5,18 @@ export const CRITICAL_CHAINS = new Set([
   56,     // BNB Chain
   100,    // Gnosis Chain
   137,    // Polygon
-  324,    // ZKSync Era
   8453,   // Base
   42161,  // Arbitrum
   42220,  // CELO
   43114,  // Avalanche C-Chain
   81457,  // Blast
-  91002,  // WorldChain
   7777777 // Zora
 ]);
 
 // Testing constants
 export const TEST_TIMEOUT = 5000;
 export const MAX_RETRIES = 2;
-export const CONCURRENT_TESTS = 5;
+export const CONCURRENT_TESTS = 10;
 
 // JSON-RPC request bodies
 export const RPC_REQUESTS = {
