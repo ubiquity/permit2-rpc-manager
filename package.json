@@ -18,6 +18,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "git submodule update --recursive --remote",
     "submodule:update": "git submodule update --remote --merge lib/chainlist",
     "chainlist:generate": "cd lib/chainlist && bun run generate-json.js",
     "whitelist:update": "bun run scripts/update-whitelist.mjs",

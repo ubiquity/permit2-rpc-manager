@@ -1,0 +1,73 @@
+name: Update RPC Whitelist
+
+on:
+  schedule:
+    # Run every Sunday at midnight UTC
+    - cron: "0 0 * * 0"
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: "Force update even if no changes detected"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  update-whitelist:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Install chainlist dependencies
+        working-directory: lib/chainlist
+        run: bun install
+
+      - name: Create out directory
+        run: mkdir -p lib/chainlist/out
+
+      - name: Generate chainlist JSON
+        working-directory: lib/chainlist
+        run: bun generate-json.js
+
+      - name: Install root dependencies
+        run: bun install
+
+      - name: Update whitelist
+        id: update
+        run: |
+          bun run scripts/update-whitelist.mjs
+          echo "::set-output name=changed::$(git diff --quiet packages/permit2-rpc-server/rpc-whitelist.json || echo 'true')"
+
+      - name: Test updated whitelist
+        if: steps.update.outputs.changed == 'true' || inputs.force_update
+        run: bun run scripts/test-whitelist.mjs
+
+      - name: Commit and push changes
+        if: steps.update.outputs.changed == 'true' || inputs.force_update
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/permit2-rpc-server/rpc-whitelist.json
+          git commit -m "chore: weekly whitelist update"
+          git push
+
+      - name: Deploy to Deno Deploy
+        if: steps.update.outputs.changed == 'true' || inputs.force_update
+        run: |
+          cd packages/permit2-rpc-server
+          deno task deploy

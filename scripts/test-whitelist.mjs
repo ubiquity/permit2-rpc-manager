@@ -1,12 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import process from "node:process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const projectRoot = path.join(__dirname, "..");
-const ourWhitelistPath = path.join(projectRoot, "src/rpc-whitelist.json");
+const ourWhitelistPath = path.join(projectRoot, "packages/permit2-rpc-server/rpc-whitelist.json");
 
 // Chains to specifically test (add important ones)
 const CRITICAL_CHAINS = [1, 10, 100, 137, 42161]; // Example: Mainnet, Optimism, Gnosis, Polygon, Arbitrum
@@ -60,11 +61,7 @@ async function testWhitelist() {
     console.log(`Reading whitelist from: ${ourWhitelistPath}`);
     const ourWhitelistRaw = await fs.readFile(ourWhitelistPath, "utf-8");
     const ourWhitelist = JSON.parse(ourWhitelistRaw);
-    console.log(
-      `Whitelist contains ${
-        Object.keys(ourWhitelist.rpcs || {}).length
-      } chains.`,
-    );
+    console.log(`Whitelist contains ${Object.keys(ourWhitelist.rpcs || {}).length} chains.`);
 
     for (const chainIdStr of Object.keys(ourWhitelist.rpcs)) {
       const chainId = parseInt(chainIdStr, 10);
@@ -86,14 +83,10 @@ async function testWhitelist() {
       const results = await Promise.all(testPromises);
 
       const successfulTests = results.filter((success) => success).length;
-      console.log(
-        `  Tested ${urlsToTest.length} RPCs for chain ${chainId}: ${successfulTests} succeeded.`,
-      );
+      console.log(`  Tested ${urlsToTest.length} RPCs for chain ${chainId}: ${successfulTests} succeeded.`);
 
       if (successfulTests === 0) {
-        console.error(
-          `  ERROR: All tested RPCs failed for critical chain ${chainId}!`,
-        );
+        console.error(`  ERROR: All tested RPCs failed for critical chain ${chainId}!`);
         failedChains++;
       }
       // Optional: Add a threshold, e.g., fail if less than 50% succeed?
@@ -104,9 +97,7 @@ async function testWhitelist() {
     }
 
     if (failedChains > 0) {
-      console.error(
-        `\nWhitelist test failed: ${failedChains} critical chain(s) had issues.`,
-      );
+      console.error(`\nWhitelist test failed: ${failedChains} critical chain(s) had issues.`);
       process.exit(1);
     } else {
       console.log("\nWhitelist connectivity test passed for critical chains.");

@@ -8,9 +8,7 @@ const CHAIN_ID = 100; // Gnosis
 const NUM_RUNS = 5; // Number of times to run each scenario for averaging
 const RPC_METHOD = "eth_blockNumber";
 const RPC_PARAMS = [];
-const WHITELIST_PATH = path.resolve(
-  "./packages/permit2-rpc-server/rpc-whitelist.json",
-); // Path to whitelist
+const WHITELIST_PATH = path.resolve("./packages/permit2-rpc-server/rpc-whitelist.json"); // Path to whitelist
 // --- End Configuration ---
 
 // Helper to read whitelist
@@ -20,26 +18,14 @@ async function getWhitelistUrls(chainId) {
     const data = JSON.parse(content);
     return data?.rpcs?.[String(chainId)] || [];
   } catch (error) {
-    console.error(
-      `Failed to read or parse whitelist at ${WHITELIST_PATH}:`,
-      error,
-    );
+    console.error(`Failed to read or parse whitelist at ${WHITELIST_PATH}:`, error);
     return [];
   }
 }
 
 // Test function for the NEW SDK/Proxy approach
-async function testProxyPerformance(
-  page,
-  proxyUrl,
-  chainId,
-  method,
-  params,
-  numRuns,
-) {
-  console.log(
-    `\nTesting ${numRuns} requests via Proxy: ${proxyUrl} (Chain ${chainId})`,
-  );
+async function testProxyPerformance(page, proxyUrl, chainId, method, params, numRuns) {
+  console.log(`\nTesting ${numRuns} requests via Proxy: ${proxyUrl} (Chain ${chainId})`);
 
   const results = await page.evaluate(
     async (url, chain, m, p, count) => {
@@ -50,7 +36,8 @@ async function testProxyPerformance(
       for (let run = 0; run < count; run++) {
         const start = performance.now();
         try {
-          const response = await fetch(`${url}/rpc/${chain}`, { // Use proxy format
+          const response = await fetch(`${url}/rpc/${chain}`, {
+            // Use proxy format
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -67,9 +54,7 @@ async function testProxyPerformance(
           }
           const data = await response.json();
           if (data.error) {
-            throw new Error(
-              `RPC error ${data.error.code}: ${data.error.message}`,
-            );
+            throw new Error(`RPC error ${data.error.code}: ${data.error.message}`);
           }
           runTimings.push(duration);
           totalSuccessCount++;
@@ -80,10 +65,7 @@ async function testProxyPerformance(
       }
 
       const successfulTimings = runTimings.filter((t) => t !== null);
-      const avgTiming = successfulTimings.length > 0
-        ? successfulTimings.reduce((a, b) => a + b, 0) /
-          successfulTimings.length
-        : null;
+      const avgTiming = successfulTimings.length > 0 ? successfulTimings.reduce((a, b) => a + b, 0) / successfulTimings.length : null;
 
       return {
         target: "Proxy",
@@ -97,7 +79,7 @@ async function testProxyPerformance(
     chainId,
     method,
     params,
-    numRuns,
+    numRuns
   );
 
   console.log(`- Successful: ${results.successfulRuns} / ${results.totalRuns}`);
@@ -109,20 +91,9 @@ async function testProxyPerformance(
 }
 
 // Test function simulating OLD client logic (direct calls, stop on first success)
-async function testSimulatedOldLogic(
-  page,
-  rpcUrls,
-  chainId,
-  method,
-  params,
-  numRuns,
-) {
-  console.log(
-    `\nTesting ${numRuns} runs using Simulated Old Logic (Chain ${chainId})`,
-  );
-  console.log(
-    `- Attempting direct calls to ${rpcUrls.length} whitelisted RPCs...`,
-  );
+async function testSimulatedOldLogic(page, rpcUrls, chainId, method, params, numRuns) {
+  console.log(`\nTesting ${numRuns} runs using Simulated Old Logic (Chain ${chainId})`);
+  console.log(`- Attempting direct calls to ${rpcUrls.length} whitelisted RPCs...`);
 
   const results = await page.evaluate(
     async (urls, chain, m, p, count) => {
@@ -141,7 +112,8 @@ async function testSimulatedOldLogic(
           attemptsThisRun++;
           totalAttempts++;
           try {
-            const response = await fetch(rpcUrl, { // Direct call
+            const response = await fetch(rpcUrl, {
+              // Direct call
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -158,9 +130,7 @@ async function testSimulatedOldLogic(
             }
             const data = await response.json();
             if (data.error) {
-              throw new Error(
-                `RPC error ${data.error.code}: ${data.error.message}`,
-              );
+              throw new Error(`RPC error ${data.error.code}: ${data.error.message}`);
             }
 
             // SUCCESS! Stop trying other RPCs for this run
@@ -182,10 +152,7 @@ async function testSimulatedOldLogic(
       } // End run loop
 
       const successfulTimings = runTimings.filter((t) => t !== null);
-      const avgTiming = successfulTimings.length > 0
-        ? successfulTimings.reduce((a, b) => a + b, 0) /
-          successfulTimings.length
-        : null;
+      const avgTiming = successfulTimings.length > 0 ? successfulTimings.reduce((a, b) => a + b, 0) / successfulTimings.length : null;
 
       return {
         target: "Simulated Old Logic",
@@ -200,18 +167,12 @@ async function testSimulatedOldLogic(
     chainId,
     method,
     params,
-    numRuns,
+    numRuns
   );
 
   console.log(`- Successful: ${results.successfulRuns} / ${results.totalRuns}`);
-  console.log(
-    `- Average Latency (for successful runs): ${results.averageLatencyMs} ms`,
-  );
-  console.log(
-    `- Average RPC attempts per run: ${
-      results.averageAttemptsPerRun.toFixed(2)
-    }`,
-  );
+  console.log(`- Average Latency (for successful runs): ${results.averageLatencyMs} ms`);
+  console.log(`- Average RPC attempts per run: ${results.averageAttemptsPerRun.toFixed(2)}`);
   if (results.firstErrorMessage && results.successfulRuns < results.totalRuns) {
     console.log(`- First Error (on failed run): ${results.firstErrorMessage}`);
   }
@@ -221,9 +182,7 @@ async function testSimulatedOldLogic(
 (async () => {
   const gnosisUrls = await getWhitelistUrls(CHAIN_ID);
   if (!gnosisUrls || gnosisUrls.length === 0) {
-    console.error(
-      `No RPC URLs found for chain ${CHAIN_ID} in whitelist. Aborting.`,
-    );
+    console.error(`No RPC URLs found for chain ${CHAIN_ID} in whitelist. Aborting.`);
     process.exit(1);
   }
 
@@ -237,33 +196,19 @@ async function testSimulatedOldLogic(
   console.log("Running performance comparison...");
 
   // Test Simulated Old Logic
-  const oldLogicResults = await testSimulatedOldLogic(
-    page,
-    gnosisUrls,
-    CHAIN_ID,
-    RPC_METHOD,
-    RPC_PARAMS,
-    NUM_RUNS,
-  );
+  const oldLogicResults = await testSimulatedOldLogic(page, gnosisUrls, CHAIN_ID, RPC_METHOD, RPC_PARAMS, NUM_RUNS);
 
   // Test New Proxy Logic
-  const proxyResults = await testProxyPerformance(
-    page,
-    PROXY_URL,
-    CHAIN_ID,
-    RPC_METHOD,
-    RPC_PARAMS,
-    NUM_RUNS,
-  );
+  const proxyResults = await testProxyPerformance(page, PROXY_URL, CHAIN_ID, RPC_METHOD, RPC_PARAMS, NUM_RUNS);
 
   console.log("\n--- Comparison Summary ---");
   console.log(
-    `Simulated Old Logic: ${oldLogicResults.successfulRuns}/${oldLogicResults.totalRuns} successful runs, Avg Latency: ${oldLogicResults.averageLatencyMs} ms, Avg Attempts: ${
-      oldLogicResults.averageAttemptsPerRun.toFixed(2)
-    }`,
+    `Simulated Old Logic: ${oldLogicResults.successfulRuns}/${oldLogicResults.totalRuns} successful runs, Avg Latency: ${oldLogicResults.averageLatencyMs} ms, Avg Attempts: ${oldLogicResults.averageAttemptsPerRun.toFixed(
+      2
+    )}`
   );
   console.log(
-    `New SDK/Proxy Logic: ${proxyResults.successfulRuns}/${proxyResults.totalRuns} successful runs, Avg Latency: ${proxyResults.averageLatencyMs} ms`,
+    `New SDK/Proxy Logic: ${proxyResults.successfulRuns}/${proxyResults.totalRuns} successful runs, Avg Latency: ${proxyResults.averageLatencyMs} ms`
   );
 
   await browser.close();
