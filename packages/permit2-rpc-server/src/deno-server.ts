@@ -220,7 +220,17 @@ const handler = async (request: Request): Promise<Response> => {
         const error = e instanceof Error ? e : new Error(String(e));
         console.error(`Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`, error);
         // Return individual error for this specific request in the batch
-        return createJsonRpcError(req.id, -32000, `Internal Server Error: ${error.message}`);
+        return error.name === "JsonRpcError" && "code" in error
+          ? {
+              jsonrpc: "2.0",
+              id: req.id,
+              error: {
+                code: error.code,
+                message: error.message,
+                data: "data" in error ? error.data : undefined,
+              },
+            }
+          : createJsonRpcError(req.id, -32000, `Internal Server Error: ${error.message}`);
       }
     });
 
@@ -247,9 +257,21 @@ const handler = async (request: Request): Promise<Response> => {
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
       console.error(`Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`, error);
-      const errorResponse = createJsonRpcError(requestBody.id, -32000, `Internal Server Error: ${error.message}`);
+      // Distinguish between VM errors (client error) and other failures (server error)
+      const isClientError = error.name === "JsonRpcError" && (error.message.includes("execution reverted") || error.message.includes("VM execution error"));
+
+      const errorResponse = {
+        jsonrpc: "2.0",
+        id: requestBody.id,
+        error: {
+          code: isClientError ? -32000 : -32603,
+          message: error.message,
+          data: "data" in error ? error.data : undefined,
+        },
+      };
+
       return new Response(JSON.stringify(errorResponse), {
-        status: 500,
+        status: isClientError ? 400 : 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
