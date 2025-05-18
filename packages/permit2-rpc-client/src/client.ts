@@ -56,6 +56,15 @@ export function createRpcClient(options: ClientOptions): Permit2RpcClient {
             // Try to get more details from the response body
             const text = await response.text();
             errorBody += `: ${text}`;
+            // Try to parse as JSON-RPC error if possible
+            try {
+              const jsonError = JSON.parse(text);
+              if (jsonError.error?.code && jsonError.error?.message) {
+                throw jsonError.error; // Re-throw as JSON-RPC error
+              }
+            } catch {
+              /* Not a JSON-RPC error */
+            }
           } catch {
             /* Ignore if reading body fails */
           }
@@ -78,22 +87,31 @@ export function createRpcClient(options: ClientOptions): Permit2RpcClient {
           throw new Error("Invalid Response: Expected single response object but received array.");
         }
 
-        // TODO: More robust validation? Match IDs?
+        // Check for JSON-RPC errors and throw them properly
+        if (!Array.isArray(responseData) && responseData.error) {
+          throw responseData.error; // Throw the full JSON-RPC error object
+        }
+        if (Array.isArray(responseData)) {
+          const errorResponse = responseData.find((r) => r.error);
+          if (errorResponse) {
+            throw errorResponse.error; // Throw the first error found in batch
+          }
+        }
 
         // If the caller expects a specific type T and it's a single, successful response, return just the result
         if (!Array.isArray(responseData) && responseData.result !== undefined && responseData.error === undefined) {
-          // This assumes the caller knows what type T to expect.
-          // Might be safer to always return the full JsonRpcResponse.
-          // Let's return the full response for now for clarity.
-          // return responseData.result as T;
           return responseData;
         }
 
         return responseData;
       } catch (error) {
         console.error(`[Permit2RpcClient] Error sending request to ${url}:`, error);
-        // Re-throw or wrap the error
-        throw error;
+        // Re-throw the error as-is if it's already a JSON-RPC error
+        if (typeof error === "object" && error !== null && "code" in error && "message" in error) {
+          throw error;
+        }
+        // Otherwise wrap non-JSON-RPC errors
+        throw new Error(`RPC request failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     },
   };

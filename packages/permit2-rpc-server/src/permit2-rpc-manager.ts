@@ -1,4 +1,14 @@
 // import type { Address } from "viem"; // Removed - not used internally
+class JsonRpcError extends Error {
+  constructor(
+    public code: number,
+    message: string,
+    public data?: unknown
+  ) {
+    super(message);
+    this.name = "JsonRpcError";
+  }
+}
 import { CacheManager } from "./cache-manager.ts";
 import { ChainlistDataSource } from "./chainlist-data-source.ts";
 // import { readContract } from "./contract-utils.ts"; // Removed - not used internally
@@ -19,6 +29,7 @@ interface JsonRpcResponse {
   error?: {
     code: number;
     message: string;
+    data?: unknown;
   };
 }
 
@@ -71,11 +82,7 @@ export class Permit2RpcManager {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
-  private _log(
-    level: "debug" | "info" | "warn" | "error",
-    message: string,
-    ...optionalParams: unknown[] // Changed any[] to unknown[]
-  ): void {
+  private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]): void {
     if (this.logLevel === "none") return;
     const messageLevelValue = LOG_LEVEL_HIERARCHY[level];
     if (messageLevelValue >= this.configuredLogLevelValue) {
@@ -88,11 +95,7 @@ export class Permit2RpcManager {
    * Sends a JSON-RPC request, trying available RPCs in a round-robin fashion based on the ranked list.
    * Handles fallback by iterating through the list.
    */
-  async send<T = unknown>( // Changed any to unknown
-    chainId: number,
-    method: string,
-    params: unknown[] = [] // Changed any[] to unknown[]
-  ): Promise<T> {
+  async send<T = unknown>(chainId: number, method: string, params: unknown[] = []): Promise<T> {
     const rankedRpcList = await this.rpcSelector.getRankedRpcList(chainId);
 
     if (rankedRpcList.length === 0) {
@@ -102,8 +105,7 @@ export class Permit2RpcManager {
 
     // --- Round-Robin Start Index ---
     const currentIndex = this.rpcIndexMap.get(chainId) || 0;
-    const startIndex = currentIndex % rankedRpcList.length; // Ensure start index is valid
-    // Immediately update the index for the *next* concurrent call
+    const startIndex = currentIndex % rankedRpcList.length;
     this.rpcIndexMap.set(chainId, (currentIndex + 1) % rankedRpcList.length);
     this._log(
       "debug",
@@ -113,46 +115,51 @@ export class Permit2RpcManager {
     );
     // --- End Round-Robin ---
 
-    let lastError: Error | null = null; // Changed any to Error | null
+    let lastError: Error | null = null;
 
-    // Iterate through the ranked list, starting from startIndex, wrapping around once
     for (let i = 0; i < rankedRpcList.length; i++) {
       const listIndex = (startIndex + i) % rankedRpcList.length;
       const rpcUrl = rankedRpcList[listIndex];
 
-      if (!rpcUrl) continue; // Should not happen, but safety check
+      if (!rpcUrl) continue;
 
       try {
+        console.log(`[Permit2RPC] Using RPC endpoint: ${rpcUrl} for chain ${chainId}, method: ${method}`);
+        this._log("info", `[Permit2RPC] Using RPC endpoint: ${rpcUrl} for chain ${chainId}, method: ${method}`);
         this._log("debug", `Attempt #${i + 1}: Trying RPC call to ${rpcUrl} for chain ${chainId}: ${method}`);
-        // Pass unknown[] to executeRpcCall
-        // Pass unknown[] to executeRpcCall
         const result = await this.executeRpcCall<T>(rpcUrl, method, params);
         this._log("debug", `RPC call successful for ${rpcUrl}`);
-        return result; // Success! Return the result.
+        return result;
       } catch (e) {
-        // Catch as unknown, assign to different var
-        // Ensure it's an error object before assigning
         const error = e instanceof Error ? e : new Error(String(e));
         lastError = error;
-        this._log("warn", `RPC call attempt failed for ${rpcUrl} (chain ${chainId}): ${error.message}. Trying next RPC...`);
-        // Continue to the next RPC in the list
+
+        // Only retry for rate limits (429) or network issues
+        const isRetryable = error.name === "AbortError" || error.message.includes("HTTP error 429") || error.message.includes("HTTP error 5");
+
+        if (!isRetryable) {
+          this._log("debug", `Forwarding original RPC error from ${rpcUrl}`);
+          throw error;
+        }
+
+        this._log("warn", `Retryable error for ${rpcUrl} (chain ${chainId}): ${error.message}. Trying next RPC...`);
+        continue;
       }
     }
 
-    // If the loop finishes, all RPCs failed.
-    this._log("error", `All available RPC endpoints failed for chainId ${chainId} after ${rankedRpcList.length} attempts. Last error: ${lastError?.message}`);
-    throw new Error(`All available RPC endpoints failed for chainId ${chainId}. Last error: ${lastError?.message}`);
+    const errorMsg = lastError?.message || "Unknown error";
+    this._log("error", `All available RPC endpoints failed for chainId ${chainId} after ${rankedRpcList.length} attempts. Last error: ${errorMsg}`);
+
+    if (lastError instanceof JsonRpcError) {
+      throw lastError;
+    }
+    throw new JsonRpcError(-32000, errorMsg);
   }
 
   /**
    * Executes a single JSON-RPC call to the specified URL.
-   * Made public temporarily FOR TESTING PURPOSES ONLY.
    */
-  public async executeRpcCall<T = unknown>( // Changed default generic
-    url: string,
-    method: string,
-    params: unknown[] // Changed any[] to unknown[]
-  ): Promise<T> {
+  public async executeRpcCall<T = unknown>(url: string, method: string, params: unknown[]): Promise<T> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
@@ -175,22 +182,15 @@ export class Permit2RpcManager {
         throw new Error(`HTTP error ${response.status} ${response.statusText}`);
       }
       const responseData: JsonRpcResponse = await response.json();
-      // Check if error exists before accessing its properties
       if (responseData.error) {
-        throw new Error(`RPC error ${responseData.error.code}: ${responseData.error.message}`);
+        throw new JsonRpcError(responseData.error.code, responseData.error.message, "data" in responseData.error ? responseData.error.data : undefined);
       }
-      // Check if result is explicitly undefined (it could be null which is valid JSON-RPC)
       if (responseData.result === undefined) {
         this._log("warn", `RPC response for ${method} had undefined result.`);
-        // Depending on expected behavior, might need to throw or return differently
       }
-      // Cast should be safe now if no error was thrown
-      // Cast to unknown first, then T
       return responseData.result as unknown as T;
     } catch (error) {
-      // Catch as unknown
       clearTimeout(timeoutId);
-      // Check if it's an AbortError
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error(`Request timed out after ${this.requestTimeoutMs}ms`);
       }

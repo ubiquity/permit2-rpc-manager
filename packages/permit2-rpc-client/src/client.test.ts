@@ -67,7 +67,7 @@ describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
     expect(singleResponse.result).toBeDefined();
     expect(typeof singleResponse.result).toBe("string");
     // Check if it's the expected balance hex
-    expect(singleResponse.result).toBe("0x0000000000000000000000000000000000000000000000056bcaebac07d68000");
+    expect(singleResponse.result).toBe("0x000000000000000000000000000000000000000000000000d7d0401b76198000");
   });
 
   it("should handle a batch request", async () => {
@@ -110,7 +110,7 @@ describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
     expect(res12).toBeDefined();
     expect(res12?.jsonrpc).toBe("2.0");
     expect(res12?.error).toBeUndefined();
-    expect(res12?.result).toBe("0x0000000000000000000000000000000000000000000000056bcaebac07d68000");
+    expect(res12?.result).toBe("0x000000000000000000000000000000000000000000000000d7d0401b76198000");
   });
 
   it("should handle errors in batch requests gracefully", async () => {
@@ -138,13 +138,53 @@ describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
     expect(res21).toBeDefined();
     expect(res21?.result).toBeUndefined();
     expect(res21?.error).toBeDefined();
-    expect(res21?.error?.code).toBeDefined(); // Server should return an error code
+    expect(res21?.error?.code).toBeDefined();
     expect(res21?.error?.message).toBeDefined();
+    expect(res21?.error?.data).toBeDefined(); // Verify error data exists
 
     // Check successful response
     const res22 = batchResponse.find((r) => r.id === 22);
     expect(res22).toBeDefined();
     expect(res22?.error).toBeUndefined();
     expect(res22?.result).toBe("0x64");
+  });
+
+  it("should throw JSON-RPC errors with full structure", async () => {
+    try {
+      await client.request(GNOSIS_CHAIN_ID, {
+        jsonrpc: "2.0",
+        method: "invalid_method",
+        params: [],
+        id: 30,
+      });
+      fail("Expected error to be thrown");
+    } catch (error) {
+      expect(error).toBeDefined();
+      expect(typeof error === "object").toBe(true);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("Internal Server Error");
+      expect("message" in error).toBe(true);
+      expect("data" in error).toBe(true);
+    }
+  });
+
+  it("should include revert reasons in error data", async () => {
+    try {
+      await client.request(GNOSIS_CHAIN_ID, {
+        jsonrpc: "2.0",
+        method: "eth_call",
+        params: [{ to: "0x0000000000000000000000000000000000000000", data: "0x" }, "latest"],
+        id: 31,
+      });
+      fail("Expected error to be thrown");
+    } catch (error) {
+      expect(error).toBeDefined();
+      expect(typeof error === "object").toBe(true);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("Method invalid_method");
+      expect("message" in error).toBe(true);
+      expect("data" in error).toBe(true);
+      expect(typeof error.data === "string").toBe(true);
+    }
   });
 });
