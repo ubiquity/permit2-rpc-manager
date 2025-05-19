@@ -134,8 +134,12 @@ export class Permit2RpcManager {
         const error = e instanceof Error ? e : new Error(String(e));
         lastError = error;
 
-        // Only retry for rate limits (429) or network issues
-        const isRetryable = error.name === "AbortError" || error.message.includes("HTTP error 429") || error.message.includes("HTTP error 5");
+        // Only retry for rate limits (429), forbidden (403), or network issues
+        const isRetryable =
+          error.name === "AbortError" ||
+          error.message.includes("HTTP error 429") ||
+          error.message.includes("HTTP error 403") ||
+          error.message.includes("HTTP error 5");
 
         if (!isRetryable) {
           this._log("debug", `Forwarding original RPC error from ${rpcUrl}`);
