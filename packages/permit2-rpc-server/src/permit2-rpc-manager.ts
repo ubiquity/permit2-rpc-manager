@@ -134,30 +134,82 @@ export class Permit2RpcManager {
         const error = e instanceof Error ? e : new Error(String(e));
         lastError = error;
 
-        // Only retry for rate limits (429), forbidden (403), or network issues
-        const isRetryable =
-          error.name === "AbortError" ||
-          error.message.includes("HTTP error 429") ||
-          error.message.includes("HTTP error 403") ||
-          error.message.includes("HTTP error 5");
+        // First, determine if this is a blockchain-specific error (which should not trigger failover)
+        const isBlockchainError =
+          error.message.includes("execution reverted") ||
+          error.message.includes("transaction failed") ||
+          error.message.includes("insufficient funds") ||
+          error.message.includes("gas required exceeds allowance") ||
+          error.message.includes("nonce too low") ||
+          error.message.includes("replacement transaction underpriced") ||
+          error.message.includes("invalid opcode") ||
+          error.message.includes("invalid sender") ||
+          error.message.includes("already known") ||
+          error.message.includes("gas price too low");
 
-        if (!isRetryable) {
-          this._log("debug", `Forwarding original RPC error from ${rpcUrl}`);
+        if (isBlockchainError) {
+          // Don't retry blockchain-specific errors
+          this._log("debug", `Not retrying blockchain error from ${rpcUrl}: ${error.message}`);
           throw error;
         }
 
-        this._log("warn", `Retryable error for ${rpcUrl} (chain ${chainId}): ${error.message}. Trying next RPC...`);
+        // For all other errors, determine if they're likely temporary/retryable
+        // We use a more generic approach to handle all provider types
+        const isRetryable =
+          // HTTP errors
+          error.name === "AbortError" ||
+          error.message.includes("HTTP error 429") ||
+          error.message.includes("HTTP error 403") ||
+          error.message.includes("HTTP error 5") ||
+
+          // Network/connectivity errors
+          error.message.includes("Failed to fetch") ||
+          error.message.includes("Network error") ||
+          error.message.includes("connection") ||
+          error.message.includes("timeout") ||
+          error.message.includes("Time out") ||
+          error.message.includes("ETIMEDOUT") ||
+          error.message.includes("ECONNRESET") ||
+          error.message.includes("ECONNREFUSED") ||
+
+          // TypeErrors from unexpected response formats (but not execution errors)
+          error.name === "TypeError" ||
+
+          // General provider rate limiting patterns (keep this generic)
+          error.message.toLowerCase().includes("rate") ||
+          error.message.toLowerCase().includes("limit") ||
+          error.message.toLowerCase().includes("exceed") ||
+          error.message.toLowerCase().includes("too") ||
+          error.message.toLowerCase().includes("throttle") ||
+          error.message.toLowerCase().includes("quota") ||
+          error.message.toLowerCase().includes("capacity") ||
+          error.message.toLowerCase().includes("maximum");
+
+        if (!isRetryable) {
+          this._log("debug", `Forwarding original RPC error from ${rpcUrl}: ${error.message}`);
+          throw error;
+        }
+
+        // Improved error logging with error classification
+        this._log("warn", `[RETRYABLE ERROR] ${rpcUrl} (chain ${chainId}): ${error.message}`);
+        this._log("debug", `Trying next RPC in ranked list (attempt ${i+1}/${rankedRpcList.length})...`);
         continue;
       }
     }
 
     const errorMsg = lastError?.message || "Unknown error";
-    this._log("error", `All available RPC endpoints failed for chainId ${chainId} after ${rankedRpcList.length} attempts. Last error: ${errorMsg}`);
+    this._log("error", `[EXHAUSTED] All ${rankedRpcList.length} available RPC endpoints failed for chainId ${chainId}. Last error: ${errorMsg}`);
+
+    // If we've tried all RPCs and failed, create a more descriptive error
+    const enhancedErrorMsg = `All RPC endpoints failed after ${rankedRpcList.length} attempts. Last error: ${errorMsg}`;
 
     if (lastError instanceof JsonRpcError) {
-      throw lastError;
+      // Keep original error code but enhance the message
+      throw new JsonRpcError(lastError.code, enhancedErrorMsg, lastError.data);
     }
-    throw new JsonRpcError(-32000, errorMsg);
+
+    // Use standard JSON-RPC internal error code
+    throw new JsonRpcError(-32000, enhancedErrorMsg);
   }
 
   /**
@@ -185,13 +237,40 @@ export class Permit2RpcManager {
       if (!response.ok) {
         throw new Error(`HTTP error ${response.status} ${response.statusText}`);
       }
-      const responseData: JsonRpcResponse = await response.json();
-      if (responseData.error) {
-        throw new JsonRpcError(responseData.error.code, responseData.error.message, "data" in responseData.error ? responseData.error.data : undefined);
+      // Wrap response parsing in try/catch to handle malformed JSON responses
+      let responseData: JsonRpcResponse;
+      try {
+        responseData = await response.json();
+      } catch (jsonError) {
+        this._log("error", `Failed to parse JSON response from ${url}:`, jsonError);
+        throw new Error(`Invalid JSON response from provider: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`);
       }
+
+      // Validate response structure to avoid "Cannot use 'in' operator" errors
+      if (!responseData || typeof responseData !== "object") {
+        this._log("error", `Invalid response structure from ${url}:`, responseData);
+        throw new Error(`Invalid response structure from provider: ${JSON.stringify(responseData)}`);
+      }
+
+      // Check for error response
+      if (responseData.error) {
+        // Validate error object structure
+        const errorCode = typeof responseData.error === "object" && responseData.error !== null &&
+                         "code" in responseData.error ? responseData.error.code : -32603;
+        const errorMessage = typeof responseData.error === "object" && responseData.error !== null &&
+                            "message" in responseData.error ? responseData.error.message :
+                            (typeof responseData.error === "string" ? responseData.error : JSON.stringify(responseData.error));
+        const errorData = typeof responseData.error === "object" && responseData.error !== null &&
+                         "data" in responseData.error ? responseData.error.data : undefined;
+
+        throw new JsonRpcError(errorCode, errorMessage, errorData);
+      }
+
+      // Safety check for undefined result
       if (responseData.result === undefined) {
         this._log("warn", `RPC response for ${method} had undefined result.`);
       }
+
       return responseData.result as unknown as T;
     } catch (error) {
       clearTimeout(timeoutId);
