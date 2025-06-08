@@ -68,6 +68,11 @@ async function mergeWhitelists(artifactsDir, outputPath) {
     }
   }
 
+  // Deduplicate RPCs for each chain
+  for (const chainId of Object.keys(merged.rpcs)) {
+    merged.rpcs[chainId] = [...new Set(merged.rpcs[chainId])];
+  }
+
   // Validate final structure
   console.log("\nValidating merged whitelist...");
   console.log("Total chains:", Object.keys(merged.rpcs).length);

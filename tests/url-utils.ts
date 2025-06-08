@@ -25,9 +25,11 @@ export function normalizeRpcUrls(rpcList: RpcInput[]): string[] {
     return [];
   }
 
-  return rpcList
+  const normalized = rpcList
     .map((rpc) => normalizeRpcUrl(rpc))
     .filter((url): url is string => url !== null && typeof url === "string")
-    .map((url) => url.trim())
+    .map((url) => url.trim().replace(/\/$/, "")) // Trim and remove trailing slash
     .filter((url) => url.length > 0);
+
+  return [...new Set(normalized)]; // Deduplicate
 }

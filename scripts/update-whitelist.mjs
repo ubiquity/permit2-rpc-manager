@@ -50,13 +50,25 @@ async function updateWhitelist() {
       }
     }
 
-    // Create whitelist, merging with existing if in single chain mode
-    const newWhitelist = {
-      rpcs: process.env.UPDATE_CHAIN ? { ...existingWhitelist.rpcs, ...chainlistRpcsMap } : chainlistRpcsMap,
-    };
+    // Create whitelist output
+    let newWhitelist;
+    if (process.env.UPDATE_CHAIN) {
+      // Only output the single chain's data
+      newWhitelist = {
+        rpcs: chainlistRpcsMap,
+      };
+    } else {
+      newWhitelist = {
+        rpcs: chainlistRpcsMap,
+      };
+    }
 
     await fs.writeFile(ourWhitelistPath, JSON.stringify(newWhitelist, null, 2));
-    console.log("Whitelist updated successfully with critical chains only.");
+    console.log(
+      process.env.UPDATE_CHAIN
+        ? `Whitelist updated for chain ${process.env.UPDATE_CHAIN}.`
+        : "Whitelist updated successfully with critical chains only."
+    );
   } catch (error) {
     console.error("Error updating whitelist:", error);
     process.exit(1);
