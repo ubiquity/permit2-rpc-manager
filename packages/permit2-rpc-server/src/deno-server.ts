@@ -219,18 +219,22 @@ const handler = async (request: Request): Promise<Response> => {
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
         console.error(`Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`, error);
-        // Return individual error for this specific request in the batch
-        return error.name === "JsonRpcError" && "code" in error
-          ? {
-              jsonrpc: "2.0",
-              id: req.id,
-              error: {
-                code: error.code,
-                message: error.message,
-                data: "data" in error ? error.data : undefined,
-              },
-            }
-          : createJsonRpcError(req.id, -32000, `Internal Server Error: ${error.message}`);
+
+        // Extract error details consistently
+        const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
+          ? error.code
+          : -32603;
+        const data = "data" in error ? error.data : undefined;
+
+        return {
+          jsonrpc: "2.0",
+          id: req.id,
+          error: {
+            code,
+            message: error.message,
+            data,
+          },
+        } as JsonRpcResponse;
       }
     });
 
@@ -257,21 +261,25 @@ const handler = async (request: Request): Promise<Response> => {
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
       console.error(`Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`, error);
-      // Distinguish between VM errors (client error) and other failures (server error)
-      const isClientError = error.name === "JsonRpcError" && (error.message.includes("execution reverted") || error.message.includes("VM execution error"));
+
+      // Pass through HTTP status if available, otherwise default to 500
+      let httpStatus = 500;
+      if (error.name === "JsonRpcError" && "httpStatus" in error && typeof error.httpStatus === "number") {
+        httpStatus = error.httpStatus;
+      }
 
       const errorResponse = {
         jsonrpc: "2.0",
         id: requestBody.id,
         error: {
-          code: isClientError ? -32000 : -32603,
+          code: "code" in error && typeof error.code === "number" ? error.code : -32603,
           message: error.message,
           data: "data" in error ? error.data : undefined,
         },
       };
 
       return new Response(JSON.stringify(errorResponse), {
-        status: isClientError ? 400 : 500,
+        status: httpStatus,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

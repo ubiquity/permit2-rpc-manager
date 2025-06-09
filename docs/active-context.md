@@ -1,73 +1,42 @@
-# Active Context: Permit2 RPC Monorepo (Server + Client)
+# Active Context
 
-## 1. Current Focus
+## Recent Work: Generic Error Handling for RPC Manager
 
-The project has been restructured into a monorepo containing the Deno Deploy
-proxy service (`packages/permit2-rpc-server`) and a new client SDK
-(`packages/permit2-rpc-client`). Focus is now on finalizing documentation after
-adding batch support and local testing capabilities.
+### Problem
+- HTTP 400 errors were being reported but investigation showed no current RPCs returning 400
+- The server was transforming upstream RPC errors, converting HTTP 400 to HTTP 500
+- Error handling was trying to interpret and categorize errors instead of passing them through
 
-## 2. Recent Activities & Findings
+### Solution Implemented
+Created a generic, transparent error handling mechanism:
 
-- **Workflow Automation Enhancement:**
+1. **permit2-rpc-manager.ts**:
+   - Added `httpStatus` field to JsonRpcError to preserve HTTP status codes
+   - Changed retry logic to ONLY retry network/connectivity errors
+   - Removed all HTTP status code interpretation (400, 403, 429, 500, etc.)
+   - Pass through all HTTP errors exactly as received from upstream RPCs
 
-  - Enhanced deployment workflow by implementing workflow reuse pattern
-  - Added repository dispatch event trigger from whitelist update to Deno Deploy workflow
-  - Configured proper permissions for inter-workflow communication
-  - Improved reliability of deployment after whitelist updates
+2. **deno-server.ts**:
+   - Pass through HTTP status codes from JsonRpcError when available
+   - Removed VM error interpretation logic
+   - Consistent error handling for both single and batch requests
+   - Server returns whatever status code the RPC manager provides
 
-- **Monorepo Restructuring:**
-  - Created `packages/` directory structure.
-  - Moved server code to `packages/permit2-rpc-server`.
-  - Created client SDK structure in `packages/permit2-rpc-client`.
-  - Configured root `package.json` for workspaces.
-  - Added `deno.jsonc` to server package.
-  - Added `package.json` and `tsconfig.json` to client package.
-  - Updated GitHub Actions workflow path.
-- **Server Enhancements:**
-  - Implemented batch JSON-RPC request handling in `deno-server.ts`.
-  - Fixed Deno KV access by using `--unstable-kv` flag in `deno.jsonc`.
-  - Fixed `rpc-whitelist.json` import paths.
-  - Removed unused `viem` dependency and related code (`contract-utils.ts`).
-  - Added `disableCache` option (via `DISABLE_RPC_CACHE` env var) for testing.
-- **Client SDK:**
-  - Created basic implementation (`createRpcClient`, `request` method) wrapping
-    `fetch`.
-  - Set up build process using `bun build`.
-- **Testing:**
-  - Added integration tests (`client.test.ts`) for the client SDK using
-    `bun test`.
-  - Configured tests to read target URL from `TEST_TARGET_URL` env var.
-  - Added root `package.json` scripts (`test:client:local`,
-    `test:client:remote`) to facilitate testing against local or deployed
-    server.
-  - Successfully ran local tests (`bun run test:client:local`) after fixing
-    server startup issues.
-- **Documentation:**
-  - Updated root `README.md` for monorepo structure.
-  - Added package-specific `README.md` files.
-  - Updated `docs/tech-context.md`, `docs/system-patterns.md`,
-    `docs/product-context.md`.
+### Key Design Principle
+The RPC manager now acts as a true transparent load balancer:
+- It only adds value through failover and load distribution
+- It doesn't interpret or transform upstream errors
+- All RPC responses (success or error) pass through unchanged
 
-## 3. Next Steps
+### Next Steps
+- Monitor logs to see which RPC returns errors with improved logging
+- Deep dive on KV self-healing mechanism (see `docs/additional/kv-self-healing-investigation.md`)
+- Consider adding RPC health monitoring to detect problematic endpoints
 
-- **Finalize Documentation:** Update `docs/progress.md` and `.clinerules`.
-  (Current task)
-- **Server Testing:** Implement proper tests for the Deno server package using
-  `deno test`.
-- **Client SDK Refinement:** Add more robust error handling, potentially
-  automatic batching, and more tests to the client SDK.
-- **Publishing:** Publish the `@ubiquity-dao/permit2-rpc-client` package to npm.
-- **Abuse Prevention:** Consider implementing CORS origin restrictions or API
-  keys for the deployed server.
+### Testing Tools Created
+- `scripts/test-network-100-endpoints.ts` - Direct RPC endpoint testing
+- `scripts/test-server-endpoint.ts` - Server endpoint testing
+- `scripts/clear-kv-cache.ts` - KV cache clearing utility
 
-## 4. Decisions Made & Considerations
-
-- **Architecture:** Adopted a monorepo structure for managing the server and
-  client together.
-- **Caching:** Using Deno KV, fixed startup issues with `--unstable-kv`, added
-  option to disable for testing.
-- **Batch Support:** Added to the Deno server.
-- **Client SDK:** Created as a separate package within the monorepo.
-- **Testing:** Set up integration tests for the client SDK runnable against
-  local or remote server. Server tests still needed.
+## Current Focus
+The generic error handling is complete. The system now transparently passes through all upstream RPC errors without interpretation, making it easier to diagnose issues and maintain the service as a true load balancer.
