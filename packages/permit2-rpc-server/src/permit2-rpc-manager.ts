@@ -93,6 +93,36 @@ export class Permit2RpcManager {
   }
 
   /**
+   * Classifies error types for better logging
+   */
+  private classifyError(error: Error): string {
+    const msg = error.message.toLowerCase();
+
+    if (msg.includes("rate") || msg.includes("throttle") || msg.includes("429") || msg.includes("too many")) {
+      return "RATE_LIMIT";
+    }
+    if (msg.includes("timeout") || msg.includes("timed out")) {
+      return "TIMEOUT";
+    }
+    if (msg.includes("connection") || msg.includes("connect") || msg.includes("network")) {
+      return "NETWORK";
+    }
+    if (msg.includes("500") || msg.includes("502") || msg.includes("503") || msg.includes("504")) {
+      return "SERVER_ERROR";
+    }
+    if (msg.includes("400") || msg.includes("bad request")) {
+      return "BAD_REQUEST";
+    }
+    if (msg.includes("403") || msg.includes("forbidden")) {
+      return "FORBIDDEN";
+    }
+    if (msg.includes("json") || error.name === "TypeError") {
+      return "PARSE_ERROR";
+    }
+    return "GENERAL_ERROR";
+  }
+
+  /**
    * Sends a JSON-RPC request, trying available RPCs in a round-robin fashion based on the ranked list.
    * Handles fallback by iterating through the list.
    */
@@ -153,9 +183,9 @@ export class Permit2RpcManager {
           throw error;
         }
 
-        // Only retry on network/connectivity errors - pass through all HTTP errors
+        // Comprehensive retry logic for robustness
         const isRetryable =
-          // Network/connectivity errors only
+          // Network/connectivity errors
           error.name === "AbortError" ||
           error.message.includes("Failed to fetch") ||
           error.message.includes("Network error") ||
@@ -166,18 +196,72 @@ export class Permit2RpcManager {
           error.message.includes("ENOTFOUND") ||
           error.message.includes("DNS") ||
           error.message.includes("getaddrinfo") ||
-          (error.message.includes("timeout") && !error.message.includes("HTTP"));
+          error.message.includes("socket hang up") ||
+          error.message.includes("EHOSTUNREACH") ||
+          error.message.includes("ENETUNREACH") ||
+          error.message.includes("EPIPE") ||
+
+          // HTTP errors that are often transient
+          error.message.includes("HTTP error 400") || // Bad Request - can be transient
+          error.message.includes("HTTP error 403") || // Forbidden - often rate limiting
+          error.message.includes("HTTP error 429") || // Too Many Requests
+          error.message.includes("HTTP error 500") || // Internal Server Error
+          error.message.includes("HTTP error 502") || // Bad Gateway
+          error.message.includes("HTTP error 503") || // Service Unavailable
+          error.message.includes("HTTP error 504") || // Gateway Timeout
+          error.message.includes("HTTP error 520") || // Cloudflare errors
+          error.message.includes("HTTP error 521") ||
+          error.message.includes("HTTP error 522") ||
+          error.message.includes("HTTP error 523") ||
+          error.message.includes("HTTP error 524") ||
+
+          // Rate limiting patterns (case-insensitive)
+          error.message.toLowerCase().includes("rate limit") ||
+          error.message.toLowerCase().includes("rate-limit") ||
+          error.message.toLowerCase().includes("ratelimit") ||
+          error.message.toLowerCase().includes("too many requests") ||
+          error.message.toLowerCase().includes("throttle") ||
+          error.message.toLowerCase().includes("exceeded") ||
+          error.message.toLowerCase().includes("quota") ||
+          error.message.toLowerCase().includes("capacity") ||
+          error.message.toLowerCase().includes("limit reached") ||
+          error.message.toLowerCase().includes("max requests") ||
+          error.message.toLowerCase().includes("maximum requests") ||
+          error.message.toLowerCase().includes("too many calls") ||
+          error.message.toLowerCase().includes("slow down") ||
+
+          // JSON parsing errors (often from overloaded servers)
+          error.message.includes("Invalid JSON") ||
+          error.message.includes("Unexpected token") ||
+          error.message.includes("JSON.parse") ||
+          error.message.includes("Failed to parse") ||
+
+          // TypeErrors (often from malformed responses)
+          error.name === "TypeError" ||
+
+          // Generic timeout patterns
+          (error.message.toLowerCase().includes("timeout") &&
+           !error.message.includes("transaction")) || // Exclude transaction timeouts
+
+          // Generic temporary/transient patterns
+          error.message.toLowerCase().includes("temporarily") ||
+          error.message.toLowerCase().includes("temporary") ||
+          error.message.toLowerCase().includes("try again") ||
+          error.message.toLowerCase().includes("retry") ||
+          error.message.toLowerCase().includes("unavailable") ||
+          error.message.toLowerCase().includes("busy");
 
         if (!isRetryable) {
-          this._log("debug", `Forwarding original RPC error from ${rpcUrl}: ${error.message}`);
+          this._log("info", `[NON-RETRYABLE] Forwarding error from ${rpcUrl}: ${error.message}`);
           throw error;
         }
 
-        // Improved error logging with error classification and RPC URL
-        this._log("warn", `[RETRYABLE ERROR] RPC failed: ${rpcUrl} (chain ${chainId}, method: ${method})`);
+        // Log retryable errors with classification
+        const errorType = this.classifyError(error);
+        this._log("warn", `[${errorType}] RPC failed: ${rpcUrl} (chain ${chainId}, method: ${method})`);
         this._log("warn", `  Error details: ${error.message}`);
         this._log("debug", `  Full error:`, error);
-        this._log("debug", `Trying next RPC in ranked list (attempt ${i+1}/${rankedRpcList.length})...`);
+        this._log("info", `  Attempting failover to next RPC (${i+1}/${rankedRpcList.length})...`);
         continue;
       }
     }
