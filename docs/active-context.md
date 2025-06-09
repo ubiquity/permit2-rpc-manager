@@ -38,5 +38,36 @@ The RPC manager now acts as a true transparent load balancer:
 - `scripts/test-server-endpoint.ts` - Server endpoint testing
 - `scripts/clear-kv-cache.ts` - KV cache clearing utility
 
-## Current Focus
-The generic error handling is complete. The system now transparently passes through all upstream RPC errors without interpretation, making it easier to diagnose issues and maintain the service as a true load balancer.
+## Current Focus: Adaptive RPC Pool Management
+
+### Latest Implementation
+Built on top of the generic error handling, we've added an adaptive pool management system that automatically tracks RPC failures and adjusts the available RPC pool.
+
+### Key Features
+1. **Failure Tracking**: Uses Deno KV to track consecutive failures per RPC endpoint
+2. **Health States**: RPCs can be healthy or eliminated
+3. **Adaptive Behavior**: Eliminate bad RPCs after 3 failures (only if >1 healthy RPC remains)
+4. **Auto-Recovery**: Eliminated RPCs retry after 1 hour
+5. **Cache Invalidation**: Bad RPCs are marked in cache with metadata
+
+### Implementation Details
+- **permit2-rpc-manager.ts**: Added failure tracking methods and configuration options
+- **cache-manager.ts**: Added `invalidateRpcInCache` method to mark RPCs with health status
+- **rpc-selector.ts**: Updated ranking to filter eliminated RPCs from the pool
+
+### Configuration
+```typescript
+{
+  enableBadNetworkInvalidation: true,  // Enable the feature
+  eliminationThreshold: 3,            // Failures before elimination (only if >1 healthy RPC remains)
+  eliminationRetryMs: 3600000,        // 1 hour retry for eliminated RPCs
+}
+```
+
+### Benefits
+- Self-healing: Automatically removes bad RPCs
+- Resilient: Maintains minimum viable pool
+- Transparent: Clear logging with [POOL_MGMT] prefix
+- Configurable: All thresholds can be customized
+
+See `docs/additional/adaptive-pool-management.md` for full documentation.

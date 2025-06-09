@@ -43,10 +43,17 @@ export interface Permit2RpcManagerOptions {
   logLevel?: "debug" | "info" | "warn" | "error" | "none";
   initialRpcData?: { rpcs: { [chainId: string]: string[] } };
   disableCache?: boolean; // Option to disable caching for testing
+  // Adaptive pool management options
+  enableBadNetworkInvalidation?: boolean; // default: true
+  eliminationThreshold?: number; // failures before elimination (default: 3)
+  eliminationRetryMs?: number; // 1 hour default
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
 const DEFAULT_LOG_LEVEL = "warn";
+const MIN_VIABLE_RPCS = 1; // Hardcoded to simplify logic
+const DEFAULT_ELIMINATION_THRESHOLD = 3;
+const DEFAULT_ELIMINATION_RETRY_MS = 60 * 60 * 1000; // 1 hour
 
 const LOG_LEVEL_HIERARCHY: Record<NonNullable<Permit2RpcManagerOptions["logLevel"]>, number> = {
   debug: 0,
@@ -65,6 +72,10 @@ export class Permit2RpcManager {
   private logLevel: NonNullable<Permit2RpcManagerOptions["logLevel"]>;
   private configuredLogLevelValue: number;
   private rpcIndexMap = new Map<number, number>(); // Map to track next RPC index per chain
+  // Adaptive pool management properties
+  private enableBadNetworkInvalidation: boolean;
+  private eliminationThreshold: number;
+  private eliminationRetryMs: number;
 
   constructor(options: Permit2RpcManagerOptions = {}) {
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
@@ -81,6 +92,11 @@ export class Permit2RpcManager {
     this.latencyTester = new LatencyTester(options.latencyTimeoutMs, logger);
     this.rpcSelector = new RpcSelector(this.dataSource, this.cacheManager, this.latencyTester, logger);
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+
+    // Initialize adaptive pool management properties
+    this.enableBadNetworkInvalidation = options.enableBadNetworkInvalidation ?? true;
+    this.eliminationThreshold = options.eliminationThreshold ?? DEFAULT_ELIMINATION_THRESHOLD;
+    this.eliminationRetryMs = options.eliminationRetryMs ?? DEFAULT_ELIMINATION_RETRY_MS;
   }
 
   private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]): void {
@@ -89,6 +105,100 @@ export class Permit2RpcManager {
     if (messageLevelValue >= this.configuredLogLevelValue) {
       const logFn = console[level] || console.log;
       logFn(`[Permit2RPC:${level}] ${message}`, ...optionalParams);
+    }
+  }
+
+  /**
+   * Tracks RPC failures and decides whether to invalidate the RPC from cache
+   * Returns true if the RPC should be invalidated
+   */
+  private async trackRpcFailure(chainId: number, rpcUrl: string): Promise<boolean> {
+    if (!this.enableBadNetworkInvalidation) {
+      return false;
+    }
+
+    try {
+      const kv = await Deno.openKv();
+      const failureKey = ["rpc_failures", chainId, rpcUrl];
+
+      // Get current failure data
+      const result = await kv.get<{
+        consecutiveFailures: number;
+        lastFailureTime: number;
+        status: "healthy" | "eliminated";
+      }>(failureKey);
+
+      const currentTime = Date.now();
+      const failureData = result.value || {
+        consecutiveFailures: 0,
+        lastFailureTime: 0,
+        status: "healthy" as const
+      };
+
+      // Increment failure count
+      failureData.consecutiveFailures++;
+      failureData.lastFailureTime = currentTime;
+
+      // Get total RPC count and healthy count for this chain
+      const allRpcs = this.dataSource.getRpcUrls(chainId);
+      const totalRpcs = allRpcs.length;
+
+      // Get current health status from cache to count healthy RPCs
+      const chainCache = await this.cacheManager.getChainCache(chainId);
+      let healthyRpcs = totalRpcs; // Default to all if no cache
+
+      if (chainCache?.latencyMap) {
+        // Count RPCs that are not eliminated
+        healthyRpcs = Object.values(chainCache.latencyMap).filter(
+          result => {
+            // Check for invalidation metadata
+            const invalidated = (result as any)._invalidated;
+            const healthStatus = (result as any)._healthStatus;
+            return !invalidated || healthStatus !== "eliminated";
+          }
+        ).length;
+      }
+
+      // Decide on action based on pool size and failure count
+      let shouldInvalidate = false;
+
+      // Only eliminate if we have more than MIN_VIABLE_RPCS (1) healthy RPCs
+      if (healthyRpcs > MIN_VIABLE_RPCS && failureData.consecutiveFailures >= this.eliminationThreshold) {
+        failureData.status = "eliminated";
+        shouldInvalidate = true;
+        this._log("warn", `[POOL_MGMT] Eliminating RPC ${rpcUrl} (chain ${chainId}) - ${failureData.consecutiveFailures} consecutive failures. ${healthyRpcs - 1} healthy RPCs remain.`);
+      }
+
+      // Save updated failure data
+      await kv.set(failureKey, failureData);
+
+      // If we should invalidate, update the cache
+      if (shouldInvalidate && failureData.status === "eliminated") {
+        await this.cacheManager.invalidateRpcInCache(chainId, rpcUrl, failureData.status);
+      }
+
+      return shouldInvalidate;
+    } catch (error) {
+      this._log("error", `Failed to track RPC failure for ${rpcUrl}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Clears failure tracking for a successful RPC call
+   */
+  private async clearRpcFailures(chainId: number, rpcUrl: string): Promise<void> {
+    if (!this.enableBadNetworkInvalidation) {
+      return;
+    }
+
+    try {
+      const kv = await Deno.openKv();
+      const failureKey = ["rpc_failures", chainId, rpcUrl];
+      await kv.delete(failureKey);
+      this._log("debug", `Cleared failure tracking for ${rpcUrl} after successful call`);
+    } catch (error) {
+      this._log("error", `Failed to clear RPC failures for ${rpcUrl}:`, error);
     }
   }
 
@@ -159,6 +269,10 @@ export class Permit2RpcManager {
         this._log("debug", `Attempt #${i + 1}: Trying RPC call to ${rpcUrl} for chain ${chainId}: ${method}`);
         const result = await this.executeRpcCall<T>(rpcUrl, method, params);
         this._log("debug", `RPC call successful for ${rpcUrl}`);
+
+        // Clear failure tracking for successful call
+        await this.clearRpcFailures(chainId, rpcUrl);
+
         return result;
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
@@ -261,6 +375,10 @@ export class Permit2RpcManager {
         this._log("warn", `[${errorType}] RPC failed: ${rpcUrl} (chain ${chainId}, method: ${method})`);
         this._log("warn", `  Error details: ${error.message}`);
         this._log("debug", `  Full error:`, error);
+
+        // Track the failure for adaptive pool management
+        await this.trackRpcFailure(chainId, rpcUrl);
+
         this._log("info", `  Attempting failover to next RPC (${i+1}/${rankedRpcList.length})...`);
         continue;
       }

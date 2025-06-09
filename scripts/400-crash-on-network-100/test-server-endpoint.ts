@@ -170,8 +170,11 @@ async function main() {
 
   console.log("Testing permit2-rpc-manager server endpoints...");
   console.log(`Payload: eth_call to Permit2 contract`);
-  console.log(`To: ${TEST_PAYLOAD.params[0].to}`);
-  console.log(`Data: ${TEST_PAYLOAD.params[0].data.substring(0, 10)}...`);
+  const firstParam = TEST_PAYLOAD.params[0];
+  if (typeof firstParam === 'object' && 'to' in firstParam && 'data' in firstParam) {
+    console.log(`To: ${firstParam.to}`);
+    console.log(`Data: ${firstParam.data.substring(0, 10)}...`);
+  }
   console.log("=====================================\n");
 
   for (const endpoint of endpoints) {

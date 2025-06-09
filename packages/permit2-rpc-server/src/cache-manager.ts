@@ -178,4 +178,49 @@ export class CacheManager {
     const chainCache = await this.getRawChainCache(chainId);
     return chainCache?.latencyMap ?? null;
   }
+
+  /**
+   * Invalidates a specific RPC in the cache by marking it with a special status
+   * This allows the RPC selector to filter it out while preserving the cache structure
+   */
+  async invalidateRpcInCache(chainId: number, rpcUrl: string, healthStatus: "eliminated"): Promise<void> {
+    if (this.disabled) {
+      this.log("debug", `CacheManager: Caching disabled, skipping RPC invalidation for ${rpcUrl}`);
+      return;
+    }
+
+    await this.loadCache();
+    const chainCache = this.cache[chainId];
+
+    if (!chainCache || !chainCache.latencyMap[rpcUrl]) {
+      this.log("warn", `CacheManager: Cannot invalidate RPC ${rpcUrl} - not found in cache`);
+      return;
+    }
+
+    // Add invalidation metadata to the cached result
+    // We'll store this information separately to avoid type conflicts
+    const invalidatedResult = {
+      ...chainCache.latencyMap[rpcUrl],
+      _invalidated: true,
+      _healthStatus: healthStatus,
+      _invalidatedAt: Date.now(),
+      _nextRetryAt: Date.now() + (60 * 60 * 1000) // 1 hour for eliminated RPCs
+    };
+
+    chainCache.latencyMap[rpcUrl] = invalidatedResult as LatencyTestResult & {
+      _invalidated?: boolean;
+      _healthStatus?: "eliminated";
+      _invalidatedAt?: number;
+      _nextRetryAt?: number;
+    };
+
+    // If this was the fastest RPC, clear it so selector will recalculate
+    if (chainCache.fastestRpc === rpcUrl) {
+      chainCache.fastestRpc = null;
+      this.log("info", `CacheManager: Cleared fastest RPC for chain ${chainId} as it was invalidated`);
+    }
+
+    await this.saveCache();
+    this.log("info", `CacheManager: Marked RPC ${rpcUrl} as ${healthStatus} in cache`);
+  }
 }

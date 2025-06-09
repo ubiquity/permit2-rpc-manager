@@ -125,19 +125,47 @@ export class RpcSelector {
 
   /**
    * Helper to filter and rank RPC results based on status and latency.
+   * Also considers invalidation metadata from adaptive pool management.
    */
   private _rankResults(latencyMap: Record<string, LatencyTestResult> | null): string[] {
     if (!latencyMap) return [];
 
-    const validResults = Object.values(latencyMap).filter((result) => result && ACCEPTABLE_STATUSES.includes(result.status));
+    // Filter results: exclude eliminated RPCs, include acceptable statuses
+    const validResults = Object.values(latencyMap).filter((result) => {
+      if (!result || !ACCEPTABLE_STATUSES.includes(result.status)) {
+        return false;
+      }
 
-    // Sort by status priority, then latency
+      // Check for invalidation metadata
+      const invalidated = (result as any)._invalidated;
+      const healthStatus = (result as any)._healthStatus;
+      const nextRetryAt = (result as any)._nextRetryAt;
+
+      // Exclude eliminated RPCs completely
+      if (invalidated && healthStatus === "eliminated") {
+        // Check if it's time to retry
+        if (nextRetryAt && Date.now() >= nextRetryAt) {
+          this.log("debug", `RPC ${result.url} eligible for retry after elimination period`);
+          // Allow retry by including it
+          return true;
+        }
+        this.log("debug", `Excluding eliminated RPC: ${result.url}`);
+        return false;
+      }
+
+      return true;
+    });
+
+    // Sort by: status priority, then latency
     validResults.sort((a, b) => {
+      // Sort by test status priority
       const statusA = ACCEPTABLE_STATUSES.indexOf(a.status);
       const statusB = ACCEPTABLE_STATUSES.indexOf(b.status);
       if (statusA !== statusB) {
         return statusA - statusB; // Lower index (better status) comes first
       }
+
+      // Then sort by latency
       return a.latency - b.latency; // Lower latency comes first
     });
 
