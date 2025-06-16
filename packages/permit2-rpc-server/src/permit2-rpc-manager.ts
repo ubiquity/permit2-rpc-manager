@@ -424,16 +424,62 @@ export class Permit2RpcManager {
       if (!response.ok) {
         // Log the failed RPC URL with the error
         this._log("error", `HTTP error from ${url}: ${response.status} ${response.statusText}`);
-        // Create error with HTTP status preserved
-        const httpError = new JsonRpcError(
+
+        // Try to parse the response body to check if it's a valid JSON-RPC error
+        // This handles cases where contract reverts return HTTP 500 but contain valid JSON-RPC errors
+        let responseText: string;
+        try {
+          responseText = await response.text();
+        } catch (textError) {
+          // If we can't read the response body, treat as genuine HTTP error
+          throw new JsonRpcError(
+            -32000,
+            `HTTP error ${response.status} ${response.statusText}`,
+            undefined,
+            response.status
+          );
+        }
+
+        // Try to parse as JSON-RPC to see if it's a contract revert
+        let parsedResponse: any;
+        try {
+          parsedResponse = JSON.parse(responseText);
+        } catch (jsonError) {
+          // If JSON parsing fails, it's a genuine HTTP error
+          throw new JsonRpcError(
+            -32000,
+            `HTTP error ${response.status} ${response.statusText}`,
+            undefined,
+            response.status
+          );
+        }
+
+        // Check if this is a valid JSON-RPC error response (contract revert)
+        if (parsedResponse &&
+            typeof parsedResponse === "object" &&
+            parsedResponse.jsonrpc === "2.0" &&
+            parsedResponse.error &&
+            typeof parsedResponse.error === "object") {
+
+          // This is a contract execution revert - return HTTP 200 with JSON-RPC error
+          this._log("debug", `Contract revert detected from ${url}: ${parsedResponse.error.message}`);
+          throw new JsonRpcError(
+            parsedResponse.error.code || -32603,
+            parsedResponse.error.message || "Contract execution reverted",
+            parsedResponse.error.data
+            // Note: No httpStatus provided, defaults to 200
+          );
+        }
+
+        // If not a valid JSON-RPC response, treat as genuine HTTP error
+        throw new JsonRpcError(
           -32000,
           `HTTP error ${response.status} ${response.statusText}`,
           undefined,
           response.status
         );
-        throw httpError;
       }
-      // Wrap response parsing in try/catch to handle malformed JSON responses
+      // For successful HTTP responses, parse the JSON
       let responseData: JsonRpcResponse;
       try {
         responseData = await response.json();

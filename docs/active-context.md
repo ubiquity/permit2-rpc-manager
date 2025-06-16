@@ -38,9 +38,59 @@ The RPC manager now acts as a true transparent load balancer:
 - `scripts/test-server-endpoint.ts` - Server endpoint testing
 - `scripts/clear-kv-cache.ts` - KV cache clearing utility
 
-## Current Focus: Adaptive RPC Pool Management
+## Current Focus: Oracle Staleness HTTP Status Code Fix
 
-### Latest Implementation
+### Problem Resolved
+Fixed the HTTP status code issue where contract reverts (like "Stale Stable/USD data" oracle errors) were incorrectly returning HTTP 500 instead of HTTP 200. This was causing confusion between network errors and contract execution reverts.
+
+### Solution Implemented
+**Enhanced JSON-RPC Compliance**: Modified error handling to distinguish between genuine HTTP errors and contract execution reverts.
+
+#### Key Changes Made:
+
+1. **permit2-rpc-manager.ts**:
+   - Enhanced `executeRpcCall` method to detect valid JSON-RPC error responses in HTTP 500 responses
+   - Added logic to parse response body when HTTP status is not OK
+   - Contract reverts now throw `JsonRpcError` without `httpStatus` (defaults to 200)
+   - Genuine HTTP errors still preserve the original HTTP status code
+
+2. **deno-server.ts**:
+   - Changed default HTTP status from 500 to 200 for JSON-RPC error responses
+   - Maintains HTTP status passthrough for genuine network/HTTP errors
+   - Ensures JSON-RPC specification compliance
+
+#### Technical Details:
+```typescript
+// Contract revert detection logic
+if (parsedResponse &&
+    typeof parsedResponse === "object" &&
+    parsedResponse.jsonrpc === "2.0" &&
+    parsedResponse.error &&
+    typeof parsedResponse.error === "object") {
+  // Return HTTP 200 with JSON-RPC error (no httpStatus set)
+  throw new JsonRpcError(
+    parsedResponse.error.code || -32603,
+    parsedResponse.error.message || "Contract execution reverted",
+    parsedResponse.error.data
+  );
+}
+```
+
+### Results
+- ✅ **Contract reverts**: Now return HTTP 200 + JSON-RPC error (compliant)
+- ✅ **Network errors**: Still return appropriate HTTP status codes (4xx/5xx)
+- ✅ **Batch requests**: Handle mixed success/error responses correctly
+- ✅ **Client compatibility**: Eliminates confusion between HTTP and contract errors
+
+### Benefits
+- **JSON-RPC Compliance**: Adheres to JSON-RPC 2.0 specification
+- **Clear Error Distinction**: Network errors vs contract execution errors are properly differentiated
+- **Improved Client Experience**: Reduces false-positive network error handling
+- **Standards Alignment**: Matches behavior expected by JSON-RPC clients
+
+## Previous Work: Adaptive RPC Pool Management
+
+### Implementation
 Built on top of the generic error handling, we've added an adaptive pool management system that automatically tracks RPC failures and adjusts the available RPC pool.
 
 ### Key Features

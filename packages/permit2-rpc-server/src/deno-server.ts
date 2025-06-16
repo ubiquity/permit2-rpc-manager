@@ -262,8 +262,9 @@ const handler = async (request: Request): Promise<Response> => {
       const error = e instanceof Error ? e : new Error(String(e));
       console.error(`Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`, error);
 
-      // Pass through HTTP status if available, otherwise default to 500
-      let httpStatus = 500;
+      // Pass through HTTP status if available, otherwise default to 200 for JSON-RPC compliance
+      // Contract reverts and JSON-RPC errors should return HTTP 200 per JSON-RPC spec
+      let httpStatus = 200;
       if (error.name === "JsonRpcError" && "httpStatus" in error && typeof error.httpStatus === "number") {
         httpStatus = error.httpStatus;
       }

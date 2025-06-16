@@ -59,6 +59,9 @@
 
 ## 3. Completed Tasks (Recent)
 
+- ✅ **Oracle Staleness HTTP Status Fix:** Fixed critical issue where contract reverts (like "Stale Stable/USD data") were returning HTTP 500 instead of HTTP 200, bringing the server into JSON-RPC 2.0 specification compliance.
+- ✅ **Error Handling Enhancement:** Enhanced RPC manager to distinguish between contract execution errors and genuine HTTP errors, ensuring proper status code handling.
+- ✅ **JSON-RPC Compliance:** Updated server to default to HTTP 200 for JSON-RPC errors while preserving original HTTP status codes for genuine network/HTTP failures.
 - ✅ **Workflow Enhancement:** Implemented workflow reuse pattern for deployments, configured permissions and inter-workflow communication.
 - ✅ **Monorepo Restructure:** Created `packages/` structure, moved server,
   created client package skeleton.
