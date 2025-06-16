@@ -170,9 +170,10 @@ const handler = async (request: Request): Promise<Response> => {
   const chainId = parseInt(chainIdStr, 10);
 
   if (isNaN(chainId)) {
-    return new Response("Bad Request: Invalid chainId", {
-      status: 400,
-      headers: corsHeaders,
+    const errorResponse = createJsonRpcError(null, -32602, "Invalid params: Invalid chainId");
+    return new Response(JSON.stringify(errorResponse), {
+      status: 200, // JSON-RPC compliance: always return 200 for JSON-RPC errors
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -185,7 +186,7 @@ const handler = async (request: Request): Promise<Response> => {
     // Return JSON-RPC error for parse error
     const errorResponse = createJsonRpcError(null, -32700, `Parse error: ${error.message}`);
     return new Response(JSON.stringify(errorResponse), {
-      status: 400, // Bad Request for parse errors
+      status: 200, // JSON-RPC compliance: parse errors return HTTP 200
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -197,7 +198,7 @@ const handler = async (request: Request): Promise<Response> => {
     if (requestBody.length === 0) {
       const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Received empty batch.");
       return new Response(JSON.stringify(errorResponse), {
-        status: 400,
+        status: 200, // JSON-RPC compliance: invalid requests return HTTP 200
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -206,7 +207,7 @@ const handler = async (request: Request): Promise<Response> => {
     if (!requestBody.every(isValidJsonRpcRequest)) {
       const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Batch contains invalid JSON-RPC object(s).");
       return new Response(JSON.stringify(errorResponse), {
-        status: 400,
+        status: 200, // JSON-RPC compliance: invalid requests return HTTP 200
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -289,7 +290,7 @@ const handler = async (request: Request): Promise<Response> => {
     console.error("Invalid request body structure:", requestBody);
     const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Not a valid JSON-RPC object or batch.");
     return new Response(JSON.stringify(errorResponse), {
-      status: 400,
+      status: 200, // JSON-RPC compliance: invalid requests return HTTP 200
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
