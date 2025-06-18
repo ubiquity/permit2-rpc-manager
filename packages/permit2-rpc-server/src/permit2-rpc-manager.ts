@@ -505,7 +505,7 @@ export class Permit2RpcManager {
         const errorData = typeof responseData.error === "object" && responseData.error !== null &&
                          "data" in responseData.error ? responseData.error.data : undefined;
 
-        throw new JsonRpcError(errorCode, errorMessage, errorData);
+        throw new JsonRpcError(errorCode, errorMessage, errorData, response.status);
       }
 
       // Safety check for undefined result

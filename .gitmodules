@@ -4,3 +4,6 @@
 [submodule "lib/pay.ubq.fi"]
 	path = lib/pay.ubq.fi
 	url = https://github.com/0x4007/pay.ubq.fi.git
+[submodule "lib/permit2"]
+	path = lib/permit2
+	url = https://github.com/Uniswap/permit2.git
