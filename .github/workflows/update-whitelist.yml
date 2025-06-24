@@ -38,7 +38,7 @@ jobs:
       - name: Generate chainlist JSON
         working-directory: lib/chainlist
         run: |
-          bash generate-list.sh
+          bash ../../scripts/generate-chainlist-file.sh
           bun generate-json.js
 
       - name: Install root dependencies
@@ -78,7 +78,7 @@ jobs:
         working-directory: lib/chainlist
         run: |
           mkdir -p out
-          bash generate-list.sh
+          bash ../../scripts/generate-chainlist-file.sh
           bun generate-json.js
 
       - name: Update and test chain ${{ matrix.chain }}
