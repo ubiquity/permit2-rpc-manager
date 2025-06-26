@@ -299,6 +299,12 @@ export class Permit2RpcManager {
 
         // Comprehensive retry logic for robustness
         const isRetryable =
+          // JsonRpcError objects that preserve HTTP error status (from RPC provider issues)
+          (error.name === "JsonRpcError" && 
+           "httpStatus" in error && 
+           typeof error.httpStatus === "number" && 
+           error.httpStatus >= 500) ||
+
           // Network/connectivity errors
           error.name === "AbortError" ||
           error.message.includes("Failed to fetch") ||
@@ -363,7 +369,10 @@ export class Permit2RpcManager {
           error.message.toLowerCase().includes("try again") ||
           error.message.toLowerCase().includes("retry") ||
           error.message.toLowerCase().includes("unavailable") ||
-          error.message.toLowerCase().includes("busy");
+          error.message.toLowerCase().includes("busy") ||
+
+          // Common RPC provider error messages that should be retried
+          error.message.includes("Unable to perform request");
 
         if (!isRetryable) {
           this._log("info", `[NON-RETRYABLE] Forwarding error from ${rpcUrl}: ${error.message}`);
@@ -454,14 +463,26 @@ export class Permit2RpcManager {
           );
         }
 
-        // Check if this is a valid JSON-RPC error response (contract revert)
+        // Check if this is a valid JSON-RPC error response
         if (parsedResponse &&
             typeof parsedResponse === "object" &&
             parsedResponse.jsonrpc === "2.0" &&
             parsedResponse.error &&
             typeof parsedResponse.error === "object") {
 
-          // This is a contract execution revert - return HTTP 200 with JSON-RPC error
+          // For HTTP 5xx errors with JSON-RPC responses, preserve HTTP status for retry logic
+          // These are typically RPC provider issues, not contract execution reverts
+          if (response.status >= 500) {
+            this._log("debug", `RPC provider error (HTTP ${response.status}) from ${url}: ${parsedResponse.error.message}`);
+            throw new JsonRpcError(
+              parsedResponse.error.code || -32603,
+              parsedResponse.error.message || "RPC provider error",
+              parsedResponse.error.data,
+              response.status // Preserve HTTP status for retry logic
+            );
+          }
+
+          // For other HTTP errors with JSON-RPC responses (likely contract reverts), use HTTP 200
           this._log("debug", `Contract revert detected from ${url}: ${parsedResponse.error.message}`);
           throw new JsonRpcError(
             parsedResponse.error.code || -32603,
