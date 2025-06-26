@@ -1,92 +1,67 @@
 # Active Context
 
-## Recent Work: Generic Error Handling for RPC Manager
+## Recent Work: Critical RPC Failover Fix - June 27, 2025
 
 ### Problem
-- HTTP 400 errors were being reported but investigation showed no current RPCs returning 400
-- The server was transforming upstream RPC errors, converting HTTP 400 to HTTP 500
-- Error handling was trying to interpret and categorize errors instead of passing them through
+The RPC failover mechanism was intermittently failing with "no matched providers found" errors, particularly affecting chain 100 (Gnosis). Client applications were receiving these errors even though multiple healthy RPCs were available in the pool.
 
-### Solution Implemented
-Created a generic, transparent error handling mechanism:
+### Root Cause
+Investigation revealed that the retry logic wasn't working because `httpStatus` was undefined in error objects, preventing proper identification of retryable errors:
 
-1. **permit2-rpc-manager.ts**:
-   - Added `httpStatus` field to JsonRpcError to preserve HTTP status codes
-   - Changed retry logic to ONLY retry network/connectivity errors
-   - Removed all HTTP status code interpretation (400, 403, 429, 500, etc.)
-   - Pass through all HTTP errors exactly as received from upstream RPCs
-
-2. **deno-server.ts**:
-   - Pass through HTTP status codes from JsonRpcError when available
-   - Removed VM error interpretation logic
-   - Consistent error handling for both single and batch requests
-   - Server returns whatever status code the RPC manager provides
-
-### Key Design Principle
-The RPC manager now acts as a true transparent load balancer:
-- It only adds value through failover and load distribution
-- It doesn't interpret or transform upstream errors
-- All RPC responses (success or error) pass through unchanged
-
-### Next Steps
-- Monitor logs to see which RPC returns errors with improved logging
-- Deep dive on KV self-healing mechanism (see `docs/additional/kv-self-healing-investigation.md`)
-- Consider adding RPC health monitoring to detect problematic endpoints
-
-### Testing Tools Created
-- `scripts/test-network-100-endpoints.ts` - Direct RPC endpoint testing
-- `scripts/test-server-endpoint.ts` - Server endpoint testing
-- `scripts/clear-kv-cache.ts` - KV cache clearing utility
-
-## Current Focus: Oracle Staleness HTTP Status Code Fix
-
-### Problem Resolved
-Fixed the HTTP status code issue where contract reverts (like "Stale Stable/USD data" oracle errors) were incorrectly returning HTTP 500 instead of HTTP 200. This was causing confusion between network errors and contract execution reverts.
-
-### Solution Implemented
-**Enhanced JSON-RPC Compliance**: Modified error handling to distinguish between genuine HTTP errors and contract execution reverts.
-
-#### Key Changes Made:
-
-1. **permit2-rpc-manager.ts**:
-   - Enhanced `executeRpcCall` method to detect valid JSON-RPC error responses in HTTP 500 responses
-   - Added logic to parse response body when HTTP status is not OK
-   - Contract reverts now throw `JsonRpcError` without `httpStatus` (defaults to 200)
-   - Genuine HTTP errors still preserve the original HTTP status code
-
-2. **deno-server.ts**:
-   - Changed default HTTP status from 500 to 200 for JSON-RPC error responses
-   - Maintains HTTP status passthrough for genuine network/HTTP errors
-   - Ensures JSON-RPC specification compliance
-
-#### Technical Details:
-```typescript
-// Contract revert detection logic
-if (parsedResponse &&
-    typeof parsedResponse === "object" &&
-    parsedResponse.jsonrpc === "2.0" &&
-    parsedResponse.error &&
-    typeof parsedResponse.error === "object") {
-  // Return HTTP 200 with JSON-RPC error (no httpStatus set)
-  throw new JsonRpcError(
-    parsedResponse.error.code || -32603,
-    parsedResponse.error.message || "Contract execution reverted",
-    parsedResponse.error.data
-  );
+```javascript
+{
+  code: 19,
+  data: undefined,
+  httpStatus: undefined,  // <-- This was the problem!
+  name: "JsonRpcError"
 }
 ```
 
-### Results
-- ✅ **Contract reverts**: Now return HTTP 200 + JSON-RPC error (compliant)
-- ✅ **Network errors**: Still return appropriate HTTP status codes (4xx/5xx)
-- ✅ **Batch requests**: Handle mixed success/error responses correctly
-- ✅ **Client compatibility**: Eliminates confusion between HTTP and contract errors
+### Solution Implemented
 
-### Benefits
-- **JSON-RPC Compliance**: Adheres to JSON-RPC 2.0 specification
-- **Clear Error Distinction**: Network errors vs contract execution errors are properly differentiated
-- **Improved Client Experience**: Reduces false-positive network error handling
-- **Standards Alignment**: Matches behavior expected by JSON-RPC clients
+#### 1. Fixed httpStatus Preservation
+Modified `executeRpcCall` to **always** preserve HTTP status codes:
+- Timeout errors now set `httpStatus: 408`
+- JSON parsing errors on successful HTTP set `httpStatus: 200`
+- All HTTP errors preserve the original status code
+- JSON-RPC errors from HTTP 5xx responses now preserve the status
+
+#### 2. Simplified Retry Logic
+Replaced brittle string parsing with structured logic:
+```typescript
+if (error instanceof JsonRpcError && "httpStatus" in error && typeof error.httpStatus === "number") {
+  const status = error.httpStatus;
+  isRetryable = 
+    status === 408 || // Request Timeout
+    status === 429 || // Too Many Requests
+    status >= 500 && status <= 599; // Server errors
+} else {
+  // Network errors without HTTP status
+  isRetryable = 
+    error.name === "AbortError" ||
+    error.name === "TypeError" ||
+    (error instanceof Error && (
+      error.message.includes("Failed to fetch") ||
+      error.message.includes("Network") ||
+      error.message.includes("Unable to")
+    ));
+}
+```
+
+#### 3. Enhanced Error Visibility
+- Track all attempted RPCs during failover
+- Include attempted RPCs in error messages
+- Add diagnostic data to error objects
+
+### Tools Created
+- `scripts/inspect-kv-cache.ts` - Diagnostic script to inspect KV cache and RPC health status
+- `docs/additional/failover-fix-summary.md` - Detailed documentation of the fix
+
+### Next Steps
+- Deploy the fix to production
+- Monitor logs for improved failover behavior
+- Run KV cache inspection to check current RPC health status
+- Consider adjusting `eliminationThreshold` if needed
 
 ## Previous Work: Adaptive RPC Pool Management
 
