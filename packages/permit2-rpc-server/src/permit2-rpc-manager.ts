@@ -257,12 +257,15 @@ export class Permit2RpcManager {
     // --- End Round-Robin ---
 
     let lastError: Error | null = null;
+    const attemptedRpcs: string[] = [];
 
     for (let i = 0; i < rankedRpcList.length; i++) {
       const listIndex = (startIndex + i) % rankedRpcList.length;
       const rpcUrl = rankedRpcList[listIndex];
 
       if (!rpcUrl) continue;
+
+      attemptedRpcs.push(rpcUrl);
 
       try {
         this._log("info", `Using RPC endpoint: ${rpcUrl} for chain ${chainId}, method: ${method}`);
@@ -297,82 +300,33 @@ export class Permit2RpcManager {
           throw error;
         }
 
-        // Comprehensive retry logic for robustness
-        const isRetryable =
-          // JsonRpcError objects that preserve HTTP error status (from RPC provider issues)
-          (error.name === "JsonRpcError" && 
-           "httpStatus" in error && 
-           typeof error.httpStatus === "number" && 
-           error.httpStatus >= 500) ||
+        // Simplified retry logic based on error type and HTTP status
+        let isRetryable = false;
 
-          // Network/connectivity errors
-          error.name === "AbortError" ||
-          error.message.includes("Failed to fetch") ||
-          error.message.includes("Network error") ||
-          error.message.includes("Unable to connect") ||
-          error.message.includes("ETIMEDOUT") ||
-          error.message.includes("ECONNRESET") ||
-          error.message.includes("ECONNREFUSED") ||
-          error.message.includes("ENOTFOUND") ||
-          error.message.includes("DNS") ||
-          error.message.includes("getaddrinfo") ||
-          error.message.includes("socket hang up") ||
-          error.message.includes("EHOSTUNREACH") ||
-          error.message.includes("ENETUNREACH") ||
-          error.message.includes("EPIPE") ||
+        if (error instanceof JsonRpcError && "httpStatus" in error && typeof error.httpStatus === "number") {
+          // We have HTTP status information - use it for retry decisions
+          const status = error.httpStatus;
+          isRetryable = 
+            status === 408 || // Request Timeout
+            status === 429 || // Too Many Requests (rate limit)
+            status >= 500 && status <= 599; // Server errors
+        } else {
+          // No HTTP status - check for network/connectivity issues
+          isRetryable = 
+            error.name === "AbortError" || // Timeout
+            error.name === "TypeError" || // Often network-related
+            (error instanceof Error && (
+              // Network errors don't have httpStatus
+              error.message.includes("Failed to fetch") ||
+              error.message.includes("Network") ||
+              error.message.includes("Unable to") // Common prefix for network errors
+            ));
+        }
 
-          // HTTP errors that are often transient
-          error.message.includes("HTTP error 400") || // Bad Request - can be transient
-          error.message.includes("HTTP error 403") || // Forbidden - often rate limiting
-          error.message.includes("HTTP error 429") || // Too Many Requests
-          error.message.includes("HTTP error 500") || // Internal Server Error
-          error.message.includes("HTTP error 502") || // Bad Gateway
-          error.message.includes("HTTP error 503") || // Service Unavailable
-          error.message.includes("HTTP error 504") || // Gateway Timeout
-          error.message.includes("HTTP error 520") || // Cloudflare errors
-          error.message.includes("HTTP error 521") ||
-          error.message.includes("HTTP error 522") ||
-          error.message.includes("HTTP error 523") ||
-          error.message.includes("HTTP error 524") ||
-
-          // Rate limiting patterns (case-insensitive)
-          error.message.toLowerCase().includes("rate limit") ||
-          error.message.toLowerCase().includes("rate-limit") ||
-          error.message.toLowerCase().includes("ratelimit") ||
-          error.message.toLowerCase().includes("too many requests") ||
-          error.message.toLowerCase().includes("throttle") ||
-          error.message.toLowerCase().includes("exceeded") ||
-          error.message.toLowerCase().includes("quota") ||
-          error.message.toLowerCase().includes("capacity") ||
-          error.message.toLowerCase().includes("limit reached") ||
-          error.message.toLowerCase().includes("max requests") ||
-          error.message.toLowerCase().includes("maximum requests") ||
-          error.message.toLowerCase().includes("too many calls") ||
-          error.message.toLowerCase().includes("slow down") ||
-
-          // JSON parsing errors (often from overloaded servers)
-          error.message.includes("Invalid JSON") ||
-          error.message.includes("Unexpected token") ||
-          error.message.includes("JSON.parse") ||
-          error.message.includes("Failed to parse") ||
-
-          // TypeErrors (often from malformed responses)
-          error.name === "TypeError" ||
-
-          // Generic timeout patterns
-          (error.message.toLowerCase().includes("timeout") &&
-           !error.message.includes("transaction")) || // Exclude transaction timeouts
-
-          // Generic temporary/transient patterns
-          error.message.toLowerCase().includes("temporarily") ||
-          error.message.toLowerCase().includes("temporary") ||
-          error.message.toLowerCase().includes("try again") ||
-          error.message.toLowerCase().includes("retry") ||
-          error.message.toLowerCase().includes("unavailable") ||
-          error.message.toLowerCase().includes("busy") ||
-
-          // Common RPC provider error messages that should be retried
-          error.message.includes("Unable to perform request");
+        // Special case: Always retry "Unable to perform request" as it's a known transient error
+        if (!isRetryable && error.message === "Unable to perform request") {
+          isRetryable = true;
+        }
 
         if (!isRetryable) {
           this._log("info", `[NON-RETRYABLE] Forwarding error from ${rpcUrl}: ${error.message}`);
@@ -395,17 +349,30 @@ export class Permit2RpcManager {
 
     const errorMsg = lastError?.message || "Unknown error";
     this._log("error", `[EXHAUSTED] All ${rankedRpcList.length} available RPC endpoints failed for chainId ${chainId}. Last error: ${errorMsg}`);
+    this._log("error", `[EXHAUSTED] Attempted RPCs: ${attemptedRpcs.join(", ")}`);
 
     // If we've tried all RPCs and failed, create a more descriptive error
-    const enhancedErrorMsg = `All RPC endpoints failed after ${rankedRpcList.length} attempts. Last error: ${errorMsg}`;
+    const enhancedErrorMsg = `All ${attemptedRpcs.length} RPC endpoints failed. Attempted: [${attemptedRpcs.join(", ")}]. Last error: ${errorMsg}`;
 
     if (lastError instanceof JsonRpcError) {
       // Keep original error code but enhance the message
-      throw new JsonRpcError(lastError.code, enhancedErrorMsg, lastError.data);
+      throw new JsonRpcError(
+        lastError.code, 
+        enhancedErrorMsg, 
+        { 
+          ...((typeof lastError.data === "object" && lastError.data !== null) ? lastError.data : {}),
+          attemptedRpcs,
+          chainId 
+        }
+      );
     }
 
     // Use standard JSON-RPC internal error code
-    throw new JsonRpcError(-32000, enhancedErrorMsg);
+    throw new JsonRpcError(
+      -32000, 
+      enhancedErrorMsg,
+      { attemptedRpcs, chainId }
+    );
   }
 
   /**
@@ -470,25 +437,13 @@ export class Permit2RpcManager {
             parsedResponse.error &&
             typeof parsedResponse.error === "object") {
 
-          // For HTTP 5xx errors with JSON-RPC responses, preserve HTTP status for retry logic
-          // These are typically RPC provider issues, not contract execution reverts
-          if (response.status >= 500) {
-            this._log("debug", `RPC provider error (HTTP ${response.status}) from ${url}: ${parsedResponse.error.message}`);
-            throw new JsonRpcError(
-              parsedResponse.error.code || -32603,
-              parsedResponse.error.message || "RPC provider error",
-              parsedResponse.error.data,
-              response.status // Preserve HTTP status for retry logic
-            );
-          }
-
-          // For other HTTP errors with JSON-RPC responses (likely contract reverts), use HTTP 200
-          this._log("debug", `Contract revert detected from ${url}: ${parsedResponse.error.message}`);
+          // ALWAYS preserve HTTP status for retry logic, regardless of status code
+          this._log("debug", `JSON-RPC error (HTTP ${response.status}) from ${url}: ${parsedResponse.error.message}`);
           throw new JsonRpcError(
             parsedResponse.error.code || -32603,
-            parsedResponse.error.message || "Contract execution reverted",
-            parsedResponse.error.data
-            // Note: No httpStatus provided, defaults to 200
+            parsedResponse.error.message || "RPC error",
+            parsedResponse.error.data,
+            response.status // ALWAYS preserve HTTP status
           );
         }
 
@@ -506,7 +461,13 @@ export class Permit2RpcManager {
         responseData = await response.json();
       } catch (jsonError) {
         this._log("error", `Failed to parse JSON response from ${url}:`, jsonError);
-        throw new Error(`Invalid JSON response from provider: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`);
+        // Preserve HTTP status even for JSON parsing errors on successful HTTP responses
+        throw new JsonRpcError(
+          -32700, // Parse error per JSON-RPC spec
+          `Invalid JSON response from provider: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`,
+          undefined,
+          200 // HTTP was successful, but JSON parsing failed
+        );
       }
 
       // Validate response structure to avoid "Cannot use 'in' operator" errors
@@ -538,7 +499,13 @@ export class Permit2RpcManager {
     } catch (error) {
       clearTimeout(timeoutId);
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error(`Request timed out after ${this.requestTimeoutMs}ms`);
+        // Timeout errors should be retryable
+        throw new JsonRpcError(
+          -32000,
+          `Request timed out after ${this.requestTimeoutMs}ms`,
+          undefined,
+          408 // HTTP 408 Request Timeout
+        );
       }
       throw error;
     }
