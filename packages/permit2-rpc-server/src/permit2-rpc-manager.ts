@@ -111,6 +111,8 @@ const DEFAULT_LOG_LEVEL = "warn";
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
 const DEFAULT_BACKOFF_BASE_MS = 1000;
 const DEFAULT_MAX_BACKOFF_MS = 60000;
+const DEFAULT_TIMEOUT_PER_REQUEST_MS = 200; // Additional timeout per request in batch
+const MAX_BATCH_TIMEOUT_MS = 60000; // Maximum timeout for any batch
 
 const LOG_LEVEL_HIERARCHY: Record<NonNullable<Permit2RpcManagerOptions["logLevel"]>, number> = {
   debug: 0,
@@ -599,14 +601,28 @@ export class Permit2RpcManager {
   }
 
   /**
-   * Execute a batch RPC call
+   * Calculate dynamic timeout for batch requests
+   */
+  private calculateBatchTimeout(requestCount: number): number {
+    const baseTimeout = this.requestTimeoutMs;
+    const perRequestTimeout = DEFAULT_TIMEOUT_PER_REQUEST_MS;
+    const calculatedTimeout = baseTimeout + (requestCount * perRequestTimeout);
+    return Math.min(calculatedTimeout, MAX_BATCH_TIMEOUT_MS);
+  }
+
+  /**
+   * Execute a batch RPC call with improved error handling
    */
   private async executeBatchCall(
     url: string,
     requests: Array<{ jsonrpc: "2.0"; id: number | string | null; method: string; params?: unknown[] }>
   ): Promise<JsonRpcResponse[]> {
+    // Dynamic timeout based on batch size
+    const timeoutMs = this.calculateBatchTimeout(requests.length);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs * 2); // Double timeout for batches
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    this._log("debug", `[BATCH] Executing batch of ${requests.length} requests with ${timeoutMs}ms timeout`);
 
     try {
       const response = await fetch(url, {
@@ -618,25 +634,76 @@ export class Permit2RpcManager {
 
       clearTimeout(timeoutId);
 
-      // Parse response
+      // Handle non-JSON responses gracefully
       let responseData: any;
+      const contentType = response.headers.get("content-type") || "";
+      const isJson = contentType.includes("application/json");
+
+      if (!isJson && !response.ok) {
+        // Try to get error details from non-JSON response
+        let errorDetails = "";
+        try {
+          const text = await response.text();
+          if (text.length < 1000) { // Avoid logging huge HTML pages
+            errorDetails = text;
+          } else {
+            errorDetails = text.substring(0, 200) + "...";
+          }
+        } catch {
+          errorDetails = "Could not read error response";
+        }
+
+        // Map specific HTTP errors
+        if (response.status === 403) {
+          throw new JsonRpcError(
+            JSON_RPC_ERROR_CODES.QUOTA_EXCEEDED,
+            `Rate limit or quota exceeded (HTTP 403)`,
+            { details: errorDetails },
+            response.status
+          );
+        } else if (response.status === 413) {
+          throw new JsonRpcError(
+            JSON_RPC_ERROR_CODES.INVALID_REQUEST,
+            `Batch too large (HTTP 413)`,
+            { batchSize: requests.length, details: errorDetails },
+            response.status
+          );
+        } else if (response.status === 429) {
+          throw new JsonRpcError(
+            JSON_RPC_ERROR_CODES.REQUEST_LIMIT,
+            `Too many requests (HTTP 429)`,
+            { details: errorDetails },
+            response.status
+          );
+        } else {
+          throw new JsonRpcError(
+            JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+            `HTTP error ${response.status} ${response.statusText}`,
+            { details: errorDetails },
+            response.status
+          );
+        }
+      }
+
+      // Parse JSON response
       try {
         responseData = await response.json();
       } catch (jsonError) {
+        // If we got here, it means the response claimed to be JSON but wasn't
         throw new JsonRpcError(
           JSON_RPC_ERROR_CODES.PARSE_ERROR,
-          `Invalid JSON response from provider`,
-          undefined,
+          `Invalid JSON response from provider (${response.status})`,
+          { contentType },
           response.status
         );
       }
 
-      // Check HTTP status
+      // Check HTTP status after parsing
       if (!response.ok) {
         throw new JsonRpcError(
           JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
           `HTTP error ${response.status} ${response.statusText}`,
-          undefined,
+          responseData,
           response.status
         );
       }
@@ -646,7 +713,7 @@ export class Permit2RpcManager {
         throw new JsonRpcError(
           JSON_RPC_ERROR_CODES.INVALID_REQUEST,
           `Expected array response for batch request, got ${typeof responseData}`,
-          undefined,
+          responseData,
           response.status
         );
       }
@@ -659,8 +726,8 @@ export class Permit2RpcManager {
       if (error instanceof Error && error.name === "AbortError") {
         throw new JsonRpcError(
           JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
-          `Batch request timeout after ${this.requestTimeoutMs * 2}ms`,
-          undefined,
+          `Batch request timeout after ${timeoutMs}ms (${requests.length} requests)`,
+          { batchSize: requests.length },
           408
         );
       }
@@ -796,7 +863,7 @@ export class Permit2RpcManager {
   }
 
   /**
-   * Execute a batch with failover support
+   * Execute a batch with failover support and automatic splitting
    */
   private async executeBatchWithFailover(
     chainId: number,
@@ -833,7 +900,6 @@ export class Permit2RpcManager {
 
         // Partial success - some requests failed
         // For now, treat as failure and try next RPC
-        // TODO: Could implement partial retry logic
         this._log("warn",
           `[BATCH] Batch ${batchIndex} had errors on ${rpcUrl}, trying next RPC`
         );
@@ -850,6 +916,40 @@ export class Permit2RpcManager {
         );
 
         await this.recordFailure(chainId, rpcUrl, classification);
+
+        // Check if error indicates batch size issue
+        if (lastError instanceof JsonRpcError &&
+            (lastError.httpStatus === 413 || // Payload too large
+             (lastError.httpStatus === 403 && batch.length > 10))) { // Possible batch size limit
+
+          this._log("info", `[BATCH] Batch size issue detected, attempting to split batch ${batchIndex}`);
+
+          // Split batch in half and retry
+          if (batch.length > 1) {
+            const midpoint = Math.floor(batch.length / 2);
+            const batch1 = batch.slice(0, midpoint);
+            const batch2 = batch.slice(midpoint);
+
+            this._log("info",
+              `[BATCH] Splitting batch ${batchIndex} (${batch.length} requests) into ` +
+              `${batch1.length} and ${batch2.length} requests`
+            );
+
+            try {
+              // Execute halves sequentially on the SAME RPC. If this fails, the outer loop will try the next RPC.
+              // We pass an empty array for failover RPCs to prevent recursion from trying other providers.
+              const responses1 = await this.executeBatchWithFailover(chainId, rpcUrl, batch1, [], batchIndex * 2);
+              const responses2 = await this.executeBatchWithFailover(chainId, rpcUrl, batch2, [], batchIndex * 2 + 1);
+
+              // Combine and return responses
+              return [...responses1, ...responses2];
+            } catch (splitError) {
+              // If splitting still fails, continue to next RPC
+              this._log("warn", `[BATCH] Split batches still failed, continuing to next RPC`);
+              lastError = splitError instanceof Error ? splitError : new Error(String(splitError));
+            }
+          }
+        }
 
         // Check if error type suggests retry won't help
         if (classification.behavior === ErrorBehavior.DO_NOT_RETRY ||

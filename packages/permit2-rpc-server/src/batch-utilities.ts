@@ -107,12 +107,36 @@ export const DEFAULT_BATCH_CONFIG: BatchConfig = {
 };
 
 /**
+ * Validate batch configuration
+ */
+export function validateBatchConfig(config: BatchConfig): void {
+  if (config.maxRequests <= 0) {
+    throw new Error('maxRequests must be positive');
+  }
+  if (config.maxPayloadBytes <= 0) {
+    throw new Error('maxPayloadBytes must be positive');
+  }
+  if (config.maxComputeUnits <= 0) {
+    throw new Error('maxComputeUnits must be positive');
+  }
+  if (config.minBatchSize < 1) {
+    throw new Error('minBatchSize must be at least 1');
+  }
+  if (config.minBatchSize > config.maxRequests) {
+    throw new Error('minBatchSize cannot exceed maxRequests');
+  }
+}
+
+/**
  * Split requests into optimal batches based on compute units and payload size
  */
 export function splitIntoBatches(
   requests: JsonRpcRequest[],
   config: BatchConfig = DEFAULT_BATCH_CONFIG
 ): BatchSplitResult {
+  // Validate config
+  validateBatchConfig(config);
+
   if (requests.length === 0) {
     return {
       batches: [],
@@ -143,6 +167,26 @@ export function splitIntoBatches(
   for (const request of requests) {
     const requestBytes = estimateRequestSize(request);
     const requestCU = getMethodWeight(request.method, config);
+
+    // Single request exceeds limits - must go alone
+    if (requestBytes > config.maxPayloadBytes || requestCU > config.maxComputeUnits) {
+      // Save current batch if not empty
+      if (currentBatch.length > 0) {
+        batches.push(currentBatch);
+        estimatedCU.push(currentCU);
+        estimatedBytes.push(currentBytes);
+
+        currentBatch = [];
+        currentBytes = 0;
+        currentCU = 0;
+      }
+
+      // Add oversized request as its own batch
+      batches.push([request]);
+      estimatedCU.push(requestCU);
+      estimatedBytes.push(requestBytes);
+      continue;
+    }
 
     // Check if adding this request would exceed any limit
     const wouldExceedLimits = currentBatch.length > 0 && (

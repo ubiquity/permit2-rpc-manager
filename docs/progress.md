@@ -87,6 +87,33 @@
 - **TypeScript Errors (Editor):** Persistent TS errors related to Deno globals
   may appear in some editor environments but don't block execution.
 
+## 5. Recent Improvements (June 30, 2025)
+
+- ✅ **Batch Reliability Fix:** Fixed critical batch request issues causing production failures
+  - Implemented dynamic timeout calculation (base + 200ms per request)
+  - Added robust error parsing for non-JSON responses (HTML error pages)
+  - Automatic batch splitting on 403/413 errors
+  - Pre-flight validation for batch configurations
+- ✅ **Error Handling Enhancement:** Improved error classification and handling
+  - Better mapping of HTTP status codes to JSON-RPC errors
+  - Graceful handling of rate limits and quota errors
+  - Informative error messages with debugging context
+- ✅ **Test Suite Addition:** Created `scripts/test-batch-reliability.ts` for validation
+- ✅ **Documentation:** Added comprehensive batch reliability analysis
+
+## 6. Performance Improvements
+
+- **Batch Processing:**
+  - Supports batches up to 50 requests by default
+  - Automatic splitting for larger batches
+  - Dynamic timeout scaling prevents dropped connections
+  - Parallel execution of split batches for efficiency
+- **Failover System:**
+  - Intelligent health tracking with exponential backoff
+  - Temporary RPC unavailability instead of permanent blacklisting
+  - Round-robin load distribution
+  - Batch-level failover with automatic retry on different RPCs
+
 ## 5. Next Steps / Future Considerations
 
 - **Server Testing:** Implement Deno tests for the server logic.
