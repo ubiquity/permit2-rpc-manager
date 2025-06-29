@@ -1,6 +1,83 @@
 # Active Context
 
-## Recent Work: Critical RPC Failover Fix - June 27, 2025
+## Recent Work: Complete RPC Failover System Rewrite - June 30, 2025
+
+### Problem
+The `chore/blind-optimizations` branch introduced problematic changes that fundamentally broke the RPC failover system:
+1. **String parsing for error detection** - Fragile and unreliable
+2. **Poor failover logic** - Kept selecting bad providers
+3. **No batch request handling** - Failed to properly handle batch RPC requests
+4. **Rate limit errors** - System couldn't gracefully handle rate limits from providers like Tenderly
+
+### Root Cause Analysis
+The entire approach was architecturally flawed:
+- Parsing error message strings to detect error types is inherently fragile
+- No structured approach to different error behaviors
+- Mixed state management without clear strategy
+- All errors treated the same way regardless of type
+
+### Solution: Complete Rewrite
+
+#### 1. Structured Error Classification
+Replaced string parsing with proper error classification based on behavior:
+```typescript
+enum ErrorBehavior {
+  RETRY_WITH_BACKOFF,    // Rate limits, quota errors
+  RETRY_DIFFERENT_RPC,   // Server errors, timeouts
+  DO_NOT_RETRY,          // Client errors, bad requests
+  BLOCKCHAIN_ERROR,      // Execution reverts
+}
+```
+
+#### 2. Standards-Based Detection
+Now uses concrete signals instead of string parsing:
+- JSON-RPC error codes (e.g., -32004 for quota exceeded)
+- HTTP status codes (e.g., 429 for rate limit, 403 for forbidden)
+- Provider-specific error codes
+
+#### 3. Intelligent Health Tracking
+Each RPC maintains comprehensive health state:
+```typescript
+interface RpcHealthState {
+  consecutiveFailures: number;
+  lastFailureTime: number;
+  lastSuccessTime: number;
+  temporaryUnavailableUntil?: number;
+  failureReasons: Map<string, number>;
+}
+```
+
+#### 4. Exponential Backoff
+Replaced fixed cooldowns with exponential backoff:
+- Base: 1 second
+- Max: 60 seconds
+- Formula: `min(base * 2^(failures-1), max)`
+
+### Key Improvements
+1. **Zero String Parsing** - All classification based on structured data
+2. **Predictable Behavior** - Clear rules for each error type
+3. **Self-Healing** - Automatic recovery with exponential backoff
+4. **Better Diagnostics** - Track failure reasons and patterns
+5. **Foundation for Batch Support** - Architecture ready for true batch handling
+
+### Benefits
+- **Reliable Rate Limit Handling**: Tenderly quota errors now properly trigger backoff
+- **Intelligent Failover**: System correctly identifies retryable vs non-retryable errors
+- **Graceful Degradation**: RPCs recover automatically after transient issues
+- **Clear Visibility**: Structured logging shows exactly why failures occur
+
+### Files Changed
+- `packages/permit2-rpc-server/src/permit2-rpc-manager.ts` - Complete rewrite
+- `docs/additional/robust-failover-rewrite.md` - Architecture documentation
+- `scripts/test-rate-limit-handling.ts` - Updated test script
+
+### Next Steps
+- Deploy the rewritten system
+- Monitor for improved reliability
+- Implement true batch request support
+- Add circuit breaker pattern for faster failure detection
+
+## Previous Work: Critical RPC Failover Fix - June 27, 2025
 
 ### Problem
 The RPC failover mechanism was intermittently failing with "no matched providers found" errors, particularly affecting chain 100 (Gnosis). Client applications were receiving these errors even though multiple healthy RPCs were available in the pool.
@@ -31,13 +108,13 @@ Replaced brittle string parsing with structured logic:
 ```typescript
 if (error instanceof JsonRpcError && "httpStatus" in error && typeof error.httpStatus === "number") {
   const status = error.httpStatus;
-  isRetryable = 
+  isRetryable =
     status === 408 || // Request Timeout
     status === 429 || // Too Many Requests
     status >= 500 && status <= 599; // Server errors
 } else {
   // Network errors without HTTP status
-  isRetryable = 
+  isRetryable =
     error.name === "AbortError" ||
     error.name === "TypeError" ||
     (error instanceof Error && (
@@ -56,12 +133,7 @@ if (error instanceof JsonRpcError && "httpStatus" in error && typeof error.httpS
 ### Tools Created
 - `scripts/inspect-kv-cache.ts` - Diagnostic script to inspect KV cache and RPC health status
 - `docs/additional/failover-fix-summary.md` - Detailed documentation of the fix
-
-### Next Steps
-- Deploy the fix to production
-- Monitor logs for improved failover behavior
-- Run KV cache inspection to check current RPC health status
-- Consider adjusting `eliminationThreshold` if needed
+- `docs/additional/robust-failover-fix.md` - Documentation of the rate limit handling improvements
 
 ## Previous Work: Adaptive RPC Pool Management
 
@@ -86,13 +158,14 @@ Built on top of the generic error handling, we've added an adaptive pool managem
   enableBadNetworkInvalidation: true,  // Enable the feature
   eliminationThreshold: 3,            // Failures before elimination (only if >1 healthy RPC remains)
   eliminationRetryMs: 3600000,        // 1 hour retry for eliminated RPCs
+  rateLimitCooldownMs: 300000,        // 5 minute cooldown for rate-limited RPCs (NEW)
 }
 ```
 
 ### Benefits
 - Self-healing: Automatically removes bad RPCs
 - Resilient: Maintains minimum viable pool
-- Transparent: Clear logging with [POOL_MGMT] prefix
+- Transparent: Clear logging with [POOL_MGMT] and [COOLDOWN] prefixes
 - Configurable: All thresholds can be customized
 
-See `docs/additional/adaptive-pool-management.md` for full documentation.
+See `docs/additional/adaptive-pool-management.md` and `docs/additional/robust-failover-fix.md` for full documentation.
