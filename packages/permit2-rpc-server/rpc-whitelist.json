@@ -15,9 +15,8 @@
       "https://eth-mainnet.public.blastapi.io",
       "https://openapi.bitstack.com/v1/wNFxbiJyQsSeLrX8RRCHi7NpRxrlErZk/DjShIqLishPCTB9HiMkPHXjUM9CNM9Na/ETH/mainnet",
       "https://eth-pokt.nodies.app",
-      "https://ethereum.blockpi.network/v1/rpc/public",
+      "https://ethereum.public.blockpi.network/v1/rpc/public",
       "https://rpc.payload.de",
-      "https://eth-mainnet.g.alchemy.com/v2/demo",
       "https://core.gashawk.io/rpc",
       "https://eth-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://rpc.eth.gateway.fm",
@@ -32,6 +31,7 @@
       "https://eth.blockrazor.xyz",
       "https://endpoints.omniatech.io/v1/eth/mainnet/public",
       "https://eth1.lava.build",
+      "https://0xrpc.io/eth",
       "https://rpc.therpc.io/ethereum",
       "https://rpc.flashbots.net/fast",
       "https://rpc.mevblocker.io/fast",
@@ -41,10 +41,8 @@
     "10": [
       "https://mainnet.optimism.io",
       "https://optimism-mainnet.public.blastapi.io",
-      "https://1rpc.io/op",
       "https://op-pokt.nodies.app",
-      "https://opt-mainnet.g.alchemy.com/v2/demo",
-      "https://optimism.blockpi.network/v1/rpc/public",
+      "https://optimism.public.blockpi.network/v1/rpc/public",
       "https://optimism.api.onfinality.io/public",
       "https://optimism-rpc.publicnode.com",
       "https://optimism.drpc.org",
@@ -53,6 +51,7 @@
       "https://go.getblock.io/e8a75f8dcf614861becfbcb185be6eb4",
       "https://endpoints.omniatech.io/v1/op/mainnet/public",
       "https://optimism.rpc.subquery.network/public",
+      "https://0xrpc.io/op",
       "https://rpc.therpc.io/optimism"
     ],
     "56": [
@@ -77,6 +76,7 @@
       "https://go.getblock.io/cc778cdbdf5c4b028ec9456e0e6c0cf3",
       "https://binance.nodereal.io",
       "https://bsc-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
+      "https://1rpc.io/bnb",
       "https://bsc.rpc.blxrbdn.com",
       "https://bnb.api.onfinality.io/public",
       "https://bsc-rpc.publicnode.com",
@@ -99,6 +99,7 @@
       "https://endpoints.omniatech.io/v1/gnosis/mainnet/public",
       "https://gnosis-rpc.publicnode.com",
       "https://1rpc.io/gnosis",
+      "https://0xrpc.io/gno",
       "https://gnosis.oat.farm"
     ],
     "137": [
@@ -114,7 +115,6 @@
       "https://polygon.drpc.org",
       "https://polygon.gateway.tenderly.co",
       "https://gateway.tenderly.co/public/polygon",
-      "https://polygon.meowrpc.com",
       "https://polygon.rpc.subquery.network/public",
       "https://endpoints.omniatech.io/v1/matic/mainnet/public",
       "https://polygon.lava.build",
@@ -124,7 +124,7 @@
       "https://base.llamarpc.com",
       "https://mainnet.base.org",
       "https://developer-access-mainnet.base.org",
-      "https://base.blockpi.network/v1/rpc/public",
+      "https://base.public.blockpi.network/v1/rpc/public",
       "https://1rpc.io/base",
       "https://base-pokt.nodies.app",
       "https://base.meowrpc.com",
@@ -137,13 +137,14 @@
       "https://base.rpc.subquery.network/public",
       "https://endpoints.omniatech.io/v1/base/mainnet/public",
       "https://base.lava.build",
+      "https://0xrpc.io/base",
       "https://rpc.therpc.io/base"
     ],
     "42161": [
       "https://arb1.arbitrum.io/rpc",
       "https://1rpc.io/arb",
       "https://arb-pokt.nodies.app",
-      "https://arbitrum.blockpi.network/v1/rpc/public",
+      "https://arbitrum.public.blockpi.network/v1/rpc/public",
       "https://arbitrum-one.public.blastapi.io",
       "https://arbitrum-one-rpc.publicnode.com",
       "https://arbitrum.meowrpc.com",
@@ -166,10 +167,10 @@
       "https://1rpc.io/avax/c",
       "https://avax-pokt.nodies.app/ext/bc/C/rpc",
       "https://endpoints.omniatech.io/v1/avax/mainnet/public",
-      "https://avax.meowrpc.com",
       "https://avalanche.drpc.org",
       "https://avalanche-mainnet.gateway.tenderly.co",
-      "https://0xrpc.io/avax"
+      "https://0xrpc.io/avax",
+      "https://spectrum-01.simplystaking.xyz/avalanche-mn-rpc/ext/bc/C/rpc"
     ],
     "81457": [
       "https://rpc.blast.io",
