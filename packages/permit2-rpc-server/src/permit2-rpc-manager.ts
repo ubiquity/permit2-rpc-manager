@@ -55,6 +55,12 @@ const MIN_VIABLE_RPCS = 1; // Hardcoded to simplify logic
 const DEFAULT_ELIMINATION_THRESHOLD = 3;
 const DEFAULT_ELIMINATION_RETRY_MS = 60 * 60 * 1000; // 1 hour
 
+// JSON-RPC error code ranges per specification:
+// - Standard errors: -32768 to -32000 (reserved by JSON-RPC spec)
+// - Implementation-defined errors: >= -32000 (provider-specific)
+// Provider-specific quota/rate limits typically fall in the >= -32000 range
+const JSON_RPC_IMPLEMENTATION_ERROR_THRESHOLD = -32000;
+
 const LOG_LEVEL_HIERARCHY: Record<NonNullable<Permit2RpcManagerOptions["logLevel"]>, number> = {
   debug: 0,
   info: 1,
@@ -233,8 +239,42 @@ export class Permit2RpcManager {
   }
 
   /**
+   * Checks if an error should be retryable based on JSON-RPC error codes and HTTP status
+   */
+  private isRetryableError(error: Error): boolean {
+    // Check for JSON-RPC implementation-defined server errors (>= -32000)
+    // These typically include quota limits, rate limits, and provider-specific errors
+    if (error instanceof JsonRpcError && typeof error.code === "number") {
+      if (error.code >= JSON_RPC_IMPLEMENTATION_ERROR_THRESHOLD) {
+        return true; // Always retry implementation-defined server errors (quota/rate limits)
+      }
+    }
+
+    // Check HTTP status codes
+    if (error instanceof JsonRpcError && "httpStatus" in error && typeof error.httpStatus === "number") {
+      const status = error.httpStatus;
+      return (
+        status === 408 || // Request Timeout
+        status === 429 || // Too Many Requests (rate limit)
+        (status >= 500 && status <= 599) // Server errors
+      );
+    }
+
+    // Network/connectivity errors without HTTP status
+    return (
+      error.name === "AbortError" || // Timeout
+      error.name === "TypeError" || // Often network-related
+      (error instanceof Error && (
+        error.message.includes("Failed to fetch") ||
+        error.message.includes("Network") ||
+        error.message.includes("Unable to") // Common prefix for network errors
+      ))
+    );
+  }
+
+  /**
    * Sends a JSON-RPC request, trying available RPCs in a round-robin fashion based on the ranked list.
-   * Handles fallback by iterating through the list.
+   * Handles fallover by iterating through the list.
    */
   async send<T = unknown>(chainId: number, method: string, params: unknown[] = []): Promise<T> {
     const rankedRpcList = await this.rpcSelector.getRankedRpcList(chainId);
@@ -300,33 +340,10 @@ export class Permit2RpcManager {
           throw error;
         }
 
-        // Simplified retry logic based on error type and HTTP status
-        let isRetryable = false;
-
-        if (error instanceof JsonRpcError && "httpStatus" in error && typeof error.httpStatus === "number") {
-          // We have HTTP status information - use it for retry decisions
-          const status = error.httpStatus;
-          isRetryable = 
-            status === 408 || // Request Timeout
-            status === 429 || // Too Many Requests (rate limit)
-            status >= 500 && status <= 599; // Server errors
-        } else {
-          // No HTTP status - check for network/connectivity issues
-          isRetryable = 
-            error.name === "AbortError" || // Timeout
-            error.name === "TypeError" || // Often network-related
-            (error instanceof Error && (
-              // Network errors don't have httpStatus
-              error.message.includes("Failed to fetch") ||
-              error.message.includes("Network") ||
-              error.message.includes("Unable to") // Common prefix for network errors
-            ));
-        }
-
-        // Special case: Always retry "Unable to perform request" as it's a known transient error
-        if (!isRetryable && error.message === "Unable to perform request") {
-          isRetryable = true;
-        }
+        // Use the enhanced retry logic that checks JSON-RPC error codes and HTTP status
+        const isRetryable = this.isRetryableError(error) ||
+          // Special case: Always retry "Unable to perform request" as it's a known transient error
+          error.message === "Unable to perform request";
 
         if (!isRetryable) {
           this._log("info", `[NON-RETRYABLE] Forwarding error from ${rpcUrl}: ${error.message}`);
@@ -357,19 +374,19 @@ export class Permit2RpcManager {
     if (lastError instanceof JsonRpcError) {
       // Keep original error code but enhance the message
       throw new JsonRpcError(
-        lastError.code, 
-        enhancedErrorMsg, 
-        { 
+        lastError.code,
+        enhancedErrorMsg,
+        {
           ...((typeof lastError.data === "object" && lastError.data !== null) ? lastError.data : {}),
           attemptedRpcs,
-          chainId 
+          chainId
         }
       );
     }
 
     // Use standard JSON-RPC internal error code
     throw new JsonRpcError(
-      -32000, 
+      -32000,
       enhancedErrorMsg,
       { attemptedRpcs, chainId }
     );
