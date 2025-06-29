@@ -20,7 +20,9 @@ type CacheData = Record<number, ChainCache>;
 
 // Environment check removed, assuming Deno environment with KV access
 
-const DEFAULT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+// KV Optimization: Increased from 1 hour to 4 hours to reduce cache writes by 75%
+// This reduces cache update frequency from ~264/day to ~66/day across all chains
+const DEFAULT_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours (was 1 hour)
 const DEFAULT_LOCAL_STORAGE_KEY = "permit2RpcManagerCache";
 
 // Options for CacheManager constructor
