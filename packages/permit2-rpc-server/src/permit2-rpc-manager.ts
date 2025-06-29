@@ -3,6 +3,13 @@ import { CacheManager } from "./cache-manager.ts";
 import { ChainlistDataSource } from "./chainlist-data-source.ts";
 import { LatencyTester } from "./latency-tester.ts";
 import { RpcSelector } from "./rpc-selector.ts";
+import {
+  splitIntoBatches,
+  distributeBatches,
+  BatchPerformanceTracker,
+  type BatchConfig,
+  DEFAULT_BATCH_CONFIG,
+} from "./batch-utilities.ts";
 
 // JSON-RPC error codes as per specification
 const JSON_RPC_ERROR_CODES = {
@@ -93,6 +100,10 @@ export interface Permit2RpcManagerOptions {
   backoffBaseMs?: number;
   maxBackoffMs?: number;
   healthCheckIntervalMs?: number;
+
+  // Batch configuration
+  batchConfig?: Partial<BatchConfig>;
+  enableAdaptiveBatching?: boolean;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
@@ -127,6 +138,11 @@ export class Permit2RpcManager {
   // Round-robin tracking
   private rpcIndexMap = new Map<number, number>();
 
+  // Batch handling
+  private batchConfig: BatchConfig;
+  private batchPerformanceTracker: BatchPerformanceTracker;
+  private enableAdaptiveBatching: boolean;
+
   constructor(options: Permit2RpcManagerOptions = {}) {
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
     this.configuredLogLevelValue = LOG_LEVEL_HIERARCHY[this.logLevel];
@@ -146,6 +162,11 @@ export class Permit2RpcManager {
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
     this.backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
     this.maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
+
+    // Initialize batch handling
+    this.batchConfig = { ...DEFAULT_BATCH_CONFIG, ...options.batchConfig };
+    this.batchPerformanceTracker = new BatchPerformanceTracker();
+    this.enableAdaptiveBatching = options.enableAdaptiveBatching ?? true;
   }
 
   private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]): void {
@@ -578,17 +599,274 @@ export class Permit2RpcManager {
   }
 
   /**
-   * Handle batch requests properly
+   * Execute a batch RPC call
+   */
+  private async executeBatchCall(
+    url: string,
+    requests: Array<{ jsonrpc: "2.0"; id: number | string | null; method: string; params?: unknown[] }>
+  ): Promise<JsonRpcResponse[]> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs * 2); // Double timeout for batches
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requests),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      // Parse response
+      let responseData: any;
+      try {
+        responseData = await response.json();
+      } catch (jsonError) {
+        throw new JsonRpcError(
+          JSON_RPC_ERROR_CODES.PARSE_ERROR,
+          `Invalid JSON response from provider`,
+          undefined,
+          response.status
+        );
+      }
+
+      // Check HTTP status
+      if (!response.ok) {
+        throw new JsonRpcError(
+          JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+          `HTTP error ${response.status} ${response.statusText}`,
+          undefined,
+          response.status
+        );
+      }
+
+      // Validate batch response
+      if (!Array.isArray(responseData)) {
+        throw new JsonRpcError(
+          JSON_RPC_ERROR_CODES.INVALID_REQUEST,
+          `Expected array response for batch request, got ${typeof responseData}`,
+          undefined,
+          response.status
+        );
+      }
+
+      return responseData as JsonRpcResponse[];
+
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new JsonRpcError(
+          JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+          `Batch request timeout after ${this.requestTimeoutMs * 2}ms`,
+          undefined,
+          408
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Handle batch requests with adaptive batching and load balancing
    */
   async sendBatch<T = unknown>(
     chainId: number,
     requests: Array<{ method: string; params?: unknown[] }>
   ): Promise<T[]> {
-    // For now, just send individual requests
-    // TODO: Implement proper batch handling
-    const results = await Promise.all(
-      requests.map(req => this.send<T>(chainId, req.method, req.params || []))
+    if (requests.length === 0) {
+      return [];
+    }
+
+    // Convert to JSON-RPC format
+    const jsonRpcRequests = requests.map((req, index) => ({
+      jsonrpc: "2.0" as const,
+      id: `batch-${Date.now()}-${index}`,
+      method: req.method,
+      params: req.params,
+    }));
+
+    // Get available RPCs
+    const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
+    const availableRpcs = allRpcs.filter(rpc => this.isRpcAvailable(rpc));
+
+    if (availableRpcs.length === 0) {
+      throw new Error(`No healthy RPC endpoints available for chain ${chainId}.`);
+    }
+
+    // Split requests into optimal batches
+    const splitResult = splitIntoBatches(jsonRpcRequests, this.batchConfig);
+
+    this._log("info",
+      `[BATCH] Chain ${chainId}: ${requests.length} requests split into ${splitResult.batches.length} batches ` +
+      `(strategy: ${splitResult.strategy})`
     );
-    return results;
+
+    // Handle based on strategy
+    if (splitResult.strategy === 'single') {
+      // Send each request individually
+      const results = await Promise.all(
+        requests.map(req => this.send<T>(chainId, req.method, req.params || []))
+      );
+      return results;
+    }
+
+    // Distribute batches across available RPCs
+    const distribution = distributeBatches(splitResult.batches, availableRpcs);
+
+    // Execute batches in parallel
+    const batchPromises: Promise<{ rpc: string; responses: JsonRpcResponse[]; batchIndex: number }>[] = [];
+    let batchIndex = 0;
+
+    for (const [rpcUrl, batches] of distribution) {
+      for (const batch of batches) {
+        const currentBatchIndex = batchIndex++;
+        const batchSize = batch.length;
+
+        batchPromises.push(
+          this.executeBatchWithFailover(
+            chainId,
+            rpcUrl,
+            batch,
+            availableRpcs,
+            currentBatchIndex
+          ).then(responses => {
+            // Record performance metrics
+            if (this.enableAdaptiveBatching) {
+              const success = responses.every(r => !r.error);
+              this.batchPerformanceTracker.recordResult(
+                rpcUrl,
+                batchSize,
+                success,
+                Date.now() - startTime,
+                false
+              );
+            }
+            return { rpc: rpcUrl, responses, batchIndex: currentBatchIndex };
+          })
+        );
+      }
+    }
+
+    const startTime = Date.now();
+
+    try {
+      // Wait for all batches to complete
+      const batchResults = await Promise.all(batchPromises);
+
+      // Sort by batch index to maintain order
+      batchResults.sort((a, b) => a.batchIndex - b.batchIndex);
+
+      // Flatten and extract results
+      const allResponses: JsonRpcResponse[] = [];
+      for (const { responses } of batchResults) {
+        allResponses.push(...responses);
+      }
+
+      // Map back to original order and extract results
+      const resultMap = new Map<string | number, T>();
+      for (const response of allResponses) {
+        if (response.error) {
+          throw new JsonRpcError(
+            response.error.code,
+            response.error.message,
+            response.error.data
+          );
+        }
+        if (response.id !== null) {
+          resultMap.set(response.id, response.result as T);
+        }
+      }
+
+      // Return in original order
+      return jsonRpcRequests.map(req => {
+        const result = resultMap.get(req.id);
+        if (result === undefined) {
+          throw new Error(`Missing response for request ${req.id}`);
+        }
+        return result;
+      });
+
+    } catch (error) {
+      this._log("error", `[BATCH] Batch execution failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Execute a batch with failover support
+   */
+  private async executeBatchWithFailover(
+    chainId: number,
+    primaryRpc: string,
+    batch: Array<{ jsonrpc: "2.0"; id: number | string | null; method: string; params?: unknown[] }>,
+    availableRpcs: string[],
+    batchIndex: number
+  ): Promise<JsonRpcResponse[]> {
+    let lastError: Error | null = null;
+    const attemptedRpcs: string[] = [];
+
+    // Try primary RPC first
+    const rpcsToTry = [primaryRpc, ...availableRpcs.filter(rpc => rpc !== primaryRpc)];
+
+    for (const rpcUrl of rpcsToTry) {
+      if (!this.isRpcAvailable(rpcUrl)) {
+        continue;
+      }
+
+      attemptedRpcs.push(rpcUrl);
+
+      try {
+        this._log("debug", `[BATCH] Trying batch ${batchIndex} (${batch.length} requests) on ${rpcUrl}`);
+
+        const responses = await this.executeBatchCall(rpcUrl, batch);
+
+        // Check if all responses are successful
+        const hasErrors = responses.some(r => r.error);
+        if (!hasErrors) {
+          // Full success
+          await this.recordSuccess(chainId, rpcUrl);
+          return responses;
+        }
+
+        // Partial success - some requests failed
+        // For now, treat as failure and try next RPC
+        // TODO: Could implement partial retry logic
+        this._log("warn",
+          `[BATCH] Batch ${batchIndex} had errors on ${rpcUrl}, trying next RPC`
+        );
+
+        lastError = new Error(`Batch had errors: ${responses.filter(r => r.error).length} failed`);
+
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        const classification = this.classifyError(lastError);
+
+        this._log("warn",
+          `[BATCH] RPC ${rpcUrl} failed for batch ${batchIndex}: ${classification.reason}`
+        );
+
+        await this.recordFailure(chainId, rpcUrl, classification);
+
+        // Check if error type suggests retry won't help
+        if (classification.behavior === ErrorBehavior.DO_NOT_RETRY ||
+            classification.behavior === ErrorBehavior.BLOCKCHAIN_ERROR) {
+          throw lastError;
+        }
+
+        // Continue to next RPC
+      }
+    }
+
+    // All RPCs failed
+    throw new JsonRpcError(
+      -32000,
+      `All ${attemptedRpcs.length} RPC endpoints failed for batch ${batchIndex}. ` +
+      `Last error: ${lastError?.message || "Unknown error"}`,
+      { attemptedRpcs, batchIndex, batchSize: batch.length }
+    );
   }
 }

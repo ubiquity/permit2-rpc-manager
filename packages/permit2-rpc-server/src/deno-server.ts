@@ -212,16 +212,34 @@ const handler = async (request: Request): Promise<Response> => {
       });
     }
 
-    // Process batch requests concurrently
-    const promises = requestBody.map(async (req) => {
-      try {
-        const result = await manager.send(chainId, req.method, req.params ?? []);
-        return { jsonrpc: "2.0", id: req.id, result } as JsonRpcResponse;
-      } catch (e) {
-        const error = e instanceof Error ? e : new Error(String(e));
-        console.error(`Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`, error);
+    // Use the new batch handling capabilities
+    try {
+      // Convert to the format expected by sendBatch
+      const batchRequests = requestBody.map(req => ({
+        method: req.method,
+        params: req.params ?? [],
+      }));
 
-        // Extract error details consistently
+      // Send batch using the optimized batch handler
+      const results = await manager.sendBatch(chainId, batchRequests);
+
+      // Map results back to JSON-RPC responses
+      const responses = requestBody.map((req, index) => ({
+        jsonrpc: "2.0" as const,
+        id: req.id,
+        result: results[index],
+      }));
+
+      return new Response(JSON.stringify(responses), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error(String(e));
+      console.error(`Error processing batch request for chain ${chainId}:`, error);
+
+      // If batch processing fails entirely, return error for all requests
+      const responses = requestBody.map((req) => {
         const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
           ? error.code
           : -32603;
@@ -236,15 +254,13 @@ const handler = async (request: Request): Promise<Response> => {
             data,
           },
         } as JsonRpcResponse;
-      }
-    });
+      });
 
-    const responses = await Promise.all(promises);
-
-    return new Response(JSON.stringify(responses), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+      return new Response(JSON.stringify(responses), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   } // --- Handle Single Request ---
   else if (isValidJsonRpcRequest(requestBody)) {
     console.log(`Received single request for chain ${chainId}: ${requestBody.method}`);
