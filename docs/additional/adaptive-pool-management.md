@@ -123,6 +123,18 @@ The system provides detailed logging for pool management decisions:
 7. Eliminated RPCs are retried after 1 hour
 8. If they recover, failure tracking is cleared and they rejoin the pool
 
+## Panic Mode and Emergency Pool Refresh
+
+When all RPCs in the pool are eliminated or marked unhealthy, the system triggers an **Emergency Pool Refresh**. If no healthy RPCs are found, the manager enters **panic mode**:
+- All requests are rejected with a clear error.
+- The system periodically re-tests all endpoints at a configurable interval (`panicModeRetryMs`).
+- Panic mode exits automatically when a healthy RPC is detected.
+
+### Configuring Panic Mode Timeout
+
+- The interval between panic mode re-tests is set via the `panicModeRetryMs` option.
+- Shorter intervals enable faster recovery but may increase load; longer intervals reduce resource usage but may delay recovery.
+
 ## Monitoring
 
 To monitor the adaptive pool management:

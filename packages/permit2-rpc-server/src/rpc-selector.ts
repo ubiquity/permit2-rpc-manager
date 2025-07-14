@@ -29,6 +29,35 @@ export class RpcSelector {
   }
 
   /**
+   * Returns the number of available RPCs (status: ok, wrong_bytecode, syncing) for a given chainId.
+   * If chainId is not provided, returns the max available for any chain.
+   */
+  public async getAvailableRpcCount(chainId?: number): Promise<number> {
+    const chainIds = typeof chainId === "number"
+      ? [chainId]
+      : this.dataSource.getAllChainIds
+        ? this.dataSource.getAllChainIds()
+        : [];
+    let maxAvailable = 0;
+    for (const id of chainIds) {
+      const rpcUrls = this.dataSource.getRpcUrls(id);
+      let count = 0;
+      const latencyMap = await this.cacheManager.getLatencyMap(id);
+      if (!latencyMap) continue;
+      for (const url of rpcUrls) {
+        if (
+          latencyMap[url] &&
+          ["ok", "wrong_bytecode", "syncing"].includes(latencyMap[url].status)
+        ) {
+          count++;
+        }
+      }
+      if (count > maxAvailable) maxAvailable = count;
+    }
+    return maxAvailable;
+  }
+
+  /**
    * Gets a ranked list of available RPC URLs for the given chain ID.
    * Fetches from cache or performs latency tests if needed.
    * Filters out RPCs with error statuses.
@@ -36,19 +65,34 @@ export class RpcSelector {
    * Ensures only one latency test runs concurrently per chain ID.
    *
    * @param chainId - The chain ID.
+   * @param forceRefresh - If true, bypass cache and force latency test.
+   * @param panicTimeoutMs - If set, use this timeout for latency test (panic mode).
    * @returns A promise that resolves to a sorted array of usable RPC URLs.
    */
-  async getRankedRpcList(chainId: number): Promise<string[]> {
-    let latencyMap = await this.cacheManager.getLatencyMap(chainId);
-    // Use const as this variable is not reassigned before the next block
-    const fastestCachedRpc = await this.cacheManager.getFastestRpc(chainId);
+  async getRankedRpcList(chainId: number, forceRefresh = false, panicTimeoutMs?: number): Promise<string[]> {
+    let latencyMap: Record<string, LatencyTestResult> | undefined;
+    let fastestCachedRpc: string | null | undefined;
 
-    // If cache is invalid (no map or fastest RPC doesn't match map status), re-test
-    if (!latencyMap || !fastestCachedRpc || !latencyMap[fastestCachedRpc] || !ACCEPTABLE_STATUSES.includes(latencyMap[fastestCachedRpc].status)) {
-      if (fastestCachedRpc && latencyMap) {
+    if (!forceRefresh) {
+      const lm = await this.cacheManager.getLatencyMap(chainId);
+      latencyMap = lm === null ? undefined : lm;
+      fastestCachedRpc = await this.cacheManager.getFastestRpc(chainId);
+    }
+
+    // If cache is invalid (no map or fastest RPC doesn't match map status), or forceRefresh, re-test
+    if (
+      forceRefresh ||
+      !latencyMap ||
+      !fastestCachedRpc ||
+      !latencyMap[fastestCachedRpc] ||
+      !ACCEPTABLE_STATUSES.includes(latencyMap[fastestCachedRpc].status)
+    ) {
+      if (!forceRefresh && fastestCachedRpc && latencyMap) {
         this.log("info", `Cached fastest RPC ${fastestCachedRpc} for chain ${chainId} is no longer valid or missing in map. Re-testing.`);
-      } else {
+      } else if (!forceRefresh) {
         this.log("info", `No valid cache for chain ${chainId}. Performing latency tests...`);
+      } else {
+        this.log("warn", `Force refreshing RPC pool for chain ${chainId}${panicTimeoutMs ? " (panic mode)" : ""}.`);
       }
 
       // --- Latency Test Locking ---
@@ -64,7 +108,7 @@ export class RpcSelector {
         }
 
         // Create the promise, store it, run the test, then remove it
-        testPromise = this.latencyTester.testRpcUrls(rpcUrls);
+        testPromise = this.latencyTester.testRpcUrls(rpcUrls, panicTimeoutMs);
         ongoingLatencyTests.set(chainId, testPromise);
         this.log("debug", `Initiated latency test for chain ${chainId}.`);
 
@@ -92,7 +136,7 @@ export class RpcSelector {
     }
 
     // Filter and sort the results from the (potentially updated) latency map
-    const rankedList = this._rankResults(latencyMap);
+    const rankedList = this._rankResults(latencyMap!);
     this.log("debug", `Ranked RPC list for chain ${chainId}:`, rankedList);
     return rankedList;
   }
@@ -172,7 +216,4 @@ export class RpcSelector {
     return validResults.map((result) => result.url);
   }
 
-  // --- Deprecated Methods (to be removed or kept for internal use if needed) ---
-  // async findFastestRpc(chainId: number): Promise<string | null> { ... }
-  // async findNextFastestRpc(chainId: number): Promise<string | null> { ... }
 }
