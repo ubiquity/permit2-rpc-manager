@@ -57,10 +57,12 @@ export class LatencyTester {
   private async _makeRpcCall(
     url: string,
     method: string,
-    params: unknown[] // Changed any[] to unknown[]
+    params: unknown[],
+    timeoutMsOverride?: number
   ): Promise<JsonRpcResponse> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeout = timeoutMsOverride ?? this.timeoutMs;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
     const requestBody: JsonRpcRequest = {
       jsonrpc: "2.0",
       method,
@@ -91,24 +93,24 @@ export class LatencyTester {
   /**
    * Tests latency, sync status, and Permit2 bytecode for a single RPC URL.
    * Returns a detailed result object.
+   * @param url RPC URL
+   * @param timeoutMs Optional timeout override for this test (panic mode)
    */
-  private async testSingleRpc(url: string): Promise<LatencyTestResult> {
+  private async testSingleRpc(url: string, timeoutMs?: number): Promise<LatencyTestResult> {
     const startTime = Date.now();
     let getCodeResponse: JsonRpcResponse | null = null;
     let syncingResponse: JsonRpcResponse | null = null;
-    // let error: unknown = null; // Removed unused variable
     let status: LatencyTestStatus = "network_error"; // Default to network error
 
     try {
       // Restore concurrent calls
       [getCodeResponse, syncingResponse] = await Promise.all([
-        this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]),
-        this._makeRpcCall(url, "eth_syncing", []),
+        this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"], timeoutMs),
+        this._makeRpcCall(url, "eth_syncing", [], timeoutMs),
       ]);
     } catch (e) {
       // Catch as unknown
       const err = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
-      // error = err; // Assign if needed, currently unused
       if (err.name === "AbortError") {
         status = "timeout";
       } else {
@@ -188,12 +190,17 @@ export class LatencyTester {
 
   /**
    * Tests a list of RPC URLs concurrently and returns a map of URL to detailed results.
+   * @param urls List of RPC URLs
+   * @param timeoutMs Optional timeout override for this test batch (panic mode)
    */
-  async testRpcUrls(urls: string[]): Promise<Record<string, LatencyTestResult>> {
+  async testRpcUrls(urls: string[], timeoutMs?: number): Promise<Record<string, LatencyTestResult>> {
     if (!urls || urls.length === 0) return {};
-    this.log("info", `Starting latency tests for ${urls.length} RPC URLs (incl. sync & bytecode check)...`);
+    this.log(
+      "info",
+      `Starting latency tests for ${urls.length} RPC URLs (incl. sync & bytecode check)${timeoutMs ? ` [timeout=${timeoutMs}ms]` : ""}...`
+    );
 
-    const results = await Promise.allSettled(urls.map((url) => this.testSingleRpc(url)));
+    const results = await Promise.allSettled(urls.map((url) => this.testSingleRpc(url, timeoutMs)));
     const resultMap: Record<string, LatencyTestResult> = {};
 
     results.forEach((result, index) => {

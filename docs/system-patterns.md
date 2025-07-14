@@ -78,6 +78,29 @@ flowchart TD
 
 ## 4. Data Flow (Simplified Request via Proxy)
 
+## 5. Resilience & Emergency Logic
+
+### Emergency Pool Refresh & Panic Mode
+
+- **Emergency Pool Refresh**: When all RPCs in the pool are marked as unhealthy (e.g., due to consecutive failures, rate limits, or network errors), the manager triggers an emergency refresh. This forcibly re-tests all whitelisted RPCs, bypassing normal cache and health state, to detect any that have recovered.
+- **Panic Mode**: If no healthy RPCs are found after emergency refresh, the system enters "panic mode". In this state:
+  - All requests are rejected with a clear error indicating no available RPCs.
+  - The system periodically re-tests all endpoints at a configurable interval.
+  - Panic mode automatically exits when at least one RPC is healthy again.
+- **Error Handling**: Panic mode ensures the system fails fast and transparently, rather than hanging or returning misleading errors.
+
+### Adaptive Backoff Logic
+
+- **Exponential Backoff**: For rate-limited or temporarily failing RPCs, the manager applies exponential backoff (default: 1s base, up to 60s max). Each consecutive failure increases the backoff period, reducing load on unstable endpoints and allowing for automatic recovery.
+- **Configuration**: Backoff parameters are configurable via manager options (`backoffBaseMs`, `maxBackoffMs`).
+
+### Panic Mode Timeout Configurability
+
+- **Configurable Timeout**: The interval between panic mode re-tests is configurable (e.g., `panicModeRetryMs`). This allows tuning for faster recovery or reduced load during widespread outages.
+- **Operational Impact**: Shorter timeouts enable quicker recovery but may increase load; longer timeouts reduce resource usage but may delay recovery.
+
+These mechanisms collectively ensure robust error handling, rapid recovery from outages, and clear operational transparency.
+
 1. Client sends `POST /rpc/{chainId}` request with a single or batch JSON-RPC
    payload to the Deno Deploy service URL.
 2. `deno-server.ts` receives the request, parses `chainId` and the payload

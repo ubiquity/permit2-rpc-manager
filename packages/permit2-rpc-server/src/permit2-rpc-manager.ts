@@ -78,6 +78,9 @@ interface ErrorClassification {
   isProviderIssue: boolean;
 }
 
+/**
+ * Options for configuring the Permit2RpcManager.
+ */
 export interface Permit2RpcManagerOptions {
   cacheTtlMs?: number;
   latencyTimeoutMs?: number;
@@ -93,6 +96,32 @@ export interface Permit2RpcManagerOptions {
   backoffBaseMs?: number;
   maxBackoffMs?: number;
   healthCheckIntervalMs?: number;
+
+  // Adaptive backoff config
+  adaptiveBackoffMinAvailableRpcs?: number; // default: 3
+  adaptiveBackoffPanicMinMs?: number; // default: 1000
+  adaptiveBackoffPanicMaxMs?: number; // default: 2000
+
+  /**
+   * Enable or disable panic mode (emergency refresh logic).
+   * When enabled, the manager will attempt a full pool refresh if all RPCs are unhealthy.
+   * @default true
+   */
+  panicModeEnabled?: boolean;
+
+  /**
+   * Timeout in milliseconds for emergency refresh operations in panic mode.
+   * Controls how long to wait for RPC responses during a panic mode refresh.
+   * @default 2000
+   */
+  panicModeTimeoutMs?: number;
+
+  /**
+   * Minimum interval in milliseconds between forced pool refreshes in panic mode.
+   * Prevents excessive refresh attempts when all RPCs are unhealthy.
+   * @default 30000
+   */
+  panicModeRefreshThresholdMs?: number;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
@@ -117,6 +146,7 @@ export class Permit2RpcManager {
   private requestTimeoutMs: number;
   private logLevel: NonNullable<Permit2RpcManagerOptions["logLevel"]>;
   private configuredLogLevelValue: number;
+  private options?: Permit2RpcManagerOptions;
 
   // Health tracking
   private rpcHealthStates = new Map<string, RpcHealthState>();
@@ -124,10 +154,16 @@ export class Permit2RpcManager {
   private backoffBaseMs: number;
   private maxBackoffMs: number;
 
+  // Emergency refresh / panic mode config
+  private panicModeEnabled: boolean;
+  private panicModeTimeoutMs: number;
+  private panicModeRefreshThresholdMs: number;
+
   // Round-robin tracking
   private rpcIndexMap = new Map<number, number>();
 
   constructor(options: Permit2RpcManagerOptions = {}) {
+    this.options = options;
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
     this.configuredLogLevelValue = LOG_LEVEL_HIERARCHY[this.logLevel];
     const logger = this._log.bind(this);
@@ -146,6 +182,11 @@ export class Permit2RpcManager {
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
     this.backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
     this.maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
+
+    // Emergency refresh / panic mode config
+    this.panicModeEnabled = options.panicModeEnabled ?? true;
+    this.panicModeTimeoutMs = options.panicModeTimeoutMs ?? 2000;
+    this.panicModeRefreshThresholdMs = options.panicModeRefreshThresholdMs ?? 30000;
   }
 
   private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]): void {
@@ -300,15 +341,45 @@ export class Permit2RpcManager {
   }
 
   /**
-   * Calculate backoff time for an RPC based on its failure count
-   */
-  private calculateBackoffMs(consecutiveFailures: number): number {
-    const backoff = Math.min(
-      this.backoffBaseMs * Math.pow(2, consecutiveFailures - 1),
-      this.maxBackoffMs
-    );
-    return backoff;
-  }
+   * Calculate backoff time for an RPC based on its failure count and pool health
+    * @param consecutiveFailures Number of consecutive failures for this RPC
+    * @param availableRpcCount Number of currently available RPCs in the pool
+    */
+   private calculateBackoffMs(
+     consecutiveFailures: number,
+     availableRpcCount?: number
+   ): number {
+     // Configurable thresholds
+     const minAvailableRpcs = this.options?.adaptiveBackoffMinAvailableRpcs ?? 3;
+     const panicBackoffMinMs = this.options?.adaptiveBackoffPanicMinMs ?? 1000;
+     const panicBackoffMaxMs = this.options?.adaptiveBackoffPanicMaxMs ?? 2000;
+     // If availableRpcCount is provided, apply adaptive logic
+     if (typeof availableRpcCount === "number") {
+       if (availableRpcCount === 0) {
+         // Panic: no RPCs available, use minimal backoff (1-2s)
+         return (
+           panicBackoffMinMs +
+           Math.floor(
+             Math.random() * (panicBackoffMaxMs - panicBackoffMinMs + 1)
+           )
+         );
+       }
+       if (availableRpcCount < minAvailableRpcs) {
+         // Danger: very few RPCs, reduce backoff by 75%
+         const base = Math.min(
+           this.backoffBaseMs * Math.pow(2, consecutiveFailures - 1),
+           this.maxBackoffMs
+         );
+         return Math.max(Math.floor(base * 0.25), 250);
+       }
+     }
+     // Normal: standard exponential backoff
+     const backoff = Math.min(
+       this.backoffBaseMs * Math.pow(2, consecutiveFailures - 1),
+       this.maxBackoffMs
+     );
+     return backoff;
+   }
 
   /**
    * Check if an RPC is currently available (not in backoff)
@@ -372,12 +443,25 @@ export class Permit2RpcManager {
 
     // Apply backoff based on error behavior
     if (classification.behavior === ErrorBehavior.RETRY_WITH_BACKOFF) {
-      const backoffMs = this.calculateBackoffMs(state.consecutiveFailures);
+      // Adaptive backoff: count available RPCs (async)
+      let availableRpcCount: number | undefined = undefined;
+      if (typeof this.rpcSelector?.getAvailableRpcCount === "function") {
+        try {
+          availableRpcCount = await this.rpcSelector.getAvailableRpcCount();
+        } catch {
+          availableRpcCount = undefined;
+        }
+      }
+      const backoffMs = this.calculateBackoffMs(
+        state.consecutiveFailures,
+        availableRpcCount
+      );
       state.temporaryUnavailableUntil = Date.now() + backoffMs;
 
-      this._log("warn",
+      this._log(
+        "warn",
         `[HEALTH] RPC ${rpcUrl} entering backoff for ${backoffMs}ms due to ${classification.reason} ` +
-        `(${state.consecutiveFailures} consecutive failures)`
+          `(${state.consecutiveFailures} consecutive failures, available RPCs: ${availableRpcCount})`
       );
     } else if (state.consecutiveFailures >= this.maxConsecutiveFailures) {
       // Mark as unavailable for longer period
@@ -408,10 +492,30 @@ export class Permit2RpcManager {
    * Send a JSON-RPC request with intelligent failover
    */
   async send<T = unknown>(chainId: number, method: string, params: unknown[] = []): Promise<T> {
-    const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
+    let allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
 
     // Filter available RPCs
-    const availableRpcs = allRpcs.filter(rpc => this.isRpcAvailable(rpc));
+    let availableRpcs = allRpcs.filter(rpc => this.isRpcAvailable(rpc));
+
+    // Emergency Pool Refresh / Panic Mode
+    if (
+      this.panicModeEnabled &&
+      availableRpcs.length === 0 &&
+      allRpcs.length > 0
+    ) {
+      // Check last test time from cache
+      this._log(
+        "warn",
+        `[EMERGENCY] All RPCs unhealthy for chain ${chainId}. Forcing full pool refresh in PANIC MODE (timeout ${this.panicModeTimeoutMs}ms)`
+      );
+      // Force refresh with panic mode timeout
+      allRpcs = await this.rpcSelector.getRankedRpcList(
+        chainId,
+        true,
+        this.panicModeTimeoutMs
+      );
+      availableRpcs = allRpcs.filter(rpc => this.isRpcAvailable(rpc));
+    }
 
     if (availableRpcs.length === 0) {
       // Check if all are in backoff
@@ -435,9 +539,10 @@ export class Permit2RpcManager {
     const startIndex = currentIndex % availableRpcs.length;
     this.rpcIndexMap.set(chainId, (currentIndex + 1) % availableRpcs.length);
 
-    this._log("debug",
+    this._log(
+      "debug",
       `[SEND] Chain ${chainId}: ${availableRpcs.length}/${allRpcs.length} RPCs available. ` +
-      `Starting at index ${startIndex}.`
+        `Starting at index ${startIndex}.`
     );
 
     let lastError: Error | null = null;
@@ -465,9 +570,10 @@ export class Permit2RpcManager {
         // Classify the error
         const classification = this.classifyError(lastError);
 
-        this._log("warn",
+        this._log(
+          "warn",
           `[SEND] RPC ${rpcUrl} failed: ${classification.reason} ` +
-          `(behavior: ${ErrorBehavior[classification.behavior]})`
+            `(behavior: ${ErrorBehavior[classification.behavior]})`
         );
 
         // Record the failure
@@ -493,7 +599,7 @@ export class Permit2RpcManager {
     throw new JsonRpcError(
       -32000,
       `All ${attemptedRpcs.length} RPC endpoints failed for chain ${chainId}. ` +
-      `Attempted: [${attemptedRpcs.join(", ")}]. Last error: ${errorMsg}`,
+        `Attempted: [${attemptedRpcs.join(", ")}]. Last error: ${errorMsg}`,
       { attemptedRpcs, chainId }
     );
   }
