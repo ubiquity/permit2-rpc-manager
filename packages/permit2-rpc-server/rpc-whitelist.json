@@ -2,6 +2,7 @@
   "rpcs": {
     "1": [
       "https://eth.llamarpc.com",
+      "https://go.getblock.io/aefd01aa907c4805ba3c00a9e5b48c6b",
       "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
       "https://ethereum-rpc.publicnode.com",
       "https://1rpc.io/eth",
@@ -12,6 +13,7 @@
       "https://singapore.rpc.blxrbdn.com",
       "https://eth.rpc.blxrbdn.com",
       "https://eth-mainnet.public.blastapi.io",
+      "https://api.securerpc.com/v1",
       "https://openapi.bitstack.com/v1/wNFxbiJyQsSeLrX8RRCHi7NpRxrlErZk/DjShIqLishPCTB9HiMkPHXjUM9CNM9Na/ETH/mainnet",
       "https://eth-pokt.nodies.app",
       "https://ethereum.public.blockpi.network/v1/rpc/public",
@@ -81,7 +83,6 @@
       "https://go.getblock.io/cc778cdbdf5c4b028ec9456e0e6c0cf3",
       "https://binance.nodereal.io",
       "https://bsc-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
-      "https://1rpc.io/bnb",
       "https://bsc.rpc.blxrbdn.com",
       "https://bnb.api.onfinality.io/public",
       "https://bsc-rpc.publicnode.com",
@@ -105,9 +106,9 @@
       "https://gnosis.drpc.org",
       "https://endpoints.omniatech.io/v1/gnosis/mainnet/public",
       "https://gnosis-rpc.publicnode.com",
-      "https://1rpc.io/gnosis",
       "https://gno-mainnet.gateway.tatum.io",
       "https://0xrpc.io/gno",
+      "https://gnosis.therpc.io",
       "https://gnosis.oat.farm"
     ],
     "137": [
@@ -118,13 +119,11 @@
       "https://1rpc.io/matic",
       "https://polygon-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://polygon-bor-rpc.publicnode.com",
-      "https://polygon-mainnet.g.alchemy.com/v2/demo",
       "https://go.getblock.io/02667b699f05444ab2c64f9bff28f027",
       "https://polygon.api.onfinality.io/public",
       "https://polygon.drpc.org",
       "https://polygon.gateway.tenderly.co",
       "https://gateway.tenderly.co/public/polygon",
-      "https://api.zan.top/polygon-mainnet",
       "https://polygon-mainnet.gateway.tatum.io",
       "https://polygon.rpc.subquery.network/public",
       "https://endpoints.omniatech.io/v1/matic/mainnet/public",
@@ -181,7 +180,6 @@
       "https://api.avax.network/ext/bc/C/rpc",
       "https://ava-mainnet.public.blastapi.io/ext/bc/C/rpc",
       "https://avalanche-c-chain-rpc.publicnode.com",
-      "https://1rpc.io/avax/c",
       "https://avax-pokt.nodies.app/ext/bc/C/rpc",
       "https://avalanche.api.onfinality.io/public/ext/bc/C/rpc",
       "https://endpoints.omniatech.io/v1/avax/mainnet/public",
@@ -189,7 +187,8 @@
       "https://avalanche.drpc.org",
       "https://avalanche-mainnet.gateway.tenderly.co",
       "https://0xrpc.io/avax",
-      "https://spectrum-01.simplystaking.xyz/avalanche-mn-rpc/ext/bc/C/rpc"
+      "https://spectrum-01.simplystaking.xyz/avalanche-mn-rpc/ext/bc/C/rpc",
+      "https://avalanche.therpc.io"
     ],
     "81457": [
       "https://rpc.blast.io",
@@ -203,7 +202,8 @@
       "https://blast.therpc.io"
     ],
     "7777777": [
-      "https://rpc.zora.energy"
+      "https://rpc.zora.energy",
+      "https://zora.drpc.org"
     ]
   }
 }
