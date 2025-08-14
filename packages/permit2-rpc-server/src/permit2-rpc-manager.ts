@@ -427,7 +427,33 @@ export class Permit2RpcManager {
         );
       }
 
-      throw new Error(`No healthy RPC endpoints available for chain ${chainId}.`);
+      // Emergency fallback: Reset all RPC health states and retry with full list
+      this._log("warn",
+        `[EMERGENCY FALLBACK] No healthy RPCs available for chain ${chainId}. ` +
+        `Resetting all RPC health states and retrying with full list.`
+      );
+
+      // Reset all RPC health states for this chain
+      await this.resetAllRpcHealthStates(chainId, allRpcs);
+
+      // Re-filter available RPCs after reset
+      const resetAvailableRpcs = allRpcs.filter(rpc => this.isRpcAvailable(rpc));
+
+      if (resetAvailableRpcs.length > 0) {
+        // Continue with the reset RPCs - update availableRpcs for the rest of the method
+        availableRpcs.length = 0;
+        availableRpcs.push(...resetAvailableRpcs);
+
+        this._log("info",
+          `[EMERGENCY FALLBACK] Successfully reset ${resetAvailableRpcs.length} RPCs for chain ${chainId}`
+        );
+      } else {
+        // If still no RPCs available after reset, this is a configuration issue
+        throw new Error(
+          `No RPC endpoints configured or all endpoints are fundamentally unreachable for chain ${chainId}. ` +
+          `Please check your RPC configuration.`
+        );
+      }
     }
 
     // Round-robin selection
@@ -470,18 +496,22 @@ export class Permit2RpcManager {
           `(behavior: ${ErrorBehavior[classification.behavior]})`
         );
 
-        // Record the failure
-        await this.recordFailure(chainId, rpcUrl, classification);
-
         // Decide if we should continue trying other RPCs
         switch (classification.behavior) {
           case ErrorBehavior.DO_NOT_RETRY:
           case ErrorBehavior.BLOCKCHAIN_ERROR:
-            // These errors will be the same on all RPCs
+            // These are client/request errors that will be the same on all RPCs
+            // Don't record as failures to prevent cascading health issues
+            this._log("info",
+              `[SEND] Error type ${ErrorBehavior[classification.behavior]} detected. ` +
+              `Not recording as RPC failure to prevent cascade.`
+            );
             throw lastError;
 
           case ErrorBehavior.RETRY_WITH_BACKOFF:
           case ErrorBehavior.RETRY_DIFFERENT_RPC:
+            // These are RPC-specific issues that should count toward health
+            await this.recordFailure(chainId, rpcUrl, classification);
             // Continue to next RPC
             continue;
         }
@@ -590,5 +620,44 @@ export class Permit2RpcManager {
       requests.map(req => this.send<T>(chainId, req.method, req.params || []))
     );
     return results;
+  }
+
+  /**
+   * Emergency fallback: Reset all RPC health states for a given chain
+   * This is called when no healthy RPCs are available to prevent permanent failures
+   */
+  private async resetAllRpcHealthStates(chainId: number, rpcUrls: string[]): Promise<void> {
+    this._log("warn",
+      `[HEALTH RESET] Resetting health states for ${rpcUrls.length} RPCs on chain ${chainId}`
+    );
+
+    for (const rpcUrl of rpcUrls) {
+      // Use just the rpcUrl as key to match getHealthState
+      const healthKey = rpcUrl;
+
+      // Reset the in-memory health state
+      this.rpcHealthStates.set(healthKey, {
+        consecutiveFailures: 0,
+        lastFailureTime: -1,
+        lastSuccessTime: Date.now(),
+        temporaryUnavailableUntil: -1,
+        failureReasons: new Map(),
+      });
+
+      // Also clear from KV store to prevent persistence of bad state
+      try {
+        const kv = await Deno.openKv();
+        const failureKey = ["rpc_failures", chainId, rpcUrl];
+        await kv.delete(failureKey);
+
+        this._log("debug", `[HEALTH RESET] Cleared KV state for ${rpcUrl}`);
+      } catch (error) {
+        this._log("error", `[HEALTH RESET] Failed to clear KV state for ${rpcUrl}:`, error);
+      }
+    }
+
+    this._log("info",
+      `[HEALTH RESET] Successfully reset health states for all RPCs on chain ${chainId}`
+    );
   }
 }
