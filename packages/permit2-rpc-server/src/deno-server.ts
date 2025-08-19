@@ -5,7 +5,7 @@
 // ChainlistDataSource is instantiated internally by Permit2RpcManager
 // import { ChainlistDataSource } from './chainlist-data-source.ts';
 import { Permit2RpcManager } from "./permit2-rpc-manager.ts";
-import { EthereumMcpHttpServer } from "./mcp-http-server.ts";
+import { CallToolRequest, CallToolResult, ListToolsRequest, ListToolsResult, Tool } from "npm:@modelcontextprotocol/sdk@1.0.4/types.js";
 // Adjust path to point one level up from src/
 import rpcWhitelist from "../rpc-whitelist.json" with { type: "json" };
 
@@ -74,10 +74,46 @@ const manager = new Permit2RpcManager({
   // TODO: Configure other CacheManager options like TTL if needed
 });
 
-// Initialize MCP server for the same manager
-const mcpServer = new EthereumMcpHttpServer(manager, {
-  cors: true,
-});
+// MCP tools definition - reusing the same tools from SimpleMcpServer
+const getEthereumTools = (): Tool[] => {
+  return [
+    {
+      name: "eth_getBalance",
+      description: "Returns the balance of the account of given address",
+      inputSchema: {
+        type: "object",
+        properties: {
+          address: { type: "string", description: "20-byte address to check for balance" },
+          blockNumber: { type: "string", description: "Block number or 'latest', 'earliest', 'pending'" },
+          chainId: { type: "number", description: "Chain ID (default: 1 for Ethereum mainnet)" },
+        },
+        required: ["address", "blockNumber"],
+      },
+    },
+    {
+      name: "eth_blockNumber",
+      description: "Returns the number of most recent block",
+      inputSchema: {
+        type: "object",
+        properties: {
+          chainId: { type: "number", description: "Chain ID (default: 1 for Ethereum mainnet)" },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "eth_chainId",
+      description: "Returns the currently configured chain ID",
+      inputSchema: {
+        type: "object", 
+        properties: {
+          chainId: { type: "number", description: "Chain ID (default: 1 for Ethereum mainnet)" },
+        },
+        required: [],
+      },
+    },
+  ];
+};
 
 const handler = async (request: Request): Promise<Response> => {
   // Set CORS headers for all responses
@@ -185,12 +221,102 @@ const handler = async (request: Request): Promise<Response> => {
         method.startsWith("resources/") ||
         method.startsWith("prompts/")
       )) {
-        // Handle MCP request using the existing mcpServer instance
+        // Handle MCP request directly
         try {
-          return await mcpServer.handleHttpRequest(request);
+          const mcpRequest = requestBody as any;
+          let mcpResponse: any;
+
+          switch (method) {
+            case "initialize":
+              mcpResponse = {
+                jsonrpc: "2.0",
+                id: mcpRequest.id,
+                result: {
+                  protocolVersion: "2024-11-05",
+                  capabilities: {
+                    tools: {},
+                  },
+                  serverInfo: {
+                    name: "ethereum-json-rpc",
+                    version: "1.0.0",
+                  },
+                },
+              };
+              break;
+
+            case "tools/list":
+              mcpResponse = {
+                jsonrpc: "2.0",
+                id: mcpRequest.id,
+                result: {
+                  tools: getEthereumTools(),
+                },
+              };
+              break;
+
+            case "tools/call":
+              const toolName = mcpRequest.params?.name;
+              const toolArgs = mcpRequest.params?.arguments || {};
+              const chainId = toolArgs.chainId || 1;
+
+              if (toolName === "eth_getBalance") {
+                const result = await manager.callRpcOnChain(chainId, "eth_getBalance", [toolArgs.address, toolArgs.blockNumber]);
+                mcpResponse = {
+                  jsonrpc: "2.0",
+                  id: mcpRequest.id,
+                  result: {
+                    content: [
+                      {
+                        type: "text",
+                        text: JSON.stringify(result),
+                      },
+                    ],
+                  },
+                };
+              } else if (toolName === "eth_blockNumber") {
+                const result = await manager.callRpcOnChain(chainId, "eth_blockNumber", []);
+                mcpResponse = {
+                  jsonrpc: "2.0",
+                  id: mcpRequest.id,
+                  result: {
+                    content: [
+                      {
+                        type: "text",
+                        text: JSON.stringify(result),
+                      },
+                    ],
+                  },
+                };
+              } else if (toolName === "eth_chainId") {
+                const result = await manager.callRpcOnChain(chainId, "eth_chainId", []);
+                mcpResponse = {
+                  jsonrpc: "2.0",
+                  id: mcpRequest.id,
+                  result: {
+                    content: [
+                      {
+                        type: "text",
+                        text: JSON.stringify(result),
+                      },
+                    ],
+                  },
+                };
+              } else {
+                throw new Error(`Unknown tool: ${toolName}`);
+              }
+              break;
+
+            default:
+              throw new Error(`Unknown MCP method: ${method}`);
+          }
+
+          return new Response(JSON.stringify(mcpResponse), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         } catch (error) {
           console.error("MCP request failed:", error);
-          const errorResponse = createJsonRpcError((requestBody as any).id, -32603, "Internal error");
+          const errorResponse = createJsonRpcError((requestBody as any).id, -32603, `Internal error: ${error instanceof Error ? error.message : String(error)}`);
           return new Response(JSON.stringify(errorResponse), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
