@@ -260,7 +260,7 @@ const handler = async (request: Request): Promise<Response> => {
               const chainId = toolArgs.chainId || 1;
 
               if (toolName === "eth_getBalance") {
-                const result = await manager.callRpcOnChain(chainId, "eth_getBalance", [toolArgs.address, toolArgs.blockNumber]);
+                const result = await manager.send(chainId, "eth_getBalance", [toolArgs.address, toolArgs.blockNumber]);
                 mcpResponse = {
                   jsonrpc: "2.0",
                   id: mcpRequest.id,
@@ -274,7 +274,7 @@ const handler = async (request: Request): Promise<Response> => {
                   },
                 };
               } else if (toolName === "eth_blockNumber") {
-                const result = await manager.callRpcOnChain(chainId, "eth_blockNumber", []);
+                const result = await manager.send(chainId, "eth_blockNumber", []);
                 mcpResponse = {
                   jsonrpc: "2.0",
                   id: mcpRequest.id,
@@ -288,7 +288,7 @@ const handler = async (request: Request): Promise<Response> => {
                   },
                 };
               } else if (toolName === "eth_chainId") {
-                const result = await manager.callRpcOnChain(chainId, "eth_chainId", []);
+                const result = await manager.send(chainId, "eth_chainId", []);
                 mcpResponse = {
                   jsonrpc: "2.0",
                   id: mcpRequest.id,
