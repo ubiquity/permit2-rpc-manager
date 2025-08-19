@@ -4,3 +4,6 @@
 [submodule "lib/permit2"]
 	path = lib/permit2
 	url = https://github.com/Uniswap/permit2.git
+[submodule "docs/mcp"]
+	path = docs/mcp
+	url = https://github.com/modelcontextprotocol/modelcontextprotocol.git
