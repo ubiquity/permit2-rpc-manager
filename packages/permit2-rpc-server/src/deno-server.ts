@@ -163,6 +163,54 @@ const handler = async (request: Request): Promise<Response> => {
   const url = new URL(checkedUrl);
   const pathParts = url.pathname.split("/").filter(Boolean); // e.g., ['100']
 
+  // If request is to root path /, check if it's an MCP request
+  if (pathParts.length === 0) {
+    let requestBody: unknown;
+    try {
+      requestBody = await request.json();
+    } catch (e) {
+      const errorResponse = createJsonRpcError(null, -32700, "Parse error: Invalid JSON");
+      return new Response(JSON.stringify(errorResponse), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Check if this is an MCP request
+    if (typeof requestBody === "object" && requestBody !== null && "method" in requestBody) {
+      const method = (requestBody as any).method;
+      if (typeof method === "string" && (
+        method === "initialize" ||
+        method.startsWith("tools/") ||
+        method.startsWith("resources/") ||
+        method.startsWith("prompts/")
+      )) {
+        // Handle MCP request using EthereumMcpHttpServer
+        try {
+          const mcpServer = new EthereumMcpHttpServer(rpcManager, {
+            port: 8000,
+            host: "0.0.0.0",
+            cors: true,
+          });
+          return await mcpServer.handleHttpRequest(request);
+        } catch (error) {
+          console.error("MCP request failed:", error);
+          const errorResponse = createJsonRpcError((requestBody as any).id, -32603, "Internal error");
+          return new Response(JSON.stringify(errorResponse), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+    }
+
+    // Not an MCP request, return error
+    return new Response("Not Found: Expected path /{chainId} for RPC calls", {
+      status: 404,
+      headers: corsHeaders,
+    });
+  }
+
   // Expect only one path part: the chainId
   if (pathParts.length !== 1) {
     return new Response("Not Found: Expected path /{chainId}", {
