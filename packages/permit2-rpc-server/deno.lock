@@ -1,9 +1,18 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:@modelcontextprotocol/sdk@*": "1.13.0_express@5.1.0_zod@3.25.67"
+    "npm:@modelcontextprotocol/sdk@*": "1.13.0_express@5.1.0_zod@3.25.67",
+    "npm:@modelcontextprotocol/sdk@1.0.4": "1.0.4"
   },
   "npm": {
+    "@modelcontextprotocol/sdk@1.0.4": {
+      "integrity": "sha512-C+jw1lF6HSGzs7EZpzHbXfzz9rj9him4BaoumlTciW/IDDgIpweF/qiCWKlP02QKg5PPcgY6xY2WCt5y2tpYow==",
+      "dependencies": [
+        "content-type",
+        "raw-body",
+        "zod"
+      ]
+    },
     "@modelcontextprotocol/sdk@1.13.0_express@5.1.0_zod@3.25.67": {
       "integrity": "sha512-P5FZsXU0kY881F6Hbk9GhsYx02/KgWK1DYf7/tyE/1lcFKhDYPQR9iYjhQXJn+Sg6hQleMo3DB7h7+p4wgp2Lw==",
       "dependencies": [
