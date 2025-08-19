@@ -1,0 +1,82 @@
+# Project Structure Summary
+
+## ✅ Organized File Structure
+
+```
+permit2-rpc-server/
+├── README.md                     # Main project documentation
+├── deno.jsonc                    # Deno configuration and tasks
+├── deno.lock                     # Dependency lockfile
+│
+├── src/                          # Source code
+│   ├── permit2-rpc-manager.ts    # Core RPC management logic
+│   ├── deno-server.ts            # HTTP RPC proxy server
+│   ├── mcp-ethereum-server.ts    # MCP server CLI entry point
+│   ├── mcp-server.ts             # MCP stdio transport server
+│   ├── mcp-http-server.ts        # MCP HTTP transport server
+│   ├── index.ts                  # Package exports
+│   └── [supporting modules]      # Cache, latency, selector, etc.
+│
+├── docs/                         # Documentation
+│   └── mcp-server/              # MCP-specific documentation
+│       ├── README-MCP.md        # Comprehensive MCP docs
+│       └── QUICK-START.md       # Quick reference guide
+│
+├── examples/                     # Configuration examples
+│   └── mcp-config.example.json  # MCP server configuration template
+│
+├── tests/                        # Test files
+│   └── test-mcp.ts              # MCP server test suite
+│
+└── [legacy files]               # Existing project files
+    ├── resilience.test.ts
+    ├── rpc-whitelist.json
+    └── tmp/
+```
+
+## 🎯 Key Features
+
+### 1. Clean Separation
+- **Core RPC functionality** in `src/`
+- **MCP server implementation** as separate modules  
+- **Documentation** in dedicated `docs/` directory
+- **Examples & tests** in appropriate directories
+
+### 2. Dual Purpose Package
+- **RPC Proxy Service** for resilient Ethereum RPC access
+- **MCP Server** for AI agent integration
+
+### 3. Multiple Transport Support
+- **Stdio transport** for local MCP clients (Claude Desktop)
+- **HTTP transport** for remote/web deployment
+
+### 4. Ready for Deployment
+- **Deno Deploy ready** with proper configuration
+- **Environment-based configuration** support
+- **Comprehensive testing** infrastructure
+
+## 🚀 Available Commands
+
+```bash
+# RPC Proxy Service
+deno task start          # Start RPC proxy
+deno task dev           # Development mode
+
+# MCP Server  
+deno task mcp-stdio     # Stdio transport (Claude Desktop)
+deno task mcp-http      # HTTP transport (web/remote)
+deno task test-mcp      # Run MCP tests
+
+# Development
+deno task lint          # Code linting
+deno task fmt           # Code formatting
+deno task test          # Run all tests
+```
+
+## 📋 Git Status Preserved
+- All staged files maintained
+- No git commands executed
+- Project state preserved
+- Only file organization performed
+
+This structure maintains backward compatibility while adding comprehensive MCP server functionality in a clean, organized manner.
