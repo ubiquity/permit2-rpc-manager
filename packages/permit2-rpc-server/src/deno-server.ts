@@ -5,6 +5,7 @@
 // ChainlistDataSource is instantiated internally by Permit2RpcManager
 // import { ChainlistDataSource } from './chainlist-data-source.ts';
 import { Permit2RpcManager } from "./permit2-rpc-manager.ts";
+import { EthereumMcpHttpServer } from "./mcp-http-server.ts";
 // Adjust path to point one level up from src/
 import rpcWhitelist from "../rpc-whitelist.json" with { type: "json" };
 
@@ -71,6 +72,11 @@ const manager = new Permit2RpcManager({
   initialRpcData: rpcWhitelist,
   disableCache: shouldDisableCache,
   // TODO: Configure other CacheManager options like TTL if needed
+});
+
+// Initialize MCP server for the same manager
+const mcpServer = new EthereumMcpHttpServer(manager, {
+  cors: true,
 });
 
 const handler = async (request: Request): Promise<Response> => {
@@ -189,6 +195,34 @@ const handler = async (request: Request): Promise<Response> => {
       status: 200, // JSON-RPC compliance: parse errors return HTTP 200
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+  }
+
+  // --- Detect MCP Request ---
+  // MCP requests have specific methods like "initialize", "tools/list", "tools/call"
+  const isMcpRequest = (body: unknown): boolean => {
+    if (typeof body === "object" && body !== null && "method" in body) {
+      const method = (body as any).method;
+      return typeof method === "string" && (
+        method === "initialize" ||
+        method.startsWith("tools/") ||
+        method.startsWith("resources/") ||
+        method.startsWith("prompts/") ||
+        method === "notifications/initialized"
+      );
+    }
+    return false;
+  };
+
+  // If this is an MCP request, delegate to MCP server
+  if (isMcpRequest(requestBody)) {
+    console.log(`Received MCP request for chain ${chainId}: ${(requestBody as any).method}`);
+    // Create a new request with the original body for the MCP server
+    const mcpRequest = new Request(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(requestBody)
+    });
+    return await mcpServer.handleHttpRequest(mcpRequest);
   }
 
   // --- Handle Batch Request ---

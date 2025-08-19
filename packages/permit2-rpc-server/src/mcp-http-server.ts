@@ -578,7 +578,7 @@ export class EthereumMcpHttpServer {
     }
   }
 
-  private async handleHttpRequest(request: Request): Promise<Response> {
+  async handleHttpRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     // CORS preflight
