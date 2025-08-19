@@ -185,13 +185,8 @@ const handler = async (request: Request): Promise<Response> => {
         method.startsWith("resources/") ||
         method.startsWith("prompts/")
       )) {
-        // Handle MCP request using EthereumMcpHttpServer
+        // Handle MCP request using the existing mcpServer instance
         try {
-          const mcpServer = new EthereumMcpHttpServer(rpcManager, {
-            port: 8000,
-            host: "0.0.0.0",
-            cors: true,
-          });
           return await mcpServer.handleHttpRequest(request);
         } catch (error) {
           console.error("MCP request failed:", error);
