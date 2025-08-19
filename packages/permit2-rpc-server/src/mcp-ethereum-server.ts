@@ -1,110 +1,63 @@
 #!/usr/bin/env deno run --allow-all
 
 import { parseArgs } from "https://deno.land/std@0.224.0/cli/parse_args.ts";
-import { Permit2RpcManager } from "./permit2-rpc-manager.ts";
-import { EthereumMcpServer } from "./mcp-server.ts";
-import { EthereumMcpHttpServer, StreamableHttpServerOptions } from "./mcp-http-server.ts";
+import { SimpleMcpServer } from "./mcp-simple-server.ts";
 
 interface CliOptions {
-  transport: "stdio" | "http";
-  port?: number;
-  host?: string;
-  cors?: boolean;
-  config?: string;
+  transport: "stdio";
+  rpcBaseUrl?: string;
   help?: boolean;
 }
 
 function printUsage() {
   console.log(`
-Ethereum JSON-RPC MCP Server
+Ethereum JSON-RPC MCP Server (Using Load Balancer)
 
 USAGE:
   deno run --allow-all mcp-ethereum-server.ts [OPTIONS]
 
 OPTIONS:
-  --transport <stdio|http>  Transport type (default: stdio)
-  --port <number>          HTTP server port (default: 3000)
-  --host <string>          HTTP server host (default: 127.0.0.1)
-  --cors                   Enable CORS for HTTP server
-  --config <path>          Path to configuration file
+  --rpc-base-url <url>     Base URL for RPC load balancer (default: https://rpc.ubq.fi)
   --help                   Show this help message
 
 EXAMPLES:
-  # Run with stdio transport (for MCP clients)
+  # Run with default load balancer (rpc.ubq.fi)
   deno run --allow-all mcp-ethereum-server.ts
 
-  # Run HTTP server on port 8080
-  deno run --allow-all mcp-ethereum-server.ts --transport http --port 8080
-
-  # Run HTTP server with CORS enabled
-  deno run --allow-all mcp-ethereum-server.ts --transport http --cors
+  # Run with custom load balancer
+  deno run --allow-all mcp-ethereum-server.ts --rpc-base-url https://custom-rpc.example.com
 
 ETHEREUM JSON-RPC METHODS:
-  This server exposes all standard Ethereum JSON-RPC methods as MCP tools:
+  This server exposes all standard Ethereum JSON-RPC methods as MCP tools.
+  All calls are routed through the load balancer at {rpcBaseUrl}/{chainId}
 
   Core Methods:
-  - eth_getBalance: Get account balance
-  - eth_getCode: Get contract code
-  - eth_getTransactionCount: Get transaction count (nonce)
-  - eth_getStorageAt: Get storage value at position
-  - eth_call: Execute contract call
-  - eth_estimateGas: Estimate gas for transaction
-  - eth_blockNumber: Get latest block number
-  - eth_sendRawTransaction: Send signed transaction
+  - eth_getBalance, eth_getCode, eth_getTransactionCount, eth_getStorageAt
+  - eth_call, eth_estimateGas, eth_blockNumber, eth_sendRawTransaction
 
   Block Methods:
-  - eth_getBlockByHash: Get block by hash
-  - eth_getBlockByNumber: Get block by number
-  - eth_getBlockTransactionCountByHash: Get transaction count in block by hash
-  - eth_getBlockTransactionCountByNumber: Get transaction count in block by number
-  - eth_getUncleCountByBlockHash: Get uncle count by block hash
-  - eth_getUncleCountByBlockNumber: Get uncle count by block number
+  - eth_getBlockByHash, eth_getBlockByNumber, eth_getBlockTransactionCountByHash
+  - eth_getBlockTransactionCountByNumber, eth_getUncleCountByBlockHash, eth_getUncleCountByBlockNumber
 
   Transaction Methods:
-  - eth_getTransactionByHash: Get transaction by hash
-  - eth_getTransactionByBlockHashAndIndex: Get transaction by block hash and index
-  - eth_getTransactionByBlockNumberAndIndex: Get transaction by block number and index
-  - eth_getTransactionReceipt: Get transaction receipt
-  - eth_getUncleByBlockHashAndIndex: Get uncle by block hash and index
-  - eth_getUncleByBlockNumberAndIndex: Get uncle by block number and index
+  - eth_getTransactionByHash, eth_getTransactionByBlockHashAndIndex
+  - eth_getTransactionByBlockNumberAndIndex, eth_getTransactionReceipt
+  - eth_getUncleByBlockHashAndIndex, eth_getUncleByBlockNumberAndIndex
 
   Network Info:
-  - eth_protocolVersion: Get protocol version
-  - eth_syncing: Get sync status
-  - eth_coinbase: Get coinbase address
-  - eth_chainId: Get chain ID
-  - eth_mining: Get mining status
-  - eth_hashrate: Get mining hashrate
-  - eth_gasPrice: Get current gas price
-  - eth_accounts: Get available accounts
+  - eth_protocolVersion, eth_syncing, eth_coinbase, eth_chainId
+  - eth_mining, eth_hashrate, eth_gasPrice, eth_accounts
 
-Each method supports an optional 'rpcUrl' parameter to override the default RPC endpoint.
+All methods support a 'chainId' parameter (default: 1 for Ethereum mainnet).
 `);
-}
-
-async function loadConfig(configPath?: string) {
-  if (!configPath) {
-    return {};
-  }
-
-  try {
-    const configText = await Deno.readTextFile(configPath);
-    return JSON.parse(configText);
-  } catch (error) {
-    console.error(`Failed to load config from ${configPath}:`, error);
-    Deno.exit(1);
-  }
 }
 
 async function main() {
   const args = parseArgs(Deno.args, {
-    string: ["transport", "port", "host", "config"],
-    boolean: ["cors", "help"],
+    string: ["rpc-base-url"],
+    boolean: ["help"],
     default: {
-      transport: "stdio",
-      port: "3000",
-      host: "127.0.0.1",
-      cors: false,
+      "rpc-base-url": "https://rpc.ubq.fi",
     },
   }) as CliOptions;
 
@@ -113,68 +66,14 @@ async function main() {
     Deno.exit(0);
   }
 
-  // Load configuration
-  const config = await loadConfig(args.config);
-
-  // Initialize RPC Manager
-  const rpcManagerOptions = {
-    maxConsecutiveFailures: config.maxConsecutiveFailures || 3,
-    requestTimeoutMs: config.requestTimeoutMs || 30000,
-    initialRpcData: config.initialRpcData,
-    ...config,
-  };
-
-  // Add some default RPC URLs if none configured
-  if (!rpcManagerOptions.initialRpcData) {
-    console.log("No RPC URLs configured, using default Ethereum mainnet RPCs");
-    rpcManagerOptions.initialRpcData = {
-      rpcs: {
-        "1": [
-          "https://eth.llamarpc.com",
-          "https://ethereum.publicnode.com",
-          "https://eth.drpc.org",
-        ],
-      },
-    };
-  }
-
-  const rpcManager = new Permit2RpcManager(rpcManagerOptions);
+  const rpcBaseUrl = args.rpcBaseUrl || args["rpc-base-url"] || "https://rpc.ubq.fi";
 
   try {
-    if (args.transport === "http") {
-      // HTTP Transport
-      const httpOptions: StreamableHttpServerOptions = {
-        port: parseInt(args.port as string) || 3000,
-        host: args.host || "127.0.0.1",
-        cors: args.cors || false,
-        sessionTimeoutMs: config.sessionTimeoutMs || 300000,
-      };
-
-      const httpServer = new EthereumMcpHttpServer(rpcManager, httpOptions);
-      
-      console.log("Starting Ethereum MCP HTTP Server...");
-      await httpServer.start();
-
-      // Handle graceful shutdown
-      const signals = ["SIGINT", "SIGTERM"] as const;
-      for (const signal of signals) {
-        Deno.addSignalListener(signal, async () => {
-          console.log(`\nReceived ${signal}, shutting down...`);
-          await httpServer.stop();
-          Deno.exit(0);
-        });
-      }
-
-      // Keep process alive
-      console.log("Server started. Press Ctrl+C to stop.");
-      await new Promise(() => {}); // Keep alive
-    } else {
-      // Stdio Transport
-      const stdioServer = new EthereumMcpServer(rpcManager);
-      
-      console.error("Starting Ethereum MCP Server with stdio transport...");
-      await stdioServer.run();
-    }
+    // Create simplified MCP server that uses load balancer
+    const server = new SimpleMcpServer(rpcBaseUrl);
+    
+    console.error(`Starting Ethereum MCP Server using load balancer: ${rpcBaseUrl}`);
+    await server.run();
   } catch (error) {
     console.error("Failed to start server:", error);
     Deno.exit(1);
