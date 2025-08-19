@@ -1,0 +1,55 @@
+{
+  "description": "Configuration for Ethereum JSON-RPC MCP Server",
+  "rpcUrls": [
+    "https://eth.llamarpc.com",
+    "https://ethereum.publicnode.com",
+    "https://eth.drpc.org",
+    "https://rpc.ankr.com/eth",
+    "https://cloudflare-eth.com"
+  ],
+  "maxRetries": 3,
+  "retryDelayMs": 1000,
+  "requestTimeoutMs": 30000,
+  "healthCheckIntervalMs": 60000,
+  "fallbackTimeoutMs": 5000,
+  "panicModeConfig": {
+    "enabled": true,
+    "maxConsecutiveFailures": 5,
+    "cooldownPeriod": 30000,
+    "emergencyRefreshInterval": 10000
+  },
+  "sessionTimeoutMs": 300000,
+  "httpServer": {
+    "port": 3000,
+    "host": "127.0.0.1",
+    "cors": false
+  },
+  "logging": {
+    "level": "info",
+    "enableMetrics": true
+  },
+  "chains": {
+    "1": {
+      "name": "Ethereum Mainnet",
+      "rpcUrls": [
+        "https://eth.llamarpc.com",
+        "https://ethereum.publicnode.com",
+        "https://eth.drpc.org"
+      ]
+    },
+    "137": {
+      "name": "Polygon",
+      "rpcUrls": [
+        "https://polygon.llamarpc.com",
+        "https://polygon.drpc.org"
+      ]
+    },
+    "8453": {
+      "name": "Base",
+      "rpcUrls": [
+        "https://base.llamarpc.com",
+        "https://base.drpc.org"
+      ]
+    }
+  }
+}
