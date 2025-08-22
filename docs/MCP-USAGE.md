@@ -148,4 +148,4 @@ curl -X POST https://rpc.ubq.fi/ \
 - No new files required
 - Reuses existing `Permit2RpcManager` infrastructure
 - Maintains all existing error handling and CORS policies
-- Protocol version: `2024-11-05`
+- Protocol version: `2025-06-18`

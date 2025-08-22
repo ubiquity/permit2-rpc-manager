@@ -810,7 +810,7 @@ const handler = async (request: Request): Promise<Response> => {
     switch (mcpRequest.method) {
       case "initialize":
         mcpResponse = {
-          protocolVersion: "2024-11-05",
+          protocolVersion: "2025-06-18",
           capabilities: { tools: {} },
           serverInfo: {
             name: "ethereum-json-rpc",
