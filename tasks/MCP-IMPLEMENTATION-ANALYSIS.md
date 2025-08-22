@@ -16,7 +16,7 @@ After reviewing the `feat/mcp` branch, I've identified the minimal set of change
 
 ### Target State
 - **Dual-mode operation**: Both JSON-RPC and MCP protocols
-- **MCP endpoints**: 
+- **MCP endpoints**:
   - Root path `/` for chain-agnostic MCP requests
   - `/{chainId}` for chain-specific requests (backward compatible)
 - **LLM Integration**: Direct integration with Claude Desktop, OpenAI, and other MCP-compatible clients
@@ -28,12 +28,12 @@ After reviewing the `feat/mcp` branch, I've identified the minimal set of change
 Add MCP SDK imports to `deno-server.ts`:
 
 ```typescript
-import { 
-  CallToolRequest, 
-  CallToolResult, 
-  ListToolsRequest, 
-  ListToolsResult, 
-  Tool 
+import {
+  CallToolRequest,
+  CallToolResult,
+  ListToolsRequest,
+  ListToolsResult,
+  Tool
 } from "npm:@modelcontextprotocol/sdk@1.0.4/types.js";
 ```
 
@@ -50,17 +50,17 @@ const getEthereumTools = (): Tool[] => {
       inputSchema: {
         type: "object",
         properties: {
-          address: { 
-            type: "string", 
-            description: "20-byte address to check for balance" 
+          address: {
+            type: "string",
+            description: "20-byte address to check for balance"
           },
-          blockNumber: { 
-            type: "string", 
-            description: "Block number or 'latest', 'earliest', 'pending'" 
+          blockNumber: {
+            type: "string",
+            description: "Block number or 'latest', 'earliest', 'pending'"
           },
-          chainId: { 
-            type: "number", 
-            description: "Chain ID (default: 1 for Ethereum mainnet)" 
+          chainId: {
+            type: "number",
+            description: "Chain ID (default: 1 for Ethereum mainnet)"
           },
         },
         required: ["address", "blockNumber"],
@@ -85,8 +85,8 @@ function buildRpcParams(method: string, args: any): unknown[] {
     case "eth_call":
       return [args.transaction, args.blockNumber];
     case "eth_estimateGas":
-      return args.blockNumber 
-        ? [args.transaction, args.blockNumber] 
+      return args.blockNumber
+        ? [args.transaction, args.blockNumber]
         : [args.transaction];
     case "eth_blockNumber":
     case "eth_gasPrice":
@@ -130,7 +130,7 @@ const handler = async (request: Request): Promise<Response> => {
     switch (mcpRequest.method) {
       case "initialize":
         mcpResponse = {
-          protocolVersion: "2024-11-05",
+          protocolVersion: "2025-06-18",
           capabilities: { tools: {} },
           serverInfo: {
             name: "ethereum-json-rpc",
@@ -152,10 +152,10 @@ const handler = async (request: Request): Promise<Response> => {
 
         // Build RPC parameters
         const params = buildRpcParams(toolName, toolArgs);
-        
+
         // Execute via existing RPC manager
         const result = await manager.send(chainId, toolName, params);
-        
+
         mcpResponse = {
           content: [{
             type: "text",
@@ -223,7 +223,7 @@ const handler = async (request: Request): Promise<Response> => {
 ### Lines of Code Breakdown
 - **Tool definitions**: ~400 lines (28 methods × ~14 lines each)
 - **MCP handler logic**: ~120 lines
-- **Parameter mapping**: ~50 lines  
+- **Parameter mapping**: ~50 lines
 - **Response formatting**: ~80 lines
 - **Total addition**: ~650 lines to `deno-server.ts`
 
@@ -233,7 +233,7 @@ The following components from `feat/mcp` are **not required** for minimal MCP co
 
 1. **Separate MCP server files** (6 files, ~3000 lines):
    - `mcp-server.ts`
-   - `mcp-simple-server.ts` 
+   - `mcp-simple-server.ts`
    - `mcp-http-server.ts`
    - `mcp-ethereum-server.ts`
    - `mcp-deployment-bridge.ts`
@@ -272,7 +272,7 @@ Expected response:
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "protocolVersion": "2024-11-05",
+    "protocolVersion": "2025-06-18",
     "capabilities": { "tools": {} },
     "serverInfo": {
       "name": "ethereum-json-rpc",
