@@ -497,8 +497,9 @@ const handler = async (request: Request): Promise<Response> => {
   // Set CORS headers for all responses
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*", // Allow requests from any origin
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization", // Adjust as needed
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Request-Id",
+    "Access-Control-Max-Age": "86400", // Cache preflight request for 24 hours
   };
 
   // Serve logo SVG at GET /logo.svg
@@ -607,28 +608,20 @@ const handler = async (request: Request): Promise<Response> => {
           switch (method) {
             case "initialize":
               mcpResponse = {
-                jsonrpc: "2.0",
-                id: mcpRequest.id,
-                result: {
-                  protocolVersion: "2024-11-05",
-                  capabilities: {
-                    tools: {},
-                  },
-                  serverInfo: {
-                    name: "ethereum-json-rpc",
-                    version: "1.0.0",
-                  },
+                protocolVersion: "2024-11-05",
+                capabilities: {
+                  tools: {},
+                },
+                serverInfo: {
+                  name: "ethereum-json-rpc",
+                  version: "1.0.0",
                 },
               };
               break;
 
             case "tools/list":
               mcpResponse = {
-                jsonrpc: "2.0",
-                id: mcpRequest.id,
-                result: {
-                  tools: getEthereumTools(),
-                },
+                tools: getEthereumTools(),
               };
               break;
 
@@ -644,16 +637,12 @@ const handler = async (request: Request): Promise<Response> => {
               const result = await manager.send(chainId, toolName, params);
               
               mcpResponse = {
-                jsonrpc: "2.0",
-                id: mcpRequest.id,
-                result: {
-                  content: [
-                    {
-                      type: "text",
-                      text: JSON.stringify(result, null, 2),
-                    },
-                  ],
-                },
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(result, null, 2),
+                  },
+                ],
               };
               break;
 
@@ -661,17 +650,49 @@ const handler = async (request: Request): Promise<Response> => {
               throw new Error(`Unknown MCP method: ${method}`);
           }
 
-          return new Response(JSON.stringify(mcpResponse), {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          // For MCP HTTP transport, return direct response without JSON-RPC wrapper
+          // Check if request has an id field (JSON-RPC style MCP request)
+          if ('id' in mcpRequest) {
+            // JSON-RPC style response for compatibility
+            return new Response(JSON.stringify({
+              jsonrpc: "2.0",
+              id: mcpRequest.id,
+              result: mcpResponse
+            }), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          } else {
+            // Pure MCP HTTP response (no wrapper)
+            return new Response(JSON.stringify(mcpResponse), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
         } catch (error) {
           console.error("MCP request failed:", error);
-          const errorResponse = createJsonRpcError((requestBody as any).id, -32603, `Internal error: ${error instanceof Error ? error.message : String(error)}`);
-          return new Response(JSON.stringify(errorResponse), {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          
+          // Check if request has an id field
+          if ('id' in (requestBody as any)) {
+            // JSON-RPC style error
+            const errorResponse = createJsonRpcError((requestBody as any).id, -32603, `Internal error: ${errorMessage}`);
+            return new Response(JSON.stringify(errorResponse), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          } else {
+            // MCP style error
+            return new Response(JSON.stringify({
+              error: {
+                code: -32603,
+                message: `Internal error: ${errorMessage}`
+              }
+            }), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
         }
       }
     }
@@ -733,16 +754,102 @@ const handler = async (request: Request): Promise<Response> => {
     return false;
   };
 
-  // If this is an MCP request, delegate to MCP server
+  // If this is an MCP request, handle it directly
   if (isMcpRequest(requestBody)) {
     console.log(`Received MCP request for chain ${chainId}: ${(requestBody as any).method}`);
-    // Create a new request with the original body for the MCP server
-    const mcpRequest = new Request(request.url, {
-      method: 'POST',
-      headers: request.headers,
-      body: JSON.stringify(requestBody)
-    });
-    return await mcpServer.handleHttpRequest(mcpRequest);
+    try {
+      const mcpRequest = requestBody as any;
+      let mcpResponse: any;
+
+      switch (mcpRequest.method) {
+        case "initialize":
+          mcpResponse = {
+            protocolVersion: "2024-11-05",
+            capabilities: {
+              tools: {},
+            },
+            serverInfo: {
+              name: "ethereum-json-rpc",
+              version: "1.0.0",
+            },
+          };
+          break;
+
+        case "tools/list":
+          mcpResponse = {
+            tools: getEthereumTools(),
+          };
+          break;
+
+        case "tools/call":
+          const toolName = mcpRequest.params?.name;
+          const toolArgs = mcpRequest.params?.arguments || {};
+          const toolChainId = toolArgs.chainId || chainId;
+
+          // Build parameters using the same logic
+          const params = buildRpcParams(toolName, toolArgs);
+          
+          // Make RPC call using the manager
+          const result = await manager.send(toolChainId, toolName, params);
+          
+          mcpResponse = {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+          break;
+
+        default:
+          throw new Error(`Unknown MCP method: ${mcpRequest.method}`);
+      }
+
+      // For MCP HTTP transport, return direct response without JSON-RPC wrapper
+      // Check if request has an id field (JSON-RPC style MCP request)
+      if ('id' in mcpRequest) {
+        // JSON-RPC style response for compatibility
+        return new Response(JSON.stringify({
+          jsonrpc: "2.0",
+          id: mcpRequest.id,
+          result: mcpResponse
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } else {
+        // Pure MCP HTTP response (no wrapper)
+        return new Response(JSON.stringify(mcpResponse), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } catch (error) {
+      console.error("MCP request failed:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Check if request has an id field
+      if ('id' in (requestBody as any)) {
+        // JSON-RPC style error
+        const errorResponse = createJsonRpcError((requestBody as any).id, -32603, `Internal error: ${errorMessage}`);
+        return new Response(JSON.stringify(errorResponse), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } else {
+        // MCP style error
+        return new Response(JSON.stringify({
+          error: {
+            code: -32603,
+            message: `Internal error: ${errorMessage}`
+          }
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
   }
 
   // --- Handle Batch Request ---

@@ -12,7 +12,7 @@ import {
   ListToolsRequestSchema,
 } from "npm:@modelcontextprotocol/sdk@1.0.4/types.js";
 
-const DEPLOYMENT_URL = "https://permit2-rpc-proxy-88kgec8d3vde.deno.dev/";
+const DEPLOYMENT_URL = "https://permit2-rpc-proxy-3bpsw1dk04ww.deno.dev/";
 
 class DeploymentBridge {
   private server: Server;

@@ -135,33 +135,3 @@ export interface Permit2RpcManagerOptions {
 3. **Adaptive Timeouts**: Adjust timeout based on method complexity
 4. **Health Checks**: Periodic background health verification
 5. **Metrics Collection**: Track success rates, latencies, error distributions
-
----
-
-## Emergency Pool Refresh & Panic Mode
-
-### Overview
-
-When all RPCs are marked unhealthy (due to consecutive failures, rate limits, or network errors), the manager triggers an **Emergency Pool Refresh**:
-- All whitelisted RPCs are re-tested immediately, bypassing normal health and cache logic.
-- If no healthy RPCs are found, the system enters **panic mode**.
-
-### Panic Mode Logic
-
-- **Behavior**: While in panic mode, all incoming requests are rejected with a clear error indicating no available RPCs.
-- **Recovery**: The system periodically re-tests all endpoints at a configurable interval (`panicModeRetryMs`). Panic mode exits automatically when at least one RPC is healthy.
-- **Error Handling**: Ensures fast, transparent failure instead of hanging or misleading errors.
-
-### Configuration
-
-- `panicModeRetryMs`: Interval (ms) between panic mode re-tests. Default and recommended values depend on operational needs.
-
----
-
-## Adaptive Backoff Logic (Expanded)
-
-- **Exponential Backoff**: For rate-limited or temporarily failing RPCs, exponential backoff is applied (default: 1s base, up to 60s max). Each consecutive failure increases the backoff period.
-- **Configuration**: Parameters are set via manager options (`backoffBaseMs`, `maxBackoffMs`).
-- **Error Types**: Backoff applies to HTTP 429, quota errors, and other retryable failures.
-
----

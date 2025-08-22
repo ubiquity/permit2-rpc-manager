@@ -19,3 +19,4 @@ test-dashboard.md
 
 # Auto-generated chainlist files
 lib/chainlist/constants/additionalChainRegistry/list.js
+tmp/
