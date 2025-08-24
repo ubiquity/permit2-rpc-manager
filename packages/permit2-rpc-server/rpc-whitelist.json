@@ -79,7 +79,6 @@
       "https://0.48.club",
       "https://bsc-pokt.nodies.app",
       "https://bsc-mainnet.nodereal.io/v1/64a9df0874fb4a93b9d0a3849de012d3",
-      "https://go.getblock.io/cc778cdbdf5c4b028ec9456e0e6c0cf3",
       "https://binance.nodereal.io",
       "https://bsc-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://1rpc.io/bnb",
@@ -91,6 +90,7 @@
       "https://api.zan.top/bsc-mainnet",
       "https://bsc.drpc.org",
       "https://bsc-mainnet.gateway.tatum.io",
+      "https://bsc.nownodes.io",
       "https://bnb.rpc.subquery.network/public",
       "https://bsc.blockrazor.xyz",
       "https://endpoints.omniatech.io/v1/bsc/mainnet/public",
@@ -106,7 +106,6 @@
       "https://gnosis.drpc.org",
       "https://endpoints.omniatech.io/v1/gnosis/mainnet/public",
       "https://gnosis-rpc.publicnode.com",
-      "https://1rpc.io/gnosis",
       "https://gno-mainnet.gateway.tatum.io",
       "https://0xrpc.io/gno",
       "https://gnosis.therpc.io",
@@ -120,6 +119,7 @@
       "https://1rpc.io/matic",
       "https://polygon-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://polygon-bor-rpc.publicnode.com",
+      "https://polygon-mainnet.g.alchemy.com/v2/demo",
       "https://go.getblock.io/02667b699f05444ab2c64f9bff28f027",
       "https://polygon.api.onfinality.io/public",
       "https://polygon.drpc.org",
@@ -133,6 +133,7 @@
       "https://polygon.therpc.io"
     ],
     "8453": [
+      "https://base.llamarpc.com",
       "https://mainnet.base.org",
       "https://developer-access-mainnet.base.org",
       "https://base.public.blockpi.network/v1/rpc/public",
@@ -157,6 +158,7 @@
       "https://arb1.arbitrum.io/rpc",
       "https://1rpc.io/arb",
       "https://arb-pokt.nodies.app",
+      "https://arb-mainnet.g.alchemy.com/v2/demo",
       "https://arbitrum.public.blockpi.network/v1/rpc/public",
       "https://arbitrum-one.public.blastapi.io",
       "https://arbitrum-one-rpc.publicnode.com",
@@ -167,7 +169,8 @@
       "https://arbitrum.gateway.tenderly.co",
       "https://arb1.lava.build",
       "https://arbitrum.therpc.io",
-      "https://arbitrum.api.onfinality.io/public"
+      "https://arbitrum.api.onfinality.io/public",
+      "https://arb-one-mainnet.gateway.tatum.io"
     ],
     "42220": [
       "https://forno.celo.org",
