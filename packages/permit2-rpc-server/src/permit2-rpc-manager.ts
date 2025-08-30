@@ -3,6 +3,7 @@ import { CacheManager } from "./cache-manager.ts";
 import { ChainlistDataSource } from "./chainlist-data-source.ts";
 import { LatencyTester } from "./latency-tester.ts";
 import { RpcSelector } from "./rpc-selector.ts";
+import { RequestDeduplicator, AdaptiveTimeout, SmartBatcher, RpcScorer, CircuitBreaker } from "./reliability-improvements.ts";
 
 // JSON-RPC error codes as per specification
 const JSON_RPC_ERROR_CODES = {
@@ -126,6 +127,13 @@ export class Permit2RpcManager {
 
   // Round-robin tracking
   private rpcIndexMap = new Map<number, number>();
+  
+  // Reliability improvements
+  private requestDeduplicator: RequestDeduplicator;
+  private adaptiveTimeout: AdaptiveTimeout;
+  private smartBatcher: SmartBatcher;
+  private rpcScorer: RpcScorer;
+  private circuitBreaker: CircuitBreaker;
 
   constructor(options: Permit2RpcManagerOptions = {}) {
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
@@ -146,6 +154,13 @@ export class Permit2RpcManager {
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
     this.backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
     this.maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
+    
+    // Initialize reliability improvements
+    this.requestDeduplicator = new RequestDeduplicator();
+    this.adaptiveTimeout = new AdaptiveTimeout();
+    this.smartBatcher = new SmartBatcher();
+    this.rpcScorer = new RpcScorer();
+    this.circuitBreaker = new CircuitBreaker();
   }
 
   private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]): void {
@@ -407,13 +422,30 @@ export class Permit2RpcManager {
   /**
    * Send a JSON-RPC request with intelligent failover
    */
-  async send<T = unknown>(chainId: number, method: string, params: unknown[] = []): Promise<T> {
+  send<T = unknown>(chainId: number, method: string, params: unknown[] = []): Promise<T> {
+    // Use request deduplication for identical concurrent requests
+    const deduplicationKey = RequestDeduplicator.generateKey(chainId, method, params);
+    
+    return this.requestDeduplicator.deduplicate(deduplicationKey, () => {
+      return this._sendInternal<T>(chainId, method, params);
+    });
+  }
+  
+  /**
+   * Internal send implementation (after deduplication)
+   */
+  private async _sendInternal<T = unknown>(chainId: number, method: string, params: unknown[]): Promise<T> {
     const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
 
-    // Filter available RPCs
-    const availableRpcs = allRpcs.filter(rpc => this.isRpcAvailable(rpc));
+    // Filter available RPCs using both health state and circuit breaker
+    const availableRpcs = allRpcs.filter(rpc => 
+      this.isRpcAvailable(rpc) && this.circuitBreaker.canRequest(rpc)
+    );
+    
+    // Use RPC scorer to rank available RPCs by performance
+    const rankedRpcs = this.rpcScorer.getRankedRpcs(availableRpcs);
 
-    if (availableRpcs.length === 0) {
+    if (rankedRpcs.length === 0) {
       // Check if all are in backoff
       const backoffCount = allRpcs.filter(rpc => {
         const state = this.getHealthState(rpc);
@@ -440,9 +472,9 @@ export class Permit2RpcManager {
       const resetAvailableRpcs = allRpcs.filter(rpc => this.isRpcAvailable(rpc));
 
       if (resetAvailableRpcs.length > 0) {
-        // Continue with the reset RPCs - update availableRpcs for the rest of the method
-        availableRpcs.length = 0;
-        availableRpcs.push(...resetAvailableRpcs);
+        // Continue with the reset RPCs - update rankedRpcs for the rest of the method
+        rankedRpcs.length = 0;
+        rankedRpcs.push(...this.rpcScorer.getRankedRpcs(resetAvailableRpcs));
 
         this._log("info",
           `[EMERGENCY FALLBACK] Successfully reset ${resetAvailableRpcs.length} RPCs for chain ${chainId}`
@@ -456,13 +488,13 @@ export class Permit2RpcManager {
       }
     }
 
-    // Round-robin selection
+    // Round-robin selection from ranked RPCs
     const currentIndex = this.rpcIndexMap.get(chainId) || 0;
-    const startIndex = currentIndex % availableRpcs.length;
-    this.rpcIndexMap.set(chainId, (currentIndex + 1) % availableRpcs.length);
+    const startIndex = currentIndex % rankedRpcs.length;
+    this.rpcIndexMap.set(chainId, (currentIndex + 1) % rankedRpcs.length);
 
     this._log("debug",
-      `[SEND] Chain ${chainId}: ${availableRpcs.length}/${allRpcs.length} RPCs available. ` +
+      `[SEND] Chain ${chainId}: ${rankedRpcs.length}/${allRpcs.length} RPCs available. ` +
       `Starting at index ${startIndex}.`
     );
 
@@ -470,19 +502,25 @@ export class Permit2RpcManager {
     const attemptedRpcs: string[] = [];
 
     // Try each available RPC
-    for (let i = 0; i < availableRpcs.length; i++) {
-      const rpcIndex = (startIndex + i) % availableRpcs.length;
-      const rpcUrl = availableRpcs[rpcIndex];
+    for (let i = 0; i < rankedRpcs.length; i++) {
+      const rpcIndex = (startIndex + i) % rankedRpcs.length;
+      const rpcUrl = rankedRpcs[rpcIndex];
 
       attemptedRpcs.push(rpcUrl);
 
       try {
         this._log("info", `[SEND] Trying ${rpcUrl} for ${method} on chain ${chainId}`);
 
+        const startTime = Date.now();
         const result = await this.executeRpcCall<T>(rpcUrl, method, params);
+        const responseTime = Date.now() - startTime;
 
-        // Success - record it and return
+        // Record success metrics
         await this.recordSuccess(chainId, rpcUrl);
+        this.rpcScorer.updateScore(rpcUrl, true, responseTime);
+        this.circuitBreaker.recordResult(rpcUrl, true);
+        this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
+        
         return result;
 
       } catch (error) {
@@ -512,6 +550,8 @@ export class Permit2RpcManager {
           case ErrorBehavior.RETRY_DIFFERENT_RPC:
             // These are RPC-specific issues that should count toward health
             await this.recordFailure(chainId, rpcUrl, classification);
+            this.rpcScorer.updateScore(rpcUrl, false);
+            this.circuitBreaker.recordResult(rpcUrl, false);
             // Continue to next RPC
             continue;
         }
@@ -537,7 +577,9 @@ export class Permit2RpcManager {
     params: unknown[]
   ): Promise<T> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    // Use adaptive timeout if available, otherwise default
+    const timeout = this.adaptiveTimeout.getTimeout(url, this.requestTimeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     const requestBody: JsonRpcRequest = {
       jsonrpc: "2.0",
@@ -560,7 +602,7 @@ export class Permit2RpcManager {
       let responseData: any;
       try {
         responseData = await response.json();
-      } catch (jsonError) {
+      } catch (_jsonError) {
         throw new JsonRpcError(
           JSON_RPC_ERROR_CODES.PARSE_ERROR,
           `Invalid JSON response from provider`,
@@ -608,18 +650,23 @@ export class Permit2RpcManager {
   }
 
   /**
-   * Handle batch requests properly
+   * Handle batch requests with smart batching
    */
-  async sendBatch<T = unknown>(
+  sendBatch<T = unknown>(
     chainId: number,
     requests: Array<{ method: string; params?: unknown[] }>
   ): Promise<T[]> {
-    // For now, just send individual requests
-    // TODO: Implement proper batch handling
-    const results = await Promise.all(
-      requests.map(req => this.send<T>(chainId, req.method, req.params || []))
+    // Use smart batcher to split large batches and avoid overwhelming RPCs
+    return this.smartBatcher.processBatch(
+      requests.map(req => ({ method: req.method, params: req.params || [] })),
+      async (batch) => {
+        // Process each chunk with some parallelism but not all at once
+        const results = await Promise.all(
+          batch.map(req => this.send<T>(chainId, req.method, req.params))
+        );
+        return results;
+      }
     );
-    return results;
   }
 
   /**
