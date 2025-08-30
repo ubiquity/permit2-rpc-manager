@@ -15,9 +15,9 @@ export class RequestDeduplicator {
     requestFn: () => Promise<T>
   ): Promise<T> {
     // Check if identical request is already in progress
-    const pending = this.pendingRequests.get(key);
+    const pending = this.pendingRequests.get(key) as Promise<T> | undefined;
     if (pending) {
-      return pending as Promise<T>;
+      return pending;
     }
     
     // Create new request and store promise
@@ -69,9 +69,9 @@ export class AdaptiveTimeout {
       return defaultTimeoutMs;
     }
     
-    // Calculate 95th percentile
+    // Calculate 95th percentile with bounds checking
     const sorted = [...history].sort((a, b) => a - b);
-    const index = Math.ceil(sorted.length * this.percentile) - 1;
+    const index = Math.max(0, Math.min(Math.ceil(sorted.length * this.percentile) - 1, sorted.length - 1));
     const p95 = sorted[index];
     
     // Add 50% buffer to 95th percentile, but cap at 2x default
@@ -92,7 +92,7 @@ export class AdaptiveTimeout {
     
     const sorted = [...history].sort((a, b) => a - b);
     const avg = history.reduce((a, b) => a + b, 0) / history.length;
-    const p95Index = Math.ceil(sorted.length * 0.95) - 1;
+    const p95Index = Math.max(0, Math.min(Math.ceil(sorted.length * 0.95) - 1, sorted.length - 1));
     
     return {
       avg: Math.round(avg),
@@ -146,6 +146,7 @@ export class RpcScorer {
   private scores = new Map<string, RpcScore>();
   private readonly decayFactor = 0.95; // Decay old scores
   private readonly minSamples = 5; // Minimum samples before scoring
+  private readonly LATENCY_NORMALIZATION_FACTOR = 1000; // Normalize latency to 0-1 range (1000ms = 1.0)
   
   /**
    * Update RPC score based on result
@@ -165,12 +166,16 @@ export class RpcScorer {
       };
     }
     
-    // Apply time decay to old score
+    // Apply time decay to historical counters
     const timeSinceUpdate = now - score.lastUpdate;
     const decayPeriods = timeSinceUpdate / (60 * 1000); // Decay every minute
     const decay = Math.pow(this.decayFactor, decayPeriods);
     
-    // Update counters
+    // Apply decay to historical data before adding new result
+    score.successes = score.successes * decay;
+    score.failures = score.failures * decay;
+    
+    // Update counters with new result
     if (success) {
       score.successes++;
       if (latencyMs !== undefined) {
@@ -183,11 +188,10 @@ export class RpcScorer {
       score.failures++;
     }
     
-    // Calculate new success rate with decay
+    // Calculate new success rate from decayed counters
     const totalAttempts = score.successes + score.failures;
     if (totalAttempts > 0) {
-      const rawSuccessRate = score.successes / totalAttempts;
-      score.successRate = (score.successRate * decay + rawSuccessRate * (1 - decay));
+      score.successRate = score.successes / totalAttempts;
     }
     
     // Update average latency
@@ -210,7 +214,7 @@ export class RpcScorer {
     }
     
     // Composite score: 70% success rate, 30% latency (normalized)
-    const latencyScore = score.avgLatency > 0 ? 1000 / score.avgLatency : 0;
+    const latencyScore = score.avgLatency > 0 ? this.LATENCY_NORMALIZATION_FACTOR / score.avgLatency : 0;
     return score.successRate * 0.7 + Math.min(latencyScore, 1.0) * 0.3;
   }
   
@@ -271,7 +275,11 @@ export class CircuitBreaker {
         
       case CircuitState.HALF_OPEN:
         // Allow limited tests
-        return circuit.halfOpenTests < this.halfOpenTestLimit;
+        if (circuit.halfOpenTests < this.halfOpenTestLimit) {
+          // Note: Increment happens in recordResult, not here
+          return true;
+        }
+        return false;
     }
   }
   
@@ -288,13 +296,17 @@ export class CircuitBreaker {
     
     if (success) {
       if (circuit.state === CircuitState.HALF_OPEN) {
-        // Success in half-open, close circuit
-        circuit = {
-          state: CircuitState.CLOSED,
-          failures: 0,
-          lastFailure: 0,
-          halfOpenTests: 0
-        };
+        circuit.halfOpenTests++;
+        // Success in half-open, check if we should close circuit
+        if (circuit.halfOpenTests >= this.halfOpenTestLimit) {
+          // Enough successful tests, close circuit
+          circuit = {
+            state: CircuitState.CLOSED,
+            failures: 0,
+            lastFailure: 0,
+            halfOpenTests: 0
+          };
+        }
       } else if (circuit.state === CircuitState.CLOSED) {
         // Reset failure count on success
         circuit.failures = 0;
@@ -304,7 +316,7 @@ export class CircuitBreaker {
       circuit.lastFailure = Date.now();
       
       if (circuit.state === CircuitState.HALF_OPEN) {
-        // Failure in half-open, reopen circuit
+        // Failure in half-open, reopen circuit immediately
         circuit.state = CircuitState.OPEN;
         circuit.halfOpenTests = 0;
       } else if (circuit.state === CircuitState.CLOSED && circuit.failures >= this.threshold) {
