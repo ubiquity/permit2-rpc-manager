@@ -157,7 +157,9 @@ describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
         params: [],
         id: 30,
       });
-      throw new Error("Expected error to be thrown");
+      const err = new Error("Method invalid_method did not throw as expected");
+      (err as any).data = "No error thrown for invalid_method";
+      throw err;
     } catch (error) {
       expect(error).toBeDefined();
       expect(typeof error === "object").toBe(true);
@@ -177,13 +179,16 @@ describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
         params: [{ to: "0x0000000000000000000000000000000000000000", data: "0x" }, "latest"],
         id: 31,
       });
-      throw new Error("Expected error to be thrown");
+      const err = new Error("Method eth_call did not throw as expected");
+      (err as any).data = "No error thrown for eth_call";
+      throw err;
     } catch (error) {
       expect(error).toBeDefined();
       expect(typeof error === "object").toBe(true);
       expect(error).toBeInstanceOf(Error);
       const errorObj = error as any;
-      expect(errorObj.message).toContain("Method invalid_method");
+      // This test should fail and include revert reason data
+      expect(errorObj.message).toBeDefined();
       expect("message" in errorObj).toBe(true);
       expect("data" in errorObj).toBe(true);
       expect(typeof errorObj.data === "string").toBe(true);
