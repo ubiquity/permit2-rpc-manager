@@ -1,12 +1,19 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": [
-    "src/index.ts",
-    "tests/**/*.test.ts" // Add test files as entry points
-  ],
-  "project": ["src/**/*.ts"], // Keep project focused on source
-  "ignore": ["lib/**"],
-  "ignoreDependencies": [
-    "prettier" // Ignore prettier for now, assuming external usage
-  ]
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/**/*.{js,mjs,ts}"],
+      "project": ["scripts/**/*.{js,mjs,ts}"]
+    },
+    "packages/permit2-rpc-server": {
+      "entry": ["src/index.ts", "src/deno-server.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "packages/permit2-rpc-client": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["bun-types"]
+    }
+  },
+  "ignore": ["lib/**", "tmp/**", "node_modules/**"]
 }
