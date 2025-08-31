@@ -1,0 +1,16 @@
+{
+  "name": "rpc-health-scripts",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "health": "bun health-check.ts",
+    "health:mainnet": "CHAIN_ID=1 RPC_ENDPOINT=https://rpc.ubq.fi bun health-check.ts",
+    "health:gnosis": "CHAIN_ID=100 RPC_ENDPOINT=https://rpc.ubq.fi bun health-check.ts",
+    "health:base": "CHAIN_ID=8453 RPC_ENDPOINT=https://rpc.ubq.fi bun health-check.ts",
+    "health:local": "CHAIN_ID=1 RPC_ENDPOINT=http://localhost:8000 bun health-check.ts",
+    "monitor": "bun monitor-health.ts",
+    "monitor:mainnet": "CHAIN_ID=1 RPC_ENDPOINT=https://rpc.ubq.fi CHECK_INTERVAL=30000 bun monitor-health.ts",
+    "monitor:gnosis": "CHAIN_ID=100 RPC_ENDPOINT=https://rpc.ubq.fi CHECK_INTERVAL=30000 bun monitor-health.ts",
+    "monitor:with-log": "LOG_FILE=health-metrics.jsonl bun monitor-health.ts"
+  }
+}

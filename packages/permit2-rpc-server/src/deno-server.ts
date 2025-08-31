@@ -708,6 +708,33 @@ const handler = async (request: Request): Promise<Response> => {
     });
   }
 
+  // Serve health check JSON at GET /health
+  if (request.method === "GET" && new URL(request.url).pathname === "/health") {
+    try {
+      // Get health data from manager
+      const healthData = await manager.getHealthStatus();
+      
+      return new Response(JSON.stringify(healthData), {
+        status: 200,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ 
+        error: "Failed to retrieve health status",
+        message: error instanceof Error ? error.message : String(error)
+      }), {
+        status: 500,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+    }
+  }
+
   // Serve HTML at GET /
   if ((request.method === "GET" || request.method === "HEAD") && new URL(request.url).pathname === "/") {
     const html =
