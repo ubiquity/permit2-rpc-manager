@@ -707,4 +707,138 @@ export class Permit2RpcManager {
       `[HEALTH RESET] Successfully reset health states for all RPCs on chain ${chainId}`
     );
   }
+
+  /**
+   * Get comprehensive health status of all RPCs across all chains
+   * Returns JSON data suitable for health check endpoints
+   */
+  async getHealthStatus(): Promise<any> {
+    const healthReport: any = {
+      timestamp: new Date().toISOString(),
+      chains: {},
+      summary: {
+        totalChains: 0,
+        totalRpcs: 0,
+        healthyRpcs: 0,
+        degradedRpcs: 0,
+        failedRpcs: 0,
+        eliminatedRpcs: 0
+      }
+    };
+
+    try {
+      // Get cache data from CacheManager
+      const cacheData = await this.cacheManager.getCacheState();
+      
+      // Get all available chains from data source
+      const availableChains = this.dataSource.getAvailableChains();
+      
+      for (const chainId of availableChains) {
+        const chainData: any = {
+          chainId,
+          rpcs: [],
+          fastestRpc: null,
+          totalRpcs: 0,
+          healthyRpcs: 0,
+          degradedRpcs: 0,
+          failedRpcs: 0,
+          eliminatedRpcs: 0
+        };
+
+        // Get RPCs for this chain
+        const rpcUrls = this.dataSource.getRpcUrls(chainId);
+        chainData.totalRpcs = rpcUrls.length;
+
+        // Get cached latency data if available
+        const chainCache = cacheData?.[chainId];
+        if (chainCache?.latencyMap) {
+          chainData.fastestRpc = chainCache.fastestRpc;
+          chainData.lastTested = chainCache.lastTested;
+        }
+
+        // Process each RPC
+        for (const rpcUrl of rpcUrls) {
+          const rpcInfo: any = {
+            url: rpcUrl,
+            status: "unknown",
+            healthy: false
+          };
+
+          // Get health state from memory
+          const healthState = this.rpcHealthStates.get(rpcUrl);
+          if (healthState) {
+            rpcInfo.consecutiveFailures = healthState.consecutiveFailures;
+            rpcInfo.lastFailureTime = healthState.lastFailureTime > 0 ? healthState.lastFailureTime : null;
+            rpcInfo.lastSuccessTime = healthState.lastSuccessTime > 0 ? healthState.lastSuccessTime : null;
+            
+            // Check if eliminated
+            if (healthState.consecutiveFailures >= this.maxConsecutiveFailures) {
+              const backoffMs = Math.min(
+                this.backoffBaseMs * Math.pow(2, healthState.consecutiveFailures - this.maxConsecutiveFailures),
+                this.maxBackoffMs
+              );
+              const nextRetryTime = healthState.lastFailureTime + backoffMs;
+              
+              if (Date.now() < nextRetryTime) {
+                rpcInfo.status = "eliminated";
+                rpcInfo.nextRetryAt = nextRetryTime;
+                chainData.eliminatedRpcs++;
+              }
+            }
+          }
+
+          // Get latency data from cache
+          if (chainCache?.latencyMap?.[rpcUrl]) {
+            const latencyData = chainCache.latencyMap[rpcUrl];
+            rpcInfo.latency = latencyData.latency;
+            rpcInfo.cacheStatus = latencyData.status;
+            
+            // Determine health based on cache status
+            if (latencyData.status === "ok" && !rpcInfo.status) {
+              rpcInfo.status = "healthy";
+              rpcInfo.healthy = true;
+              chainData.healthyRpcs++;
+            } else if (["syncing", "wrong_bytecode"].includes(latencyData.status) && !rpcInfo.status) {
+              rpcInfo.status = "degraded";
+              chainData.degradedRpcs++;
+            } else if (!rpcInfo.status) {
+              rpcInfo.status = "failed";
+              chainData.failedRpcs++;
+            }
+          } else if (rpcInfo.status === "unknown") {
+            // No cache data and not eliminated
+            if (healthState && healthState.consecutiveFailures > 0) {
+              rpcInfo.status = "failed";
+              chainData.failedRpcs++;
+            }
+          }
+
+          chainData.rpcs.push(rpcInfo);
+        }
+
+        healthReport.chains[chainId] = chainData;
+        healthReport.summary.totalChains++;
+        healthReport.summary.totalRpcs += chainData.totalRpcs;
+        healthReport.summary.healthyRpcs += chainData.healthyRpcs;
+        healthReport.summary.degradedRpcs += chainData.degradedRpcs;
+        healthReport.summary.failedRpcs += chainData.failedRpcs;
+        healthReport.summary.eliminatedRpcs += chainData.eliminatedRpcs;
+      }
+
+      // Add system info
+      healthReport.system = {
+        cacheEnabled: !this.cacheManager.isDisabled(),
+        logLevel: this.logLevel,
+        maxConsecutiveFailures: this.maxConsecutiveFailures,
+        backoffBaseMs: this.backoffBaseMs,
+        maxBackoffMs: this.maxBackoffMs
+      };
+
+    } catch (error) {
+      this._log("error", "Failed to generate health status:", error);
+      throw error;
+    }
+
+    return healthReport;
+  }
 }

@@ -70,4 +70,9 @@ export class ChainlistDataSource {
   getAllChainIds(): number[] {
     return this.whitelistData.map((chain) => chain.chainId);
   }
+
+  // Alias for getAllChainIds for compatibility
+  getAvailableChains(): number[] {
+    return this.getAllChainIds();
+  }
 }

@@ -225,4 +225,22 @@ export class CacheManager {
     await this.saveCache();
     this.log("info", `CacheManager: Marked RPC ${rpcUrl} as ${healthStatus} in cache`);
   }
+
+  /**
+   * Get the current cache state
+   * Returns the raw cache data for health monitoring
+   */
+  async getCacheState(): Promise<CacheData> {
+    if (!this.cacheLoaded) {
+      await this.loadCache();
+    }
+    return this.cache;
+  }
+
+  /**
+   * Check if cache is disabled
+   */
+  isDisabled(): boolean {
+    return this.disabled;
+  }
 }
