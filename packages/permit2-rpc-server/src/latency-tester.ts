@@ -57,7 +57,7 @@ export class LatencyTester {
   private async _makeRpcCall(
     url: string,
     method: string,
-    params: unknown[] // Changed any[] to unknown[]
+    params: unknown[], // Changed any[] to unknown[]
   ): Promise<JsonRpcResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -120,7 +120,9 @@ export class LatencyTester {
         }
       }
       // Log expected "Failed to fetch" (likely CORS) at debug level, others at warn
-      const logLevel = status === "network_error" && err instanceof TypeError && err.message === "Failed to fetch" ? "debug" : "warn";
+      const logLevel = status === "network_error" && err instanceof TypeError && err.message === "Failed to fetch"
+        ? "debug"
+        : "warn";
       this.log(logLevel, `Latency test failed for ${url}: ${status} - ${err.message}`);
       return { url, latency: Infinity, status, error: err.message };
     }
