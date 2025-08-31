@@ -3,6 +3,13 @@ import { CacheManager } from "./cache-manager.ts";
 import { ChainlistDataSource } from "./chainlist-data-source.ts";
 import { LatencyTester } from "./latency-tester.ts";
 import { RpcSelector } from "./rpc-selector.ts";
+import {
+  AdaptiveTimeout,
+  CircuitBreaker,
+  RequestDeduplicator,
+  RpcScorer,
+  SmartBatcher,
+} from "./reliability-improvements.ts";
 
 // JSON-RPC error codes as per specification
 const JSON_RPC_ERROR_CODES = {
@@ -30,7 +37,7 @@ class JsonRpcError extends Error {
     public code: number,
     message: string,
     public data?: unknown,
-    public httpStatus?: number
+    public httpStatus?: number,
   ) {
     super(message);
     this.name = "JsonRpcError";
@@ -66,10 +73,10 @@ interface RpcHealthState {
 
 // Error classification based on behavior, not strings
 enum ErrorBehavior {
-  RETRY_WITH_BACKOFF,    // Temporary issues (rate limits, timeouts)
-  RETRY_DIFFERENT_RPC,   // Provider-specific issues
-  DO_NOT_RETRY,          // Client errors (bad request, method not found)
-  BLOCKCHAIN_ERROR,      // Execution errors (revert, insufficient funds)
+  RETRY_WITH_BACKOFF, // Temporary issues (rate limits, timeouts)
+  RETRY_DIFFERENT_RPC, // Provider-specific issues
+  DO_NOT_RETRY, // Client errors (bad request, method not found)
+  BLOCKCHAIN_ERROR, // Execution errors (revert, insufficient funds)
 }
 
 interface ErrorClassification {
@@ -127,6 +134,13 @@ export class Permit2RpcManager {
   // Round-robin tracking
   private rpcIndexMap = new Map<number, number>();
 
+  // Reliability improvements
+  private requestDeduplicator: RequestDeduplicator;
+  private adaptiveTimeout: AdaptiveTimeout;
+  private smartBatcher: SmartBatcher;
+  private rpcScorer: RpcScorer;
+  private circuitBreaker: CircuitBreaker;
+
   constructor(options: Permit2RpcManagerOptions = {}) {
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
     this.configuredLogLevelValue = LOG_LEVEL_HIERARCHY[this.logLevel];
@@ -146,6 +160,13 @@ export class Permit2RpcManager {
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
     this.backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
     this.maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
+
+    // Initialize reliability improvements
+    this.requestDeduplicator = new RequestDeduplicator();
+    this.adaptiveTimeout = new AdaptiveTimeout();
+    this.smartBatcher = new SmartBatcher();
+    this.rpcScorer = new RpcScorer();
+    this.circuitBreaker = new CircuitBreaker();
   }
 
   private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]): void {
@@ -171,7 +192,7 @@ export class Permit2RpcManager {
           return {
             behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
             reason: "rate_limit",
-            isProviderIssue: true
+            isProviderIssue: true,
           };
         }
 
@@ -181,14 +202,14 @@ export class Permit2RpcManager {
             return {
               behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
               reason: "quota_exceeded",
-              isProviderIssue: true
+              isProviderIssue: true,
             };
           }
           // Other 403s might be auth issues
           return {
             behavior: ErrorBehavior.DO_NOT_RETRY,
             reason: "forbidden",
-            isProviderIssue: false
+            isProviderIssue: false,
           };
         }
 
@@ -196,7 +217,7 @@ export class Permit2RpcManager {
           return {
             behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
             reason: "server_error",
-            isProviderIssue: true
+            isProviderIssue: true,
           };
         }
 
@@ -204,7 +225,7 @@ export class Permit2RpcManager {
           return {
             behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
             reason: "timeout",
-            isProviderIssue: true
+            isProviderIssue: true,
           };
         }
 
@@ -212,7 +233,7 @@ export class Permit2RpcManager {
           return {
             behavior: ErrorBehavior.DO_NOT_RETRY,
             reason: "client_error",
-            isProviderIssue: false
+            isProviderIssue: false,
           };
         }
       }
@@ -222,7 +243,7 @@ export class Permit2RpcManager {
         return {
           behavior: ErrorBehavior.BLOCKCHAIN_ERROR,
           reason: "execution_reverted",
-          isProviderIssue: false
+          isProviderIssue: false,
         };
       }
 
@@ -232,7 +253,7 @@ export class Permit2RpcManager {
           return {
             behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
             reason: "quota_exceeded",
-            isProviderIssue: true
+            isProviderIssue: true,
           };
         }
 
@@ -240,7 +261,7 @@ export class Permit2RpcManager {
         return {
           behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
           reason: "provider_error",
-          isProviderIssue: true
+          isProviderIssue: true,
         };
       }
 
@@ -249,7 +270,7 @@ export class Permit2RpcManager {
         return {
           behavior: ErrorBehavior.DO_NOT_RETRY,
           reason: "json_rpc_error",
-          isProviderIssue: false
+          isProviderIssue: false,
         };
       }
     }
@@ -259,7 +280,7 @@ export class Permit2RpcManager {
       return {
         behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
         reason: "timeout",
-        isProviderIssue: true
+        isProviderIssue: true,
       };
     }
 
@@ -267,7 +288,7 @@ export class Permit2RpcManager {
       return {
         behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
         reason: "network_error",
-        isProviderIssue: true
+        isProviderIssue: true,
       };
     }
 
@@ -275,7 +296,7 @@ export class Permit2RpcManager {
     return {
       behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
       reason: "unknown_error",
-      isProviderIssue: true
+      isProviderIssue: true,
     };
   }
 
@@ -291,7 +312,7 @@ export class Permit2RpcManager {
         consecutiveFailures: 0,
         lastFailureTime: 0,
         lastSuccessTime: 0,
-        failureReasons: new Map()
+        failureReasons: new Map(),
       };
       this.rpcHealthStates.set(key, state);
     }
@@ -305,7 +326,7 @@ export class Permit2RpcManager {
   private calculateBackoffMs(consecutiveFailures: number): number {
     const backoff = Math.min(
       this.backoffBaseMs * Math.pow(2, consecutiveFailures - 1),
-      this.maxBackoffMs
+      this.maxBackoffMs,
     );
     return backoff;
   }
@@ -359,7 +380,7 @@ export class Permit2RpcManager {
   private async recordFailure(
     chainId: number,
     rpcUrl: string,
-    classification: ErrorClassification
+    classification: ErrorClassification,
   ): Promise<void> {
     const state = this.getHealthState(rpcUrl);
 
@@ -375,17 +396,19 @@ export class Permit2RpcManager {
       const backoffMs = this.calculateBackoffMs(state.consecutiveFailures);
       state.temporaryUnavailableUntil = Date.now() + backoffMs;
 
-      this._log("warn",
+      this._log(
+        "warn",
         `[HEALTH] RPC ${rpcUrl} entering backoff for ${backoffMs}ms due to ${classification.reason} ` +
-        `(${state.consecutiveFailures} consecutive failures)`
+          `(${state.consecutiveFailures} consecutive failures)`,
       );
     } else if (state.consecutiveFailures >= this.maxConsecutiveFailures) {
       // Mark as unavailable for longer period
       state.temporaryUnavailableUntil = Date.now() + this.maxBackoffMs * 2;
 
-      this._log("warn",
+      this._log(
+        "warn",
         `[HEALTH] RPC ${rpcUrl} marked unhealthy after ${state.consecutiveFailures} failures. ` +
-        `Reasons: ${Array.from(state.failureReasons.entries()).map(([r, c]) => `${r}:${c}`).join(", ")}`
+          `Reasons: ${Array.from(state.failureReasons.entries()).map(([r, c]) => `${r}:${c}`).join(", ")}`,
       );
     }
 
@@ -397,7 +420,7 @@ export class Permit2RpcManager {
         consecutiveFailures: state.consecutiveFailures,
         lastFailureTime: state.lastFailureTime,
         failureReasons: Object.fromEntries(state.failureReasons),
-        temporaryUnavailableUntil: state.temporaryUnavailableUntil
+        temporaryUnavailableUntil: state.temporaryUnavailableUntil,
       });
     } catch (error) {
       this._log("error", `Failed to persist RPC failure to KV:`, error);
@@ -407,15 +430,30 @@ export class Permit2RpcManager {
   /**
    * Send a JSON-RPC request with intelligent failover
    */
-  async send<T = unknown>(chainId: number, method: string, params: unknown[] = []): Promise<T> {
+  send<T = unknown>(chainId: number, method: string, params: unknown[] = []): Promise<T> {
+    // Use request deduplication for identical concurrent requests
+    const deduplicationKey = RequestDeduplicator.generateKey(chainId, method, params);
+
+    return this.requestDeduplicator.deduplicate(deduplicationKey, () => {
+      return this._sendInternal<T>(chainId, method, params);
+    });
+  }
+
+  /**
+   * Internal send implementation (after deduplication)
+   */
+  private async _sendInternal<T = unknown>(chainId: number, method: string, params: unknown[]): Promise<T> {
     const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
 
-    // Filter available RPCs
-    const availableRpcs = allRpcs.filter(rpc => this.isRpcAvailable(rpc));
+    // Filter available RPCs using both health state and circuit breaker
+    const availableRpcs = allRpcs.filter((rpc) => this.isRpcAvailable(rpc) && this.circuitBreaker.canRequest(rpc));
 
-    if (availableRpcs.length === 0) {
+    // Use RPC scorer to rank available RPCs by performance
+    const rankedRpcs = this.rpcScorer.getRankedRpcs(availableRpcs);
+
+    if (rankedRpcs.length === 0) {
       // Check if all are in backoff
-      const backoffCount = allRpcs.filter(rpc => {
+      const backoffCount = allRpcs.filter((rpc) => {
         const state = this.getHealthState(rpc);
         return state.temporaryUnavailableUntil && state.temporaryUnavailableUntil > Date.now();
       }).length;
@@ -423,77 +461,86 @@ export class Permit2RpcManager {
       if (backoffCount > 0) {
         throw new Error(
           `All ${backoffCount} RPC endpoints are temporarily unavailable for chain ${chainId}. ` +
-          `Please retry in a few seconds.`
+            `Please retry in a few seconds.`,
         );
       }
 
       // Emergency fallback: Reset all RPC health states and retry with full list
-      this._log("warn",
+      this._log(
+        "warn",
         `[EMERGENCY FALLBACK] No healthy RPCs available for chain ${chainId}. ` +
-        `Resetting all RPC health states and retrying with full list.`
+          `Resetting all RPC health states and retrying with full list.`,
       );
 
       // Reset all RPC health states for this chain
       await this.resetAllRpcHealthStates(chainId, allRpcs);
 
       // Re-filter available RPCs after reset
-      const resetAvailableRpcs = allRpcs.filter(rpc => this.isRpcAvailable(rpc));
+      const resetAvailableRpcs = allRpcs.filter((rpc) => this.isRpcAvailable(rpc));
 
       if (resetAvailableRpcs.length > 0) {
-        // Continue with the reset RPCs - update availableRpcs for the rest of the method
-        availableRpcs.length = 0;
-        availableRpcs.push(...resetAvailableRpcs);
+        // Continue with the reset RPCs - update rankedRpcs for the rest of the method
+        rankedRpcs.length = 0;
+        rankedRpcs.push(...this.rpcScorer.getRankedRpcs(resetAvailableRpcs));
 
-        this._log("info",
-          `[EMERGENCY FALLBACK] Successfully reset ${resetAvailableRpcs.length} RPCs for chain ${chainId}`
+        this._log(
+          "info",
+          `[EMERGENCY FALLBACK] Successfully reset ${resetAvailableRpcs.length} RPCs for chain ${chainId}`,
         );
       } else {
         // If still no RPCs available after reset, this is a configuration issue
         throw new Error(
           `No RPC endpoints configured or all endpoints are fundamentally unreachable for chain ${chainId}. ` +
-          `Please check your RPC configuration.`
+            `Please check your RPC configuration.`,
         );
       }
     }
 
-    // Round-robin selection
+    // Round-robin selection from ranked RPCs
     const currentIndex = this.rpcIndexMap.get(chainId) || 0;
-    const startIndex = currentIndex % availableRpcs.length;
-    this.rpcIndexMap.set(chainId, (currentIndex + 1) % availableRpcs.length);
+    const startIndex = currentIndex % rankedRpcs.length;
+    this.rpcIndexMap.set(chainId, (currentIndex + 1) % rankedRpcs.length);
 
-    this._log("debug",
-      `[SEND] Chain ${chainId}: ${availableRpcs.length}/${allRpcs.length} RPCs available. ` +
-      `Starting at index ${startIndex}.`
+    this._log(
+      "debug",
+      `[SEND] Chain ${chainId}: ${rankedRpcs.length}/${allRpcs.length} RPCs available. ` +
+        `Starting at index ${startIndex}.`,
     );
 
     let lastError: Error | null = null;
     const attemptedRpcs: string[] = [];
 
     // Try each available RPC
-    for (let i = 0; i < availableRpcs.length; i++) {
-      const rpcIndex = (startIndex + i) % availableRpcs.length;
-      const rpcUrl = availableRpcs[rpcIndex];
+    for (let i = 0; i < rankedRpcs.length; i++) {
+      const rpcIndex = (startIndex + i) % rankedRpcs.length;
+      const rpcUrl = rankedRpcs[rpcIndex];
 
       attemptedRpcs.push(rpcUrl);
 
       try {
         this._log("info", `[SEND] Trying ${rpcUrl} for ${method} on chain ${chainId}`);
 
+        const startTime = Date.now();
         const result = await this.executeRpcCall<T>(rpcUrl, method, params);
+        const responseTime = Date.now() - startTime;
 
-        // Success - record it and return
+        // Record success metrics
         await this.recordSuccess(chainId, rpcUrl);
-        return result;
+        this.rpcScorer.updateScore(rpcUrl, true, responseTime);
+        this.circuitBreaker.recordResult(rpcUrl, true);
+        this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
 
+        return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
         // Classify the error
         const classification = this.classifyError(lastError);
 
-        this._log("warn",
+        this._log(
+          "warn",
           `[SEND] RPC ${rpcUrl} failed: ${classification.reason} ` +
-          `(behavior: ${ErrorBehavior[classification.behavior]})`
+            `(behavior: ${ErrorBehavior[classification.behavior]})`,
         );
 
         // Decide if we should continue trying other RPCs
@@ -502,9 +549,10 @@ export class Permit2RpcManager {
           case ErrorBehavior.BLOCKCHAIN_ERROR:
             // These are client/request errors that will be the same on all RPCs
             // Don't record as failures to prevent cascading health issues
-            this._log("info",
+            this._log(
+              "info",
               `[SEND] Error type ${ErrorBehavior[classification.behavior]} detected. ` +
-              `Not recording as RPC failure to prevent cascade.`
+                `Not recording as RPC failure to prevent cascade.`,
             );
             throw lastError;
 
@@ -512,6 +560,8 @@ export class Permit2RpcManager {
           case ErrorBehavior.RETRY_DIFFERENT_RPC:
             // These are RPC-specific issues that should count toward health
             await this.recordFailure(chainId, rpcUrl, classification);
+            this.rpcScorer.updateScore(rpcUrl, false);
+            this.circuitBreaker.recordResult(rpcUrl, false);
             // Continue to next RPC
             continue;
         }
@@ -523,8 +573,8 @@ export class Permit2RpcManager {
     throw new JsonRpcError(
       -32000,
       `All ${attemptedRpcs.length} RPC endpoints failed for chain ${chainId}. ` +
-      `Attempted: [${attemptedRpcs.join(", ")}]. Last error: ${errorMsg}`,
-      { attemptedRpcs, chainId }
+        `Attempted: [${attemptedRpcs.join(", ")}]. Last error: ${errorMsg}`,
+      { attemptedRpcs, chainId },
     );
   }
 
@@ -534,10 +584,12 @@ export class Permit2RpcManager {
   public async executeRpcCall<T = unknown>(
     url: string,
     method: string,
-    params: unknown[]
+    params: unknown[],
   ): Promise<T> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    // Use adaptive timeout if available, otherwise default
+    const timeout = this.adaptiveTimeout.getTimeout(url, this.requestTimeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     const requestBody: JsonRpcRequest = {
       jsonrpc: "2.0",
@@ -560,12 +612,12 @@ export class Permit2RpcManager {
       let responseData: any;
       try {
         responseData = await response.json();
-      } catch (jsonError) {
+      } catch (_jsonError) {
         throw new JsonRpcError(
           JSON_RPC_ERROR_CODES.PARSE_ERROR,
           `Invalid JSON response from provider`,
           undefined,
-          response.status
+          response.status,
         );
       }
 
@@ -575,7 +627,7 @@ export class Permit2RpcManager {
           responseData.error.code || JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
           responseData.error.message || "RPC error",
           responseData.error.data,
-          response.status
+          response.status,
         );
       }
 
@@ -585,12 +637,11 @@ export class Permit2RpcManager {
           JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
           `HTTP error ${response.status} ${response.statusText}`,
           undefined,
-          response.status
+          response.status,
         );
       }
 
       return responseData.result as T;
-
     } catch (error) {
       clearTimeout(timeoutId);
 
@@ -599,7 +650,7 @@ export class Permit2RpcManager {
           JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
           `Request timeout after ${this.requestTimeoutMs}ms`,
           undefined,
-          408
+          408,
         );
       }
 
@@ -608,18 +659,23 @@ export class Permit2RpcManager {
   }
 
   /**
-   * Handle batch requests properly
+   * Handle batch requests with smart batching
    */
-  async sendBatch<T = unknown>(
+  sendBatch<T = unknown>(
     chainId: number,
-    requests: Array<{ method: string; params?: unknown[] }>
+    requests: Array<{ method: string; params?: unknown[] }>,
   ): Promise<T[]> {
-    // For now, just send individual requests
-    // TODO: Implement proper batch handling
-    const results = await Promise.all(
-      requests.map(req => this.send<T>(chainId, req.method, req.params || []))
+    // Use smart batcher to split large batches and avoid overwhelming RPCs
+    return this.smartBatcher.processBatch(
+      requests.map((req) => ({ method: req.method, params: req.params || [] })),
+      async (batch) => {
+        // Process each chunk with some parallelism but not all at once
+        const results = await Promise.all(
+          batch.map((req) => this.send<T>(chainId, req.method, req.params)),
+        );
+        return results;
+      },
     );
-    return results;
   }
 
   /**
@@ -627,9 +683,7 @@ export class Permit2RpcManager {
    * This is called when no healthy RPCs are available to prevent permanent failures
    */
   private async resetAllRpcHealthStates(chainId: number, rpcUrls: string[]): Promise<void> {
-    this._log("warn",
-      `[HEALTH RESET] Resetting health states for ${rpcUrls.length} RPCs on chain ${chainId}`
-    );
+    this._log("warn", `[HEALTH RESET] Resetting health states for ${rpcUrls.length} RPCs on chain ${chainId}`);
 
     for (const rpcUrl of rpcUrls) {
       // Use just the rpcUrl as key to match getHealthState
@@ -656,8 +710,6 @@ export class Permit2RpcManager {
       }
     }
 
-    this._log("info",
-      `[HEALTH RESET] Successfully reset health states for all RPCs on chain ${chainId}`
-    );
+    this._log("info", `[HEALTH RESET] Successfully reset health states for all RPCs on chain ${chainId}`);
   }
 }
