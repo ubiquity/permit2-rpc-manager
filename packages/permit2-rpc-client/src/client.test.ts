@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import type { JsonRpcResponse, Permit2RpcClient } from "./index.ts";
-import { createRpcClient } from "./index.ts";
+import type { JsonRpcResponse, Permit2RpcClient } from "./index";
+import { createRpcClient } from "./index";
 import process from "node:process";
 
 // --- Test Configuration ---
@@ -157,14 +157,15 @@ describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
         params: [],
         id: 30,
       });
-      fail("Expected error to be thrown");
+      throw new Error("Expected error to be thrown");
     } catch (error) {
       expect(error).toBeDefined();
       expect(typeof error === "object").toBe(true);
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain("Internal Server Error");
-      expect("message" in error).toBe(true);
-      expect("data" in error).toBe(true);
+      const errorObj = error as any;
+      expect(errorObj.message).toContain("Internal Server Error");
+      expect("message" in errorObj).toBe(true);
+      expect("data" in errorObj).toBe(true);
     }
   });
 
@@ -176,15 +177,16 @@ describe(`Permit2 RPC Client SDK (Target: ${SERVER_BASE_URL})`, () => {
         params: [{ to: "0x0000000000000000000000000000000000000000", data: "0x" }, "latest"],
         id: 31,
       });
-      fail("Expected error to be thrown");
+      throw new Error("Expected error to be thrown");
     } catch (error) {
       expect(error).toBeDefined();
       expect(typeof error === "object").toBe(true);
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain("Method invalid_method");
-      expect("message" in error).toBe(true);
-      expect("data" in error).toBe(true);
-      expect(typeof error.data === "string").toBe(true);
+      const errorObj = error as any;
+      expect(errorObj.message).toContain("Method invalid_method");
+      expect("message" in errorObj).toBe(true);
+      expect("data" in errorObj).toBe(true);
+      expect(typeof errorObj.data === "string").toBe(true);
     }
   });
 });
