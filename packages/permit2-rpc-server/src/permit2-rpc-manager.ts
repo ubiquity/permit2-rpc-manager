@@ -10,6 +10,13 @@ import {
   RpcScorer,
   SmartBatcher,
 } from "./reliability-improvements.ts";
+import { EnhancedErrorClassifier, ErrorBehavior as EnhancedErrorBehavior } from "./error-classifier.ts";
+import { RetryManager, RetryContext } from "./retry-context.ts";
+import { MethodAwareRpcScorer } from "./method-aware-scorer.ts";
+import { PredictiveHealthMonitor } from "./predictive-health.ts";
+import { ResilientBatchHandler } from "./batch-handler.ts";
+import { ConnectionPool } from "./connection-pool.ts";
+import { RequestQueue } from "./request-queue.ts";
 
 // JSON-RPC error codes as per specification
 const JSON_RPC_ERROR_CODES = {
@@ -140,6 +147,13 @@ export class Permit2RpcManager {
   private smartBatcher: SmartBatcher;
   private rpcScorer: RpcScorer;
   private circuitBreaker: CircuitBreaker;
+  private errorClassifier: EnhancedErrorClassifier;
+  private retryManager: RetryManager;
+  private methodScorer: MethodAwareRpcScorer;
+  private healthMonitor: PredictiveHealthMonitor;
+  private batchHandler: ResilientBatchHandler;
+  private connectionPool: ConnectionPool;
+  private requestQueue: RequestQueue;
 
   constructor(options: Permit2RpcManagerOptions = {}) {
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
@@ -167,6 +181,16 @@ export class Permit2RpcManager {
     this.smartBatcher = new SmartBatcher();
     this.rpcScorer = new RpcScorer();
     this.circuitBreaker = new CircuitBreaker();
+    this.errorClassifier = new EnhancedErrorClassifier();
+    this.retryManager = new RetryManager();
+    this.methodScorer = new MethodAwareRpcScorer();
+    this.healthMonitor = new PredictiveHealthMonitor();
+    this.batchHandler = new ResilientBatchHandler(
+      (rpc, request) => this.executeRpcCall(rpc, request.method, request.params || []),
+      this._log.bind(this)
+    );
+    this.connectionPool = new ConnectionPool();
+    this.requestQueue = new RequestQueue();
   }
 
   private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]): void {
@@ -442,14 +466,38 @@ export class Permit2RpcManager {
   /**
    * Internal send implementation (after deduplication)
    */
-  private async _sendInternal<T = unknown>(chainId: number, method: string, params: unknown[]): Promise<T> {
+  private _sendInternal<T = unknown>(chainId: number, method: string, params: unknown[]): Promise<T> {
+    const retryContext = this.retryManager.createContext();
+    return this._sendWithRetry<T>(chainId, method, params, retryContext);
+  }
+
+  /**
+   * Send with retry logic using retry context
+   */
+  private async _sendWithRetry<T = unknown>(
+    chainId: number,
+    method: string,
+    params: unknown[],
+    context: RetryContext
+  ): Promise<T> {
     const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
 
-    // Filter available RPCs using both health state and circuit breaker
-    const availableRpcs = allRpcs.filter((rpc) => this.isRpcAvailable(rpc) && this.circuitBreaker.canRequest(rpc));
+    // Filter available RPCs using health state, circuit breaker, and predictive health
+    const availableRpcs = allRpcs.filter((rpc) => 
+      this.isRpcAvailable(rpc) && 
+      this.circuitBreaker.canRequest(rpc) &&
+      !this.healthMonitor.shouldAvoidRpc(rpc)
+    );
 
-    // Use RPC scorer to rank available RPCs by performance
-    const rankedRpcs = this.rpcScorer.getRankedRpcs(availableRpcs);
+    // Use method-aware scorer to get optimal RPC for this method
+    const optimalRpc = availableRpcs.length > 0 
+      ? this.methodScorer.getOptimalRpc(availableRpcs, method, { priority: 'normal' })
+      : null;
+    
+    // Reorder RPCs with optimal first
+    const rankedRpcs = optimalRpc 
+      ? [optimalRpc, ...availableRpcs.filter(rpc => rpc !== optimalRpc)]
+      : this.rpcScorer.getRankedRpcs(availableRpcs);
 
     if (rankedRpcs.length === 0) {
       // Check if all are in backoff
@@ -517,11 +565,18 @@ export class Permit2RpcManager {
 
       attemptedRpcs.push(rpcUrl);
 
-      try {
-        this._log("info", `[SEND] Trying ${rpcUrl} for ${method} on chain ${chainId}`);
+      // Check if we can retry this specific RPC
+      if (!this.retryManager.canRetryRpc(context, rpcUrl)) {
+        this._log("debug", `[SEND] Skipping ${rpcUrl} - max attempts reached`);
+        continue;
+      }
 
+      try {
+        this._log("info", `[SEND] Trying ${rpcUrl} for ${method} on chain ${chainId} (attempt ${context.attemptCount + 1})`);
+
+        this.retryManager.recordAttempt(context, rpcUrl);
         const startTime = Date.now();
-        const result = await this.executeRpcCall<T>(rpcUrl, method, params);
+        const result = await this.executeRpcCallWithRetry<T>(rpcUrl, method, params, context);
         const responseTime = Date.now() - startTime;
 
         // Record success metrics
@@ -529,53 +584,147 @@ export class Permit2RpcManager {
         this.rpcScorer.updateScore(rpcUrl, true, responseTime);
         this.circuitBreaker.recordResult(rpcUrl, true);
         this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
+        this.methodScorer.recordSuccess(rpcUrl, method, responseTime);
+        this.healthMonitor.updateHealth(rpcUrl, true, responseTime);
 
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
-        // Classify the error
-        const classification = this.classifyError(lastError);
+        // Use enhanced error classifier
+        const rpcAttempts = context.rpcAttempts.get(rpcUrl) || 0;
+        const enhancedClassification = this.errorClassifier.classify(lastError, rpcAttempts);
+        
+        // Convert to old classification for compatibility
+        const classification = this.mapEnhancedToOldClassification(enhancedClassification);
 
         this._log(
           "warn",
-          `[SEND] RPC ${rpcUrl} failed: ${classification.reason} ` +
-            `(behavior: ${ErrorBehavior[classification.behavior]})`,
+          `[SEND] RPC ${rpcUrl} failed: ${enhancedClassification.reason} ` +
+            `(behavior: ${EnhancedErrorBehavior[enhancedClassification.behavior]}, severity: ${enhancedClassification.severity})`,
         );
 
-        // Decide if we should continue trying other RPCs
-        switch (classification.behavior) {
-          case ErrorBehavior.DO_NOT_RETRY:
-          case ErrorBehavior.BLOCKCHAIN_ERROR:
+        // Record error in context
+        this.retryManager.recordError(context, rpcUrl, lastError, enhancedClassification.reason);
+
+        // Decide if we should continue trying based on enhanced classification
+        switch (enhancedClassification.behavior) {
+          case EnhancedErrorBehavior.DO_NOT_RETRY:
+          case EnhancedErrorBehavior.BLOCKCHAIN_ERROR:
             // These are client/request errors that will be the same on all RPCs
-            // Don't record as failures to prevent cascading health issues
             this._log(
               "info",
-              `[SEND] Error type ${ErrorBehavior[classification.behavior]} detected. ` +
+              `[SEND] Error type ${EnhancedErrorBehavior[enhancedClassification.behavior]} detected. ` +
                 `Not recording as RPC failure to prevent cascade.`,
             );
             throw lastError;
 
-          case ErrorBehavior.RETRY_WITH_BACKOFF:
-          case ErrorBehavior.RETRY_DIFFERENT_RPC:
-            // These are RPC-specific issues that should count toward health
+          case EnhancedErrorBehavior.RETRY_SAME_RPC:
+            // Retry same RPC if we have budget and can retry this RPC
+            if (this.retryManager.canRetry(context) && this.retryManager.canRetryRpc(context, rpcUrl)) {
+              const delay = this.errorClassifier.getRetryDelay(enhancedClassification, rpcAttempts);
+              if (delay > 0) {
+                this._log("debug", `[SEND] Waiting ${delay}ms before retrying ${rpcUrl}`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+              // Retry same RPC by decrementing i
+              i--;
+              continue;
+            }
+            // Fall through to try different RPC if can't retry same
+
+          case EnhancedErrorBehavior.RETRY_DIFFERENT_RPC:
+            // Record failure and continue to next RPC
             await this.recordFailure(chainId, rpcUrl, classification);
             this.rpcScorer.updateScore(rpcUrl, false);
             this.circuitBreaker.recordResult(rpcUrl, false);
-            // Continue to next RPC
+            this.methodScorer.recordFailure(rpcUrl, method, enhancedClassification.reason);
+            this.healthMonitor.updateHealth(rpcUrl, false, 0, enhancedClassification.reason);
+            
+            // Check if we should wait before trying next RPC
+            if (enhancedClassification.retryDelay) {
+              await new Promise(resolve => setTimeout(resolve, enhancedClassification.retryDelay));
+            }
             continue;
         }
       }
     }
 
-    // All RPCs failed
-    const errorMsg = lastError?.message || "Unknown error";
-    throw new JsonRpcError(
-      -32000,
-      `All ${attemptedRpcs.length} RPC endpoints failed for chain ${chainId}. ` +
-        `Attempted: [${attemptedRpcs.join(", ")}]. Last error: ${errorMsg}`,
-      { attemptedRpcs, chainId },
-    );
+    // All RPCs failed or retry budget exhausted
+    if (!this.retryManager.canRetry(context)) {
+      this._log("error", `[SEND] Retry budget exhausted: ${this.retryManager.getSummary(context)}`);
+    }
+    
+    throw this.retryManager.createAggregateError(context);
+  }
+
+  /**
+   * Map enhanced classification to old classification for compatibility
+   */
+  private mapEnhancedToOldClassification(enhanced: any): ErrorClassification {
+    let behavior: ErrorBehavior;
+    
+    switch (enhanced.behavior) {
+      case EnhancedErrorBehavior.RETRY_SAME_RPC:
+        behavior = ErrorBehavior.RETRY_WITH_BACKOFF;
+        break;
+      case EnhancedErrorBehavior.RETRY_DIFFERENT_RPC:
+        behavior = ErrorBehavior.RETRY_DIFFERENT_RPC;
+        break;
+      case EnhancedErrorBehavior.DO_NOT_RETRY:
+        behavior = ErrorBehavior.DO_NOT_RETRY;
+        break;
+      case EnhancedErrorBehavior.BLOCKCHAIN_ERROR:
+        behavior = ErrorBehavior.BLOCKCHAIN_ERROR;
+        break;
+      default:
+        behavior = ErrorBehavior.RETRY_DIFFERENT_RPC;
+    }
+
+    return {
+      behavior,
+      reason: enhanced.reason,
+      isProviderIssue: enhanced.isTransient
+    };
+  }
+
+  /**
+   * Execute RPC call with retry logic for same RPC
+   */
+  private async executeRpcCallWithRetry<T = unknown>(
+    url: string,
+    method: string,
+    params: unknown[],
+    context: RetryContext
+  ): Promise<T> {
+    const maxAttemptsPerRpc = 2;
+    const currentAttempts = context.rpcAttempts.get(url) || 0;
+    
+    for (let attempt = 0; attempt < maxAttemptsPerRpc - currentAttempts; attempt++) {
+      try {
+        return await this.executeRpcCall<T>(url, method, params);
+      } catch (error) {
+        const attemptNumber = currentAttempts + attempt + 1;
+        const classification = this.errorClassifier.classify(error, attemptNumber);
+        
+        // If it's a RETRY_SAME_RPC error and we have more attempts, retry
+        if (classification.behavior === EnhancedErrorBehavior.RETRY_SAME_RPC && 
+            attempt < maxAttemptsPerRpc - currentAttempts - 1) {
+          const delay = this.errorClassifier.getRetryDelay(classification, attemptNumber);
+          if (delay > 0) {
+            this._log("debug", `[EXECUTE] Retrying same RPC after ${delay}ms delay`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          continue;
+        }
+        
+        // Otherwise, throw the error to be handled by upper layer
+        throw error;
+      }
+    }
+    
+    // Should not reach here
+    throw new Error("Unexpected: max attempts reached");
   }
 
   /**
@@ -659,23 +808,52 @@ export class Permit2RpcManager {
   }
 
   /**
-   * Handle batch requests with smart batching
+   * Handle batch requests with resilient batch handler
    */
-  sendBatch<T = unknown>(
+  async sendBatch<T = unknown>(
     chainId: number,
     requests: Array<{ method: string; params?: unknown[] }>,
   ): Promise<T[]> {
-    // Use smart batcher to split large batches and avoid overwhelming RPCs
-    return this.smartBatcher.processBatch(
-      requests.map((req) => ({ method: req.method, params: req.params || [] })),
-      async (batch) => {
-        // Process each chunk with some parallelism but not all at once
-        const results = await Promise.all(
-          batch.map((req) => this.send<T>(chainId, req.method, req.params)),
-        );
-        return results;
-      },
+    // Get available RPCs for this chain
+    const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
+    const availableRpcs = allRpcs.filter((rpc) => 
+      this.isRpcAvailable(rpc) && 
+      this.circuitBreaker.canRequest(rpc) &&
+      !this.healthMonitor.shouldAvoidRpc(rpc)
     );
+    
+    if (availableRpcs.length === 0) {
+      throw new Error(`No available RPCs for chain ${chainId}`);
+    }
+    
+    // Convert to JSON-RPC format
+    const jsonRpcRequests = requests.map((req, index) => ({
+      jsonrpc: "2.0" as const,
+      method: req.method,
+      params: req.params,
+      id: index
+    }));
+    
+    // Process batch with resilience
+    const responses = await this.batchHandler.processBatch(jsonRpcRequests, {
+      chainId,
+      primaryRpc: availableRpcs[0],
+      backupRpcs: availableRpcs.slice(1, 4), // Use up to 3 backup RPCs
+      maxRetries: 3,
+      timeout: this.requestTimeoutMs
+    });
+    
+    // Extract results or throw errors
+    return responses.map((response) => {
+      if (response.error) {
+        throw new JsonRpcError(
+          response.error.code,
+          response.error.message,
+          response.error.data
+        );
+      }
+      return response.result as T;
+    });
   }
 
   /**
