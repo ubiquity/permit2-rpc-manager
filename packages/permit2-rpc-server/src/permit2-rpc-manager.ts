@@ -11,7 +11,7 @@ import {
   SmartBatcher,
 } from "./reliability-improvements.ts";
 import { EnhancedErrorClassifier, ErrorBehavior as EnhancedErrorBehavior } from "./error-classifier.ts";
-import { RetryManager, RetryContext } from "./retry-context.ts";
+import { RetryContext, RetryManager } from "./retry-context.ts";
 import { MethodAwareRpcScorer } from "./method-aware-scorer.ts";
 import { PredictiveHealthMonitor } from "./predictive-health.ts";
 import { ResilientBatchHandler } from "./batch-handler.ts";
@@ -187,7 +187,7 @@ export class Permit2RpcManager {
     this.healthMonitor = new PredictiveHealthMonitor();
     this.batchHandler = new ResilientBatchHandler(
       (rpc, request) => this.executeRpcCall(rpc, request.method, request.params || []),
-      this._log.bind(this)
+      this._log.bind(this),
     );
     this.connectionPool = new ConnectionPool();
     this.requestQueue = new RequestQueue();
@@ -478,25 +478,25 @@ export class Permit2RpcManager {
     chainId: number,
     method: string,
     params: unknown[],
-    context: RetryContext
+    context: RetryContext,
   ): Promise<T> {
     const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
 
     // Filter available RPCs using health state, circuit breaker, and predictive health
-    const availableRpcs = allRpcs.filter((rpc) => 
-      this.isRpcAvailable(rpc) && 
+    const availableRpcs = allRpcs.filter((rpc) =>
+      this.isRpcAvailable(rpc) &&
       this.circuitBreaker.canRequest(rpc) &&
       !this.healthMonitor.shouldAvoidRpc(rpc)
     );
 
     // Use method-aware scorer to get optimal RPC for this method
-    const optimalRpc = availableRpcs.length > 0 
-      ? this.methodScorer.getOptimalRpc(availableRpcs, method, { priority: 'normal' })
+    const optimalRpc = availableRpcs.length > 0
+      ? this.methodScorer.getOptimalRpc(availableRpcs, method, { priority: "normal" })
       : null;
-    
+
     // Reorder RPCs with optimal first
-    const rankedRpcs = optimalRpc 
-      ? [optimalRpc, ...availableRpcs.filter(rpc => rpc !== optimalRpc)]
+    const rankedRpcs = optimalRpc
+      ? [optimalRpc, ...availableRpcs.filter((rpc) => rpc !== optimalRpc)]
       : this.rpcScorer.getRankedRpcs(availableRpcs);
 
     if (rankedRpcs.length === 0) {
@@ -572,7 +572,10 @@ export class Permit2RpcManager {
       }
 
       try {
-        this._log("info", `[SEND] Trying ${rpcUrl} for ${method} on chain ${chainId} (attempt ${context.attemptCount + 1})`);
+        this._log(
+          "info",
+          `[SEND] Trying ${rpcUrl} for ${method} on chain ${chainId} (attempt ${context.attemptCount + 1})`,
+        );
 
         this.retryManager.recordAttempt(context, rpcUrl);
         const startTime = Date.now();
@@ -594,14 +597,16 @@ export class Permit2RpcManager {
         // Use enhanced error classifier
         const rpcAttempts = context.rpcAttempts.get(rpcUrl) || 0;
         const enhancedClassification = this.errorClassifier.classify(lastError, rpcAttempts);
-        
+
         // Convert to old classification for compatibility
         const classification = this.mapEnhancedToOldClassification(enhancedClassification);
 
         this._log(
           "warn",
           `[SEND] RPC ${rpcUrl} failed: ${enhancedClassification.reason} ` +
-            `(behavior: ${EnhancedErrorBehavior[enhancedClassification.behavior]}, severity: ${enhancedClassification.severity})`,
+            `(behavior: ${
+              EnhancedErrorBehavior[enhancedClassification.behavior]
+            }, severity: ${enhancedClassification.severity})`,
         );
 
         // Record error in context
@@ -625,7 +630,7 @@ export class Permit2RpcManager {
               const delay = this.errorClassifier.getRetryDelay(enhancedClassification, rpcAttempts);
               if (delay > 0) {
                 this._log("debug", `[SEND] Waiting ${delay}ms before retrying ${rpcUrl}`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve) => setTimeout(resolve, delay));
               }
               // Retry same RPC by decrementing i
               i--;
@@ -640,10 +645,10 @@ export class Permit2RpcManager {
             this.circuitBreaker.recordResult(rpcUrl, false);
             this.methodScorer.recordFailure(rpcUrl, method, enhancedClassification.reason);
             this.healthMonitor.updateHealth(rpcUrl, false, 0, enhancedClassification.reason);
-            
+
             // Check if we should wait before trying next RPC
             if (enhancedClassification.retryDelay) {
-              await new Promise(resolve => setTimeout(resolve, enhancedClassification.retryDelay));
+              await new Promise((resolve) => setTimeout(resolve, enhancedClassification.retryDelay));
             }
             continue;
         }
@@ -654,7 +659,7 @@ export class Permit2RpcManager {
     if (!this.retryManager.canRetry(context)) {
       this._log("error", `[SEND] Retry budget exhausted: ${this.retryManager.getSummary(context)}`);
     }
-    
+
     throw this.retryManager.createAggregateError(context);
   }
 
@@ -663,7 +668,7 @@ export class Permit2RpcManager {
    */
   private mapEnhancedToOldClassification(enhanced: any): ErrorClassification {
     let behavior: ErrorBehavior;
-    
+
     switch (enhanced.behavior) {
       case EnhancedErrorBehavior.RETRY_SAME_RPC:
         behavior = ErrorBehavior.RETRY_WITH_BACKOFF;
@@ -684,7 +689,7 @@ export class Permit2RpcManager {
     return {
       behavior,
       reason: enhanced.reason,
-      isProviderIssue: enhanced.isTransient
+      isProviderIssue: enhanced.isTransient,
     };
   }
 
@@ -695,34 +700,36 @@ export class Permit2RpcManager {
     url: string,
     method: string,
     params: unknown[],
-    context: RetryContext
+    context: RetryContext,
   ): Promise<T> {
     const maxAttemptsPerRpc = 2;
     const currentAttempts = context.rpcAttempts.get(url) || 0;
-    
+
     for (let attempt = 0; attempt < maxAttemptsPerRpc - currentAttempts; attempt++) {
       try {
         return await this.executeRpcCall<T>(url, method, params);
       } catch (error) {
         const attemptNumber = currentAttempts + attempt + 1;
         const classification = this.errorClassifier.classify(error, attemptNumber);
-        
+
         // If it's a RETRY_SAME_RPC error and we have more attempts, retry
-        if (classification.behavior === EnhancedErrorBehavior.RETRY_SAME_RPC && 
-            attempt < maxAttemptsPerRpc - currentAttempts - 1) {
+        if (
+          classification.behavior === EnhancedErrorBehavior.RETRY_SAME_RPC &&
+          attempt < maxAttemptsPerRpc - currentAttempts - 1
+        ) {
           const delay = this.errorClassifier.getRetryDelay(classification, attemptNumber);
           if (delay > 0) {
             this._log("debug", `[EXECUTE] Retrying same RPC after ${delay}ms delay`);
-            await new Promise(resolve => setTimeout(resolve, delay));
+            await new Promise((resolve) => setTimeout(resolve, delay));
           }
           continue;
         }
-        
+
         // Otherwise, throw the error to be handled by upper layer
         throw error;
       }
     }
-    
+
     // Should not reach here
     throw new Error("Unexpected: max attempts reached");
   }
@@ -816,40 +823,40 @@ export class Permit2RpcManager {
   ): Promise<T[]> {
     // Get available RPCs for this chain
     const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
-    const availableRpcs = allRpcs.filter((rpc) => 
-      this.isRpcAvailable(rpc) && 
+    const availableRpcs = allRpcs.filter((rpc) =>
+      this.isRpcAvailable(rpc) &&
       this.circuitBreaker.canRequest(rpc) &&
       !this.healthMonitor.shouldAvoidRpc(rpc)
     );
-    
+
     if (availableRpcs.length === 0) {
       throw new Error(`No available RPCs for chain ${chainId}`);
     }
-    
+
     // Convert to JSON-RPC format
     const jsonRpcRequests = requests.map((req, index) => ({
       jsonrpc: "2.0" as const,
       method: req.method,
       params: req.params,
-      id: index
+      id: index,
     }));
-    
+
     // Process batch with resilience
     const responses = await this.batchHandler.processBatch(jsonRpcRequests, {
       chainId,
       primaryRpc: availableRpcs[0],
       backupRpcs: availableRpcs.slice(1, 4), // Use up to 3 backup RPCs
       maxRetries: 3,
-      timeout: this.requestTimeoutMs
+      timeout: this.requestTimeoutMs,
     });
-    
+
     // Extract results or throw errors
     return responses.map((response) => {
       if (response.error) {
         throw new JsonRpcError(
           response.error.code,
           response.error.message,
-          response.error.data
+          response.error.data,
         );
       }
       return response.result as T;
@@ -905,17 +912,17 @@ export class Permit2RpcManager {
         healthyRpcs: 0,
         degradedRpcs: 0,
         failedRpcs: 0,
-        eliminatedRpcs: 0
-      }
+        eliminatedRpcs: 0,
+      },
     };
 
     try {
       // Get cache data from CacheManager
       const cacheData = await this.cacheManager.getCacheState();
-      
+
       // Get all available chains from data source
       const availableChains = this.dataSource.getAvailableChains();
-      
+
       for (const chainId of availableChains) {
         const chainData: any = {
           chainId,
@@ -925,7 +932,7 @@ export class Permit2RpcManager {
           healthyRpcs: 0,
           degradedRpcs: 0,
           failedRpcs: 0,
-          eliminatedRpcs: 0
+          eliminatedRpcs: 0,
         };
 
         // Get RPCs for this chain
@@ -944,7 +951,7 @@ export class Permit2RpcManager {
           const rpcInfo: any = {
             url: rpcUrl,
             status: "unknown",
-            healthy: false
+            healthy: false,
           };
 
           // Get health state from memory
@@ -953,15 +960,15 @@ export class Permit2RpcManager {
             rpcInfo.consecutiveFailures = healthState.consecutiveFailures;
             rpcInfo.lastFailureTime = healthState.lastFailureTime > 0 ? healthState.lastFailureTime : null;
             rpcInfo.lastSuccessTime = healthState.lastSuccessTime > 0 ? healthState.lastSuccessTime : null;
-            
+
             // Check if eliminated
             if (healthState.consecutiveFailures >= this.maxConsecutiveFailures) {
               const backoffMs = Math.min(
                 this.backoffBaseMs * Math.pow(2, healthState.consecutiveFailures - this.maxConsecutiveFailures),
-                this.maxBackoffMs
+                this.maxBackoffMs,
               );
               const nextRetryTime = healthState.lastFailureTime + backoffMs;
-              
+
               if (Date.now() < nextRetryTime) {
                 rpcInfo.status = "eliminated";
                 rpcInfo.nextRetryAt = nextRetryTime;
@@ -975,7 +982,7 @@ export class Permit2RpcManager {
             const latencyData = chainCache.latencyMap[rpcUrl];
             rpcInfo.latency = latencyData.latency;
             rpcInfo.cacheStatus = latencyData.status;
-            
+
             // Determine health based on cache status
             if (latencyData.status === "ok" && !rpcInfo.status) {
               rpcInfo.status = "healthy";
@@ -1014,9 +1021,8 @@ export class Permit2RpcManager {
         logLevel: this.logLevel,
         maxConsecutiveFailures: this.maxConsecutiveFailures,
         backoffBaseMs: this.backoffBaseMs,
-        maxBackoffMs: this.maxBackoffMs
+        maxBackoffMs: this.maxBackoffMs,
       };
-
     } catch (error) {
       this._log("error", "Failed to generate health status:", error);
       throw error;

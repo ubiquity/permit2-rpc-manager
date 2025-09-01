@@ -20,18 +20,18 @@ const JSON_RPC_ERROR_CODES = {
 } as const;
 
 export enum ErrorBehavior {
-  RETRY_SAME_RPC,      // Transient errors (retry with backoff)
+  RETRY_SAME_RPC, // Transient errors (retry with backoff)
   RETRY_DIFFERENT_RPC, // Provider issues (switch RPC)
-  DO_NOT_RETRY,        // Client errors (fail fast)
-  BLOCKCHAIN_ERROR     // Execution errors
+  DO_NOT_RETRY, // Client errors (fail fast)
+  BLOCKCHAIN_ERROR, // Execution errors
 }
 
 export interface ErrorClassification {
   behavior: ErrorBehavior;
   reason: string;
-  retryDelay?: number;    // Suggested delay before retry
-  isTransient: boolean;   // Can succeed on retry
-  severity: 'low' | 'medium' | 'high' | 'critical';
+  retryDelay?: number; // Suggested delay before retry
+  isTransient: boolean; // Can succeed on retry
+  severity: "low" | "medium" | "high" | "critical";
 }
 
 export class EnhancedErrorClassifier {
@@ -42,46 +42,48 @@ export class EnhancedErrorClassifier {
       if (attemptCount === 1) {
         return {
           behavior: ErrorBehavior.RETRY_SAME_RPC,
-          reason: 'transient_internal_error',
+          reason: "transient_internal_error",
           retryDelay: 100, // 100ms delay
           isTransient: true,
-          severity: 'low'
+          severity: "low",
         };
       }
       // Second attempt: try different RPC
       return {
         behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-        reason: 'persistent_internal_error',
+        reason: "persistent_internal_error",
         isTransient: true,
-        severity: 'medium'
+        severity: "medium",
       };
     }
-    
+
     // Rate limiting (429 or specific codes)
-    if (error.code === 429 || error.httpStatus === 429 || 
-        error.code === JSON_RPC_ERROR_CODES.QUOTA_EXCEEDED ||
-        error.code === JSON_RPC_ERROR_CODES.REQUEST_LIMIT ||
-        (error.message && error.message.toLowerCase().includes('rate'))) {
+    if (
+      error.code === 429 || error.httpStatus === 429 ||
+      error.code === JSON_RPC_ERROR_CODES.QUOTA_EXCEEDED ||
+      error.code === JSON_RPC_ERROR_CODES.REQUEST_LIMIT ||
+      (error.message && error.message.toLowerCase().includes("rate"))
+    ) {
       return {
         behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-        reason: 'rate_limit',
+        reason: "rate_limit",
         retryDelay: 1000, // Immediate switch to different RPC
         isTransient: true,
-        severity: 'medium'
+        severity: "medium",
       };
     }
-    
+
     // Network timeouts
-    if (error.name === 'AbortError' || error.code === 'ETIMEDOUT' || 
-        (error.message && error.message.includes('timeout'))) {
+    if (
+      error.name === "AbortError" || error.code === "ETIMEDOUT" ||
+      (error.message && error.message.includes("timeout"))
+    ) {
       return {
-        behavior: attemptCount === 1 
-          ? ErrorBehavior.RETRY_SAME_RPC 
-          : ErrorBehavior.RETRY_DIFFERENT_RPC,
-        reason: 'timeout',
+        behavior: attemptCount === 1 ? ErrorBehavior.RETRY_SAME_RPC : ErrorBehavior.RETRY_DIFFERENT_RPC,
+        reason: "timeout",
         retryDelay: 0, // Immediate retry
         isTransient: true,
-        severity: 'low'
+        severity: "low",
       };
     }
 
@@ -89,22 +91,24 @@ export class EnhancedErrorClassifier {
     if (error.httpStatus >= 500 && error.httpStatus <= 599) {
       return {
         behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-        reason: 'server_error',
+        reason: "server_error",
         retryDelay: 500,
         isTransient: true,
-        severity: 'high'
+        severity: "high",
       };
     }
 
     // Network errors
-    if (error.name === 'TypeError' || error.message === 'Failed to fetch' ||
-        error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
+    if (
+      error.name === "TypeError" || error.message === "Failed to fetch" ||
+      error.code === "ECONNREFUSED" || error.code === "ECONNRESET"
+    ) {
       return {
         behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-        reason: 'network_error',
+        reason: "network_error",
         retryDelay: 0,
         isTransient: true,
-        severity: 'medium'
+        severity: "medium",
       };
     }
 
@@ -112,9 +116,9 @@ export class EnhancedErrorClassifier {
     if (error.code === JSON_RPC_ERROR_CODES.EXECUTION_REVERTED) {
       return {
         behavior: ErrorBehavior.BLOCKCHAIN_ERROR,
-        reason: 'execution_reverted',
+        reason: "execution_reverted",
         isTransient: false,
-        severity: 'critical'
+        severity: "critical",
       };
     }
 
@@ -122,21 +126,23 @@ export class EnhancedErrorClassifier {
     if (error.httpStatus >= 400 && error.httpStatus < 500 && error.httpStatus !== 429) {
       return {
         behavior: ErrorBehavior.DO_NOT_RETRY,
-        reason: 'client_error',
+        reason: "client_error",
         isTransient: false,
-        severity: 'high'
+        severity: "high",
       };
     }
 
     // Invalid params, method not found, etc.
-    if (error.code === JSON_RPC_ERROR_CODES.INVALID_PARAMS ||
-        error.code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND ||
-        error.code === JSON_RPC_ERROR_CODES.INVALID_REQUEST) {
+    if (
+      error.code === JSON_RPC_ERROR_CODES.INVALID_PARAMS ||
+      error.code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND ||
+      error.code === JSON_RPC_ERROR_CODES.INVALID_REQUEST
+    ) {
       return {
         behavior: ErrorBehavior.DO_NOT_RETRY,
-        reason: 'invalid_request',
+        reason: "invalid_request",
         isTransient: false,
-        severity: 'critical'
+        severity: "critical",
       };
     }
 
@@ -146,41 +152,43 @@ export class EnhancedErrorClassifier {
       if (attemptCount === 1) {
         return {
           behavior: ErrorBehavior.RETRY_SAME_RPC,
-          reason: 'parse_error',
+          reason: "parse_error",
           retryDelay: 100,
           isTransient: true,
-          severity: 'medium'
+          severity: "medium",
         };
       }
       return {
         behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-        reason: 'persistent_parse_error',
+        reason: "persistent_parse_error",
         isTransient: true,
-        severity: 'high'
+        severity: "high",
       };
     }
 
     // Unauthorized / forbidden
-    if (error.code === JSON_RPC_ERROR_CODES.UNAUTHORIZED ||
-        error.code === JSON_RPC_ERROR_CODES.ACTION_NOT_PERMITTED ||
-        error.httpStatus === 401 || error.httpStatus === 403) {
+    if (
+      error.code === JSON_RPC_ERROR_CODES.UNAUTHORIZED ||
+      error.code === JSON_RPC_ERROR_CODES.ACTION_NOT_PERMITTED ||
+      error.httpStatus === 401 || error.httpStatus === 403
+    ) {
       // Could be API key issue, try different RPC
       return {
         behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-        reason: 'authorization_error',
+        reason: "authorization_error",
         retryDelay: 0,
         isTransient: true,
-        severity: 'medium'
+        severity: "medium",
       };
     }
 
     // Default: assume it's retryable with different RPC
     return {
       behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-      reason: 'unknown_error',
+      reason: "unknown_error",
       retryDelay: 100,
       isTransient: true,
-      severity: 'low'
+      severity: "low",
     };
   }
 
@@ -189,16 +197,16 @@ export class EnhancedErrorClassifier {
    */
   shouldFailoverImmediately(classification: ErrorClassification): boolean {
     return classification.behavior === ErrorBehavior.RETRY_DIFFERENT_RPC &&
-           classification.severity !== 'low';
+      classification.severity !== "low";
   }
 
   /**
    * Check if an error indicates the RPC is unhealthy
    */
   isRpcUnhealthy(classification: ErrorClassification): boolean {
-    return classification.severity === 'high' || 
-           classification.severity === 'critical' ||
-           classification.reason === 'server_error';
+    return classification.severity === "high" ||
+      classification.severity === "critical" ||
+      classification.reason === "server_error";
   }
 
   /**
@@ -209,10 +217,10 @@ export class EnhancedErrorClassifier {
       // Apply exponential backoff to the base delay
       return Math.min(
         classification.retryDelay * Math.pow(1.5, attemptCount - 1),
-        30000 // Max 30 seconds
+        30000, // Max 30 seconds
       );
     }
-    
+
     // Default delays based on behavior
     switch (classification.behavior) {
       case ErrorBehavior.RETRY_SAME_RPC:

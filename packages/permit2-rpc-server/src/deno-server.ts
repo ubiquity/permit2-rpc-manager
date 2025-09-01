@@ -713,7 +713,7 @@ const handler = async (request: Request): Promise<Response> => {
     try {
       // Get health data from manager
       const healthData = await manager.getHealthStatus();
-      
+
       return new Response(JSON.stringify(healthData), {
         status: 200,
         headers: {
@@ -722,16 +722,19 @@ const handler = async (request: Request): Promise<Response> => {
         },
       });
     } catch (error) {
-      return new Response(JSON.stringify({ 
-        error: "Failed to retrieve health status",
-        message: error instanceof Error ? error.message : String(error)
-      }), {
-        status: 500,
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          ...corsHeaders,
+      return new Response(
+        JSON.stringify({
+          error: "Failed to retrieve health status",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+        {
+          status: 500,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            ...corsHeaders,
+          },
         },
-      });
+      );
     }
   }
 

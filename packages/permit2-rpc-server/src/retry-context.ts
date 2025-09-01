@@ -1,15 +1,15 @@
 export interface RetryContext {
-  budget: number;                        // Total retries allowed
-  attemptCount: number;                  // Current attempt number
-  rpcAttempts: Map<string, number>;      // Attempts per RPC
-  errors: Array<{                        // Error history for debugging
+  budget: number; // Total retries allowed
+  attemptCount: number; // Current attempt number
+  rpcAttempts: Map<string, number>; // Attempts per RPC
+  errors: Array<{ // Error history for debugging
     rpc: string;
     error: Error;
     classification: string;
     timestamp: number;
   }>;
-  startTime: number;                     // Request start time
-  lastRpcUrl?: string;                   // Last attempted RPC
+  startTime: number; // Request start time
+  lastRpcUrl?: string; // Last attempted RPC
 }
 
 export class RetryManager {
@@ -23,7 +23,7 @@ export class RetryManager {
       attemptCount: 0,
       rpcAttempts: new Map(),
       errors: [],
-      startTime: Date.now()
+      startTime: Date.now(),
     };
   }
 
@@ -49,39 +49,37 @@ export class RetryManager {
   recordAttempt(context: RetryContext, rpcUrl: string): void {
     context.attemptCount++;
     context.lastRpcUrl = rpcUrl;
-    
+
     const currentAttempts = context.rpcAttempts.get(rpcUrl) || 0;
     context.rpcAttempts.set(rpcUrl, currentAttempts + 1);
   }
 
   recordError(
-    context: RetryContext, 
-    rpcUrl: string, 
-    error: Error, 
-    classification: string
+    context: RetryContext,
+    rpcUrl: string,
+    error: Error,
+    classification: string,
   ): void {
     context.errors.push({
       rpc: rpcUrl,
       error,
       classification,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
     context.budget--;
   }
 
   createAggregateError(context: RetryContext): Error {
-    const errorMessages = context.errors.map(e => 
-      `[${e.rpc}]: ${e.classification} - ${e.error.message}`
-    ).join('; ');
+    const errorMessages = context.errors.map((e) => `[${e.rpc}]: ${e.classification} - ${e.error.message}`).join("; ");
 
     const error = new Error(
       `All retry attempts exhausted. Tried ${context.attemptCount} times across ` +
-      `${context.rpcAttempts.size} RPCs. Errors: ${errorMessages}`
+        `${context.rpcAttempts.size} RPCs. Errors: ${errorMessages}`,
     );
 
     // Attach context for debugging
     (error as any).retryContext = context;
-    
+
     return error;
   }
 
@@ -91,10 +89,10 @@ export class RetryManager {
   getSummary(context: RetryContext): string {
     const rpcSummary = Array.from(context.rpcAttempts.entries())
       .map(([rpc, count]) => `${rpc}:${count}`)
-      .join(', ');
-    
+      .join(", ");
+
     const errorSummary = context.errors
-      .map(e => e.classification)
+      .map((e) => e.classification)
       .reduce((acc, classification) => {
         acc[classification] = (acc[classification] || 0) + 1;
         return acc;
@@ -102,7 +100,7 @@ export class RetryManager {
 
     const errorStr = Object.entries(errorSummary)
       .map(([type, count]) => `${type}:${count}`)
-      .join(', ');
+      .join(", ");
 
     return `Attempts: ${context.attemptCount}, RPCs: [${rpcSummary}], Errors: [${errorStr}]`;
   }
