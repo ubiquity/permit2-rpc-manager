@@ -39,11 +39,13 @@ export class RpcSelector {
    * Filters out RPCs with error statuses.
    * Sorts the remaining RPCs by status priority (ok > wrong_bytecode > syncing) and then by latency.
    * Ensures only one latency test runs concurrently per chain ID.
+   * Optionally filters by method support (e.g., eth_getLogs).
    *
    * @param chainId - The chain ID.
+   * @param method - Optional method to filter RPCs by support.
    * @returns A promise that resolves to a sorted array of usable RPC URLs.
    */
-  async getRankedRpcList(chainId: number): Promise<string[]> {
+  async getRankedRpcList(chainId: number, method?: string): Promise<string[]> {
     let latencyMap = await this.cacheManager.getLatencyMap(chainId);
     // Use const as this variable is not reassigned before the next block
     const fastestCachedRpc = await this.cacheManager.getFastestRpc(chainId);
@@ -111,8 +113,8 @@ export class RpcSelector {
     }
 
     // Filter and sort the results from the (potentially updated) latency map
-    const rankedList = this._rankResults(latencyMap);
-    this.log("debug", `Ranked RPC list for chain ${chainId}:`, rankedList);
+    const rankedList = this._rankResults(latencyMap, method);
+    this.log("debug", `Ranked RPC list for chain ${chainId}${method ? ` (method: ${method})` : ""}:`, rankedList);
     return rankedList;
   }
 
@@ -145,12 +147,13 @@ export class RpcSelector {
   /**
    * Helper to filter and rank RPC results based on status and latency.
    * Also considers invalidation metadata from adaptive pool management.
+   * Optionally filters by method support.
    */
-  private _rankResults(latencyMap: Record<string, LatencyTestResult> | null): string[] {
+  private _rankResults(latencyMap: Record<string, LatencyTestResult> | null, method?: string): string[] {
     if (!latencyMap) return [];
 
     // Filter results: exclude eliminated RPCs, include acceptable statuses
-    const validResults = Object.values(latencyMap).filter((result) => {
+    let validResults = Object.values(latencyMap).filter((result) => {
       if (!result || !ACCEPTABLE_STATUSES.includes(result.status)) {
         return false;
       }
@@ -174,6 +177,23 @@ export class RpcSelector {
 
       return true;
     });
+
+    // Filter by method support if specified
+    if (method === "eth_getLogs") {
+      const beforeFilter = validResults.length;
+      validResults = validResults.filter((result) => {
+        // Check if the RPC supports the requested method
+        if (!result.supportedMethods || !result.supportedMethods.has(method)) {
+          this.log("debug", `Filtering out RPC ${result.url} - does not support ${method}`);
+          return false;
+        }
+        return true;
+      });
+      
+      if (beforeFilter > 0 && validResults.length === 0) {
+        this.log("warn", `All ${beforeFilter} RPCs filtered out - none support ${method}`);
+      }
+    }
 
     // Sort by: status priority, then latency
     validResults.sort((a, b) => {

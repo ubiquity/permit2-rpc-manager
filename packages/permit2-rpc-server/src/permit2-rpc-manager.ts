@@ -480,7 +480,7 @@ export class Permit2RpcManager {
     params: unknown[],
     context: RetryContext,
   ): Promise<T> {
-    const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
+    const allRpcs = await this.rpcSelector.getRankedRpcList(chainId, method);
 
     // Filter available RPCs using health state, circuit breaker, and predictive health
     const availableRpcs = allRpcs.filter((rpc) =>
@@ -617,11 +617,19 @@ export class Permit2RpcManager {
           case EnhancedErrorBehavior.DO_NOT_RETRY:
           case EnhancedErrorBehavior.BLOCKCHAIN_ERROR:
             // These are client/request errors that will be the same on all RPCs
-            this._log(
-              "info",
-              `[SEND] Error type ${EnhancedErrorBehavior[enhancedClassification.behavior]} detected. ` +
-                `Not recording as RPC failure to prevent cascade.`,
-            );
+            if (enhancedClassification.reason === "block_range_limit_exceeded") {
+              this._log(
+                "warn",
+                `[SEND] Block range limit exceeded for ${method}. ` +
+                  `This request will fail on all RPCs. Consider reducing the block range.`,
+              );
+            } else {
+              this._log(
+                "info",
+                `[SEND] Error type ${EnhancedErrorBehavior[enhancedClassification.behavior]} detected. ` +
+                  `Not recording as RPC failure to prevent cascade.`,
+              );
+            }
             throw lastError;
 
           case EnhancedErrorBehavior.RETRY_SAME_RPC:
@@ -822,7 +830,9 @@ export class Permit2RpcManager {
     requests: Array<{ method: string; params?: unknown[] }>,
   ): Promise<T[]> {
     // Get available RPCs for this chain
-    const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
+    // For batch requests, check if any request is eth_getLogs to filter appropriately
+    const hasGetLogs = requests.some(req => req.method === "eth_getLogs");
+    const allRpcs = await this.rpcSelector.getRankedRpcList(chainId, hasGetLogs ? "eth_getLogs" : undefined);
     const availableRpcs = allRpcs.filter((rpc) =>
       this.isRpcAvailable(rpc) &&
       this.circuitBreaker.canRequest(rpc) &&

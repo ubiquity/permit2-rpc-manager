@@ -30,6 +30,7 @@ export interface LatencyTestResult {
   latency: number; // Infinity indicates failure
   status: LatencyTestStatus;
   error?: string; // Optional error message string
+  supportedMethods?: Set<string>; // Set of supported methods detected during testing
 }
 
 // Define a logger type (can be shared or defined per file)
@@ -90,20 +91,29 @@ export class LatencyTester {
 
   /**
    * Tests latency, sync status, and Permit2 bytecode for a single RPC URL.
+   * Also tests for method support (e.g., eth_getLogs).
    * Returns a detailed result object.
    */
   private async testSingleRpc(url: string): Promise<LatencyTestResult> {
     const startTime = Date.now();
     let getCodeResponse: JsonRpcResponse | null = null;
     let syncingResponse: JsonRpcResponse | null = null;
+    let getLogsResponse: JsonRpcResponse | null = null;
     // let error: unknown = null; // Removed unused variable
     let status: LatencyTestStatus = "network_error"; // Default to network error
+    const supportedMethods = new Set<string>(["eth_getCode", "eth_syncing"]); // Base methods
 
     try {
-      // Restore concurrent calls
-      [getCodeResponse, syncingResponse] = await Promise.all([
+      // Restore concurrent calls - now including eth_getLogs test
+      [getCodeResponse, syncingResponse, getLogsResponse] = await Promise.all([
         this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]),
         this._makeRpcCall(url, "eth_syncing", []),
+        // Lightweight eth_getLogs test - single block with no filters
+        this._makeRpcCall(url, "eth_getLogs", [{ fromBlock: "latest", toBlock: "latest" }]).catch((err): JsonRpcResponse => {
+          // Don't fail the entire test if eth_getLogs is not supported
+          this.log("debug", `eth_getLogs not supported by ${url}: ${err.message || err}`);
+          return { jsonrpc: "2.0" as const, id: "eth_getLogs-test", error: { code: -32601, message: "Method not found" } };
+        }),
       ]);
     } catch (e) {
       // Catch as unknown
@@ -124,23 +134,31 @@ export class LatencyTester {
         ? "debug"
         : "warn";
       this.log(logLevel, `Latency test failed for ${url}: ${status} - ${err.message}`);
-      return { url, latency: Infinity, status, error: err.message };
+      return { url, latency: Infinity, status, error: err.message, supportedMethods };
     }
 
     const latency = Date.now() - startTime;
+    
+    // Check if eth_getLogs is supported
+    if (getLogsResponse && !getLogsResponse.error) {
+      supportedMethods.add("eth_getLogs");
+      this.log("debug", `RPC ${url} supports eth_getLogs`);
+    } else if (getLogsResponse?.error) {
+      this.log("debug", `RPC ${url} does not support eth_getLogs: ${getLogsResponse.error.message}`);
+    }
 
     // Check for RPC errors first
     if (getCodeResponse?.error) {
       status = "rpc_error";
       const errMsg = `eth_getCode RPC error ${getCodeResponse.error.code} - ${getCodeResponse.error.message}`;
       this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
-      return { url, latency: Infinity, status, error: errMsg };
+      return { url, latency: Infinity, status, error: errMsg, supportedMethods };
     }
     if (syncingResponse?.error) {
       status = "rpc_error";
       const errMsg = `eth_syncing RPC error ${syncingResponse.error.code} - ${syncingResponse.error.message}`;
       this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
-      return { url, latency: Infinity, status, error: errMsg };
+      return { url, latency: Infinity, status, error: errMsg, supportedMethods };
     }
 
     // Check sync status first
@@ -149,7 +167,7 @@ export class LatencyTester {
       const errMsg = `Node is not synced (eth_syncing returned ${JSON.stringify(syncingResponse?.result)})`;
       this.log("warn", `RPC ${url} is syncing: ${errMsg}`);
       // Return actual latency for syncing nodes so they can be used as fallback
-      return { url, latency, status, error: errMsg };
+      return { url, latency, status, error: errMsg, supportedMethods };
     }
 
     // If node is synced, check Permit2 bytecode
@@ -158,7 +176,7 @@ export class LatencyTester {
       const errMsg = `Invalid bytecode response type: ${typeof getCodeResponse?.result}`;
       this.log("warn", `RPC ${url} returned invalid bytecode: ${errMsg}`);
       // Return actual latency even for wrong bytecode, in case it's needed for basic operations
-      return { url, latency, status, error: errMsg };
+      return { url, latency, status, error: errMsg, supportedMethods };
     }
 
     // Log first 100 chars of both expected and received for debugging (use debug level)
@@ -179,13 +197,13 @@ export class LatencyTester {
       const errMsg = `Bytecode mismatch at position ${commonPrefixLength}`;
       this.log("warn", `RPC ${url} has incorrect bytecode: ${errMsg}`);
       // Return actual latency even for wrong bytecode, in case it's needed for basic operations
-      return { url, latency, status, error: errMsg };
+      return { url, latency, status, error: errMsg, supportedMethods };
     }
 
     // All checks passed - node is synced and has correct bytecode
     status = "ok";
-    this.log("debug", `RPC ${url} passed all checks (${latency}ms)`);
-    return { url, latency, status };
+    this.log("debug", `RPC ${url} passed all checks (${latency}ms), supports methods: ${Array.from(supportedMethods).join(", ")}`);
+    return { url, latency, status, supportedMethods };
   }
 
   /**
@@ -213,6 +231,7 @@ export class LatencyTester {
           latency: Infinity,
           status: "network_error",
           error: result.reason?.message || "Unknown rejection",
+          supportedMethods: new Set<string>(),
         };
       }
     });

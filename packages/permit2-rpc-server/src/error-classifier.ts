@@ -132,6 +132,20 @@ export class EnhancedErrorClassifier {
       };
     }
 
+    // Block range limit errors - specific handling for eth_getLogs
+    if (
+      error.code === JSON_RPC_ERROR_CODES.INVALID_PARAMS &&
+      error.message &&
+      /range|limit|block range is too large|exceeds maximum|too many blocks|query returned more than/i.test(error.message)
+    ) {
+      return {
+        behavior: ErrorBehavior.DO_NOT_RETRY,
+        reason: "block_range_limit_exceeded",
+        isTransient: false,
+        severity: "high",
+      };
+    }
+
     // Invalid params, method not found, etc.
     if (
       error.code === JSON_RPC_ERROR_CODES.INVALID_PARAMS ||
