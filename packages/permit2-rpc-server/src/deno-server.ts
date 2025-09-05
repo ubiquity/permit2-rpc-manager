@@ -1,6 +1,7 @@
 /// <reference lib="deno.ns" />
 // Deno Deploy entrypoint for the Permit2 RPC Manager Proxy with MCP compliance
-
+import { isMulticall3Request, Multicall3Request } from "./multicall3.ts";
+import { JsonRpcRequest, JsonRpcResponse } from "./types.ts";
 // Note: CacheManager will be adapted for Deno KV later
 // ChainlistDataSource is instantiated internally by Permit2RpcManager
 // import { ChainlistDataSource } from './chainlist-data-source.ts';
@@ -10,26 +11,6 @@ import rpcWhitelist from "../rpc-whitelist.json" with { type: "json" };
 
 // MCP SDK imports
 import { Tool } from "npm:@modelcontextprotocol/sdk@1.0.4/types.js";
-
-// Simple interface for JSON-RPC request structure
-interface JsonRpcRequest {
-  jsonrpc: "2.0";
-  method: string;
-  params: unknown[] | Record<string, any>; // Allow both array and object params for MCP
-  id: number | string | null; // Allow null ID for notifications, though we might not process them specially
-}
-
-// Define the structure for a JSON-RPC response
-interface JsonRpcResponse {
-  jsonrpc: "2.0";
-  id: number | string | null;
-  result?: unknown;
-  error?: {
-    code: number;
-    message: string;
-    data?: unknown;
-  };
-}
 
 // Type guard to check for valid JSON-RPC request object structure
 function isValidJsonRpcRequest(obj: unknown): obj is JsonRpcRequest {
@@ -920,41 +901,65 @@ const handler = async (request: Request): Promise<Response> => {
       });
     }
 
-    // Process batch requests concurrently
-    const promises = requestBody.map(async (req) => {
-      try {
-        // Ensure params is always an array for manager.send()
-        const params = Array.isArray(req.params) ? req.params : [];
-        const result = await manager.send(chainId, req.method, params);
-        return { jsonrpc: "2.0", id: req.id, result } as JsonRpcResponse;
-      } catch (e) {
-        const error = e instanceof Error ? e : new Error(String(e));
-        console.error(
-          `Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`,
-          error,
-        );
+    const multiCallRequests = requestBody.filter((req) => isMulticall3Request(chainId, req));
+    const otherRequests = requestBody.filter((req) => req.id && !multiCallRequests.map((r) => r.id).includes(req.id));
 
-        // Extract error details consistently
-        const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
-          ? error.code
-          : -32603;
-        const data = "data" in error ? error.data : undefined;
+    // group by block tag and split the array into chunks of 500 to avoid exceeding multicall limits
+    const multiCallRequestsByBlockTag = multiCallRequests.reduce(
+      (acc, req) => {
+        const blockTag = req.params[1];
+        if (!acc[blockTag]) {
+          acc[blockTag] = [];
+        }
+        const currentBatch = acc[blockTag];
+        if (currentBatch.length === 0 || currentBatch[currentBatch.length - 1].length >= 500) {
+          currentBatch.push([req]);
+        } else {
+          currentBatch[currentBatch.length - 1].push(req);
+        }
+        return acc;
+      },
+      {} as Record<string, Multicall3Request[][]>
+    );
 
-        return {
-          jsonrpc: "2.0",
-          id: req.id,
-          error: {
-            code,
-            message: error.message,
-            data,
-          },
-        } as JsonRpcResponse;
+    const multicallPromises: Promise<JsonRpcResponse[]>[] = [];
+    for (const [blockTag, batches] of Object.entries(multiCallRequestsByBlockTag)) {
+      for (const batch of batches) {
+        multicallPromises.push(manager.multicall3(chainId, batch, blockTag));
       }
-    });
+    }
+    const multicallResponses = (await Promise.all(multicallPromises)).flat();
 
-    const responses = await Promise.all(promises);
+    // Process batch requests concurrently
+    const otherResponses = await Promise.all(
+      otherRequests.map(async (req) => {
+        try {
+          // Ensure params is always an array for manager.send()
+          const params = Array.isArray(req.params) ? req.params : [];
+          const result = await manager.send(chainId, req.method, params);
+          return { jsonrpc: "2.0", id: req.id, result } as JsonRpcResponse;
+        } catch (e) {
+          const error = e instanceof Error ? e : new Error(String(e));
+          console.error(`Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`, error);
 
-    return new Response(JSON.stringify(responses), {
+          // Extract error details consistently
+          const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number" ? error.code : -32603;
+          const data = "data" in error ? error.data : undefined;
+
+          return {
+            jsonrpc: "2.0",
+            id: req.id,
+            error: {
+              code,
+              message: error.message,
+              data,
+            },
+          } as JsonRpcResponse;
+        }
+      })
+    );
+
+    return new Response(JSON.stringify([...multicallResponses, ...otherResponses]), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -1,15 +1,10 @@
-// import type { Address } from "viem"; // Removed - not used internally
 import { CacheManager } from "./cache-manager.ts";
+import { decodeFunctionResult, encodeFunctionData } from "npm:viem@2.9.30";
 import { ChainlistDataSource } from "./chainlist-data-source.ts";
 import { LatencyTester } from "./latency-tester.ts";
 import { RpcSelector } from "./rpc-selector.ts";
-import {
-  AdaptiveTimeout,
-  CircuitBreaker,
-  RequestDeduplicator,
-  RpcScorer,
-  SmartBatcher,
-} from "./reliability-improvements.ts";
+import { AdaptiveTimeout, CircuitBreaker, RequestDeduplicator, RpcScorer, SmartBatcher } from "./reliability-improvements.ts";
+import { getMulticall3Address, multicall3Abi, Multicall3Request } from "./multicall3.ts";
 
 // JSON-RPC error codes as per specification
 const JSON_RPC_ERROR_CODES = {
@@ -845,5 +840,107 @@ export class Permit2RpcManager {
     }
 
     return healthReport;
+  }
+
+  /**
+   * Perform a Multicall3 batch of read-only eth_call requests.
+   */
+  async multicall3(chainId: number, requests: Multicall3Request[], blockTag: string | number = "latest"): Promise<JsonRpcResponse[]> {
+    if (requests.length === 0) {
+      return [];
+    }
+
+    try {
+      for (const c of requests) {
+        if (!c.params[0].to.startsWith("0x") || c.params[0].to.length !== 42) {
+          throw new Error(`multicall3: invalid 'to' address ${c.params[0].to}`);
+        }
+        if (!c.params[0].data.startsWith("0x")) {
+          throw new Error("multicall3: call data must be 0x-prefixed hex");
+        }
+      }
+
+      const uniqueRequests = requests.filter(
+        (req, index, self) =>
+          index ===
+          self.findIndex(
+            (r) => r.params[0].to.toLowerCase() === req.params[0].to.toLowerCase() && r.params[0].data.toLowerCase() === req.params[0].data.toLowerCase()
+          )
+      );
+
+      this._log(
+        "info",
+        `Performing multicall3 with ${uniqueRequests.length} unique calls for ${requests.length} requests on chain ${chainId} with block tag '${blockTag}'`
+      );
+
+      const viemCalls = uniqueRequests.map((c) => ({
+        target: c.params[0].to as `0x${string}`,
+        allowFailure: true, // Always allow failure to get per-call success status
+        callData: c.params[0].data as `0x${string}`,
+      }));
+
+      const calldata = encodeFunctionData({
+        abi: multicall3Abi,
+        functionName: "aggregate3",
+        args: [viemCalls],
+      });
+
+      // Perform single eth_call to multicall contract
+      const resultHex = await this.send<string>(chainId, "eth_call", [{ to: getMulticall3Address(chainId), data: calldata }, blockTag]);
+
+      const decodedResult = decodeFunctionResult({
+        abi: multicall3Abi,
+        functionName: "aggregate3",
+        data: resultHex as `0x${string}`,
+      });
+
+      const uniqueResponses = decodedResult.map((res, idx) => {
+        if (res.success) {
+          return {
+            jsonrpc: "2.0",
+            id: uniqueRequests[idx].id,
+            result: res.returnData,
+          };
+        } else {
+          return {
+            jsonrpc: "2.0",
+            id: uniqueRequests[idx].id,
+            error: {
+              code: -32603,
+              message: "Call failed",
+            },
+          };
+        }
+      }) as JsonRpcResponse[];
+
+      const duplicatedResponses = requests
+        .filter((req) => !uniqueRequests.map((r) => r.id).includes(req.id))
+        .map((req) => {
+          const requestIndex = uniqueRequests.findIndex(
+            (r) => r.params[0].to.toLowerCase() === req.params[0].to.toLowerCase() && r.params[0].data.toLowerCase() === req.params[0].data.toLowerCase()
+          );
+          const response = structuredClone(uniqueResponses[requestIndex]);
+          response.id = req.id;
+          return response;
+        }) as JsonRpcResponse[];
+
+      return [...uniqueResponses, ...duplicatedResponses];
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error(String(e));
+      console.error(`Error processing multicall3 batch for chain ${chainId}:`, error);
+
+      const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number" ? error.code : -32603;
+      const data = "data" in error ? error.data : undefined;
+
+      return requests.map((req) => ({
+        jsonrpc: "2.0",
+        id: req.id,
+        error: {
+          code,
+          message: error.message,
+          data,
+        },
+      }));
+    }
   }
 }
