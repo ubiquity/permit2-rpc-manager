@@ -136,7 +136,9 @@ export class EnhancedErrorClassifier {
     if (
       error.code === JSON_RPC_ERROR_CODES.INVALID_PARAMS &&
       error.message &&
-      /range|limit|block range is too large|exceeds maximum|too many blocks|query returned more than/i.test(error.message)
+      /range|limit|block range is too large|exceeds maximum|too many blocks|query returned more than/i.test(
+        error.message,
+      )
     ) {
       return {
         behavior: ErrorBehavior.DO_NOT_RETRY,

@@ -92,7 +92,7 @@ export class MethodAwareRpcScorer {
       } else {
         timeScore = 3; // Minimum for very slow responses
       }
-      
+
       score += timeScore;
 
       // Penalize high p95 (indicates inconsistency)

@@ -109,11 +109,17 @@ export class LatencyTester {
         this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]),
         this._makeRpcCall(url, "eth_syncing", []),
         // Lightweight eth_getLogs test - single block with no filters
-        this._makeRpcCall(url, "eth_getLogs", [{ fromBlock: "latest", toBlock: "latest" }]).catch((err): JsonRpcResponse => {
-          // Don't fail the entire test if eth_getLogs is not supported
-          this.log("debug", `eth_getLogs not supported by ${url}: ${err.message || err}`);
-          return { jsonrpc: "2.0" as const, id: "eth_getLogs-test", error: { code: -32601, message: "Method not found" } };
-        }),
+        this._makeRpcCall(url, "eth_getLogs", [{ fromBlock: "latest", toBlock: "latest" }]).catch(
+          (err): JsonRpcResponse => {
+            // Don't fail the entire test if eth_getLogs is not supported
+            this.log("debug", `eth_getLogs not supported by ${url}: ${err.message || err}`);
+            return {
+              jsonrpc: "2.0" as const,
+              id: "eth_getLogs-test",
+              error: { code: -32601, message: "Method not found" },
+            };
+          },
+        ),
       ]);
     } catch (e) {
       // Catch as unknown
@@ -138,7 +144,7 @@ export class LatencyTester {
     }
 
     const latency = Date.now() - startTime;
-    
+
     // Check if eth_getLogs is supported
     if (getLogsResponse && !getLogsResponse.error) {
       supportedMethods.add("eth_getLogs");
@@ -202,7 +208,10 @@ export class LatencyTester {
 
     // All checks passed - node is synced and has correct bytecode
     status = "ok";
-    this.log("debug", `RPC ${url} passed all checks (${latency}ms), supports methods: ${Array.from(supportedMethods).join(", ")}`);
+    this.log(
+      "debug",
+      `RPC ${url} passed all checks (${latency}ms), supports methods: ${Array.from(supportedMethods).join(", ")}`,
+    );
     return { url, latency, status, supportedMethods };
   }
 

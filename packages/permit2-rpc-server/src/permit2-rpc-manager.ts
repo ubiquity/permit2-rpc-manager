@@ -831,7 +831,7 @@ export class Permit2RpcManager {
   ): Promise<T[]> {
     // Get available RPCs for this chain
     // For batch requests, check if any request is eth_getLogs to filter appropriately
-    const hasGetLogs = requests.some(req => req.method === "eth_getLogs");
+    const hasGetLogs = requests.some((req) => req.method === "eth_getLogs");
     const allRpcs = await this.rpcSelector.getRankedRpcList(chainId, hasGetLogs ? "eth_getLogs" : undefined);
     const availableRpcs = allRpcs.filter((rpc) =>
       this.isRpcAvailable(rpc) &&

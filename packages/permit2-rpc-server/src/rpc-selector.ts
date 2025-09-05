@@ -189,7 +189,7 @@ export class RpcSelector {
         }
         return true;
       });
-      
+
       if (beforeFilter > 0 && validResults.length === 0) {
         this.log("warn", `All ${beforeFilter} RPCs filtered out - none support ${method}`);
       }
