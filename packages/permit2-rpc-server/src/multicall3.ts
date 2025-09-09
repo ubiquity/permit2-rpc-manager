@@ -28,13 +28,14 @@ export function getMulticall3Address(chainId: number): string | null {
 export const isMulticall3Request = (chainId: number, req: JsonRpcRequest): req is Multicall3Request => {
   return (
     req.id !== null &&
-    Object.keys(multicall3Addresses).includes(chainId.toString()) &&
+    chainId in multicall3Addresses &&
     req.method === "eth_call" &&
     req.params &&
     Array.isArray(req.params) &&
     req.params.length >= 2 &&
     typeof req.params[0] === "object" &&
     "to" in req.params[0] &&
+    req.params[0].to !== getMulticall3Address(chainId) && // Prevent recursive calls to multicall3
     typeof req.params[0].to === "string" &&
     "data" in req.params[0] &&
     typeof req.params[0].data === "string" &&
