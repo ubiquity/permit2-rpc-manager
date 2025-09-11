@@ -35,7 +35,6 @@ export const isMulticall3Request = (chainId: number, req: JsonRpcRequest): req i
     req.params.length >= 2 &&
     typeof req.params[0] === "object" &&
     "to" in req.params[0] &&
-    req.params[0].to !== getMulticall3Address(chainId) && // Prevent recursive calls to multicall3
     typeof req.params[0].to === "string" &&
     "data" in req.params[0] &&
     typeof req.params[0].data === "string" &&
