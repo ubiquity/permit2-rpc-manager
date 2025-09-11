@@ -209,9 +209,6 @@
       "https://blast-public.nodies.app",
       "https://blast.therpc.io"
     ],
-    "7777777": [
-      "https://rpc.zora.energy",
-      "https://zora.drpc.org"
-    ]
+    "7777777": ["https://rpc.zora.energy", "https://zora.drpc.org"]
   }
 }
