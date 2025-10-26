@@ -34,10 +34,10 @@
       "https://endpoints.omniatech.io/v1/eth/mainnet/public",
       "https://eth1.lava.build",
       "https://0xrpc.io/eth",
-      "https://ethereum.therpc.io",
       "https://eth.api.onfinality.io/public",
       "https://ethereum-json-rpc.stakely.io",
       "https://rpc.poolz.finance/eth",
+      "https://eth.rpc.grove.city/v1/01fdb492",
       "https://rpc.flashbots.net/fast",
       "https://rpc.mevblocker.io/fast",
       "https://rpc.mevblocker.io/noreverts",
@@ -60,7 +60,7 @@
       "https://endpoints.omniatech.io/v1/op/mainnet/public",
       "https://optimism.rpc.subquery.network/public",
       "https://0xrpc.io/op",
-      "https://optimism.therpc.io",
+      "https://optimism.rpc.grove.city/v1/01fdb492",
       "https://public-op-mainnet.fastnode.io"
     ],
     "56": [
@@ -85,7 +85,6 @@
       "https://go.getblock.io/cc778cdbdf5c4b028ec9456e0e6c0cf3",
       "https://binance.nodereal.io",
       "https://bsc-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
-      "https://1rpc.io/bnb",
       "https://bsc.rpc.blxrbdn.com",
       "https://bnb.api.onfinality.io/public",
       "https://bsc-rpc.publicnode.com",
@@ -98,8 +97,8 @@
       "https://bnb.rpc.subquery.network/public",
       "https://bsc.blockrazor.xyz",
       "https://endpoints.omniatech.io/v1/bsc/mainnet/public",
-      "https://bsc.therpc.io",
       "https://rpc.poolz.finance/bsc",
+      "https://bsc.rpc.grove.city/v1/01fdb492",
       "https://public-bsc-mainnet.fastnode.io"
     ],
     "100": [
@@ -115,7 +114,8 @@
       "https://1rpc.io/gnosis",
       "https://gno-mainnet.gateway.tatum.io",
       "https://0xrpc.io/gno",
-      "https://gnosis.therpc.io",
+      "https://gnosis.rpc.grove.city/v1/01fdb492",
+      "https://public-gno-mainnet.fastnode.io",
       "https://gnosis.oat.farm"
     ],
     "137": [
@@ -123,7 +123,6 @@
       "https://rpc-mainnet.matic.quiknode.pro",
       "https://polygon-public.nodies.app",
       "https://polygon-mainnet.public.blastapi.io",
-      "https://1rpc.io/matic",
       "https://polygon-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://polygon-bor-rpc.publicnode.com",
       "https://go.getblock.io/02667b699f05444ab2c64f9bff28f027",
@@ -136,14 +135,13 @@
       "https://polygon.rpc.subquery.network/public",
       "https://endpoints.omniatech.io/v1/matic/mainnet/public",
       "https://polygon.lava.build",
-      "https://polygon.therpc.io"
+      "https://rpc.poolz.finance/polygon"
     ],
     "8453": [
       "https://base.llamarpc.com",
       "https://mainnet.base.org",
       "https://developer-access-mainnet.base.org",
       "https://base.public.blockpi.network/v1/rpc/public",
-      "https://1rpc.io/base",
       "https://base-public.nodies.app",
       "https://base.meowrpc.com",
       "https://base-mainnet.public.blastapi.io",
@@ -156,8 +154,8 @@
       "https://api.zan.top/base-mainnet",
       "https://endpoints.omniatech.io/v1/base/mainnet/public",
       "https://base.lava.build",
-      "https://base.therpc.io",
-      "https://rpc.poolz.finance/base"
+      "https://rpc.poolz.finance/base",
+      "https://base.rpc.grove.city/v1/01fdb492"
     ],
     "42161": [
       "https://arb1.arbitrum.io/rpc",
@@ -172,10 +170,10 @@
       "https://arbitrum.rpc.subquery.network/public",
       "https://arbitrum.gateway.tenderly.co",
       "https://arb1.lava.build",
-      "https://arbitrum.therpc.io",
       "https://arbitrum.api.onfinality.io/public",
       "https://arb-one-mainnet.gateway.tatum.io",
       "https://rpc.poolz.finance/arbitrum",
+      "https://arbitrum-one.rpc.grove.city/v1/01fdb492",
       "https://public-arb-mainnet.fastnode.io"
     ],
     "42220": [
@@ -198,8 +196,8 @@
       "https://avalanche-mainnet.gateway.tenderly.co",
       "https://0xrpc.io/avax",
       "https://spectrum-01.simplystaking.xyz/avalanche-mn-rpc/ext/bc/C/rpc",
-      "https://avalanche.therpc.io",
-      "https://rpc.poolz.finance/avalanche"
+      "https://rpc.poolz.finance/avalanche",
+      "https://avax.rpc.grove.city/v1/01fdb492"
     ],
     "81457": [
       "https://rpc.blast.io",
@@ -211,7 +209,7 @@
       "https://blast.gateway.tenderly.co",
       "https://endpoints.omniatech.io/v1/blast/mainnet/public",
       "https://blast-public.nodies.app",
-      "https://blast.therpc.io"
+      "https://blast.rpc.grove.city/v1/01fdb492"
     ],
     "7777777": [
       "https://rpc.zora.energy",
