@@ -23,7 +23,6 @@
       "https://eth.meowrpc.com",
       "https://eth.drpc.org",
       "https://mainnet.gateway.tenderly.co",
-      "https://virtual.mainnet.rpc.tenderly.co/5804dcf7-70e6-4988-b2b0-3672193e0c91",
       "https://gateway.tenderly.co/public/mainnet",
       "https://api.zan.top/eth-mainnet",
       "https://eth.merkle.io",
@@ -85,6 +84,7 @@
       "https://go.getblock.io/cc778cdbdf5c4b028ec9456e0e6c0cf3",
       "https://binance.nodereal.io",
       "https://bsc-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
+      "https://1rpc.io/bnb",
       "https://bsc.rpc.blxrbdn.com",
       "https://bnb.api.onfinality.io/public",
       "https://bsc-rpc.publicnode.com",
@@ -135,13 +135,14 @@
       "https://polygon.rpc.subquery.network/public",
       "https://endpoints.omniatech.io/v1/matic/mainnet/public",
       "https://polygon.lava.build",
-      "https://rpc.poolz.finance/polygon"
+      "https://poly.rpc.grove.city/v1/01fdb492"
     ],
     "8453": [
       "https://base.llamarpc.com",
       "https://mainnet.base.org",
       "https://developer-access-mainnet.base.org",
       "https://base.public.blockpi.network/v1/rpc/public",
+      "https://1rpc.io/base",
       "https://base-public.nodies.app",
       "https://base.meowrpc.com",
       "https://base-mainnet.public.blastapi.io",
@@ -149,13 +150,15 @@
       "https://gateway.tenderly.co/public/base",
       "https://base-rpc.publicnode.com",
       "https://base.drpc.org",
+      "https://base.api.onfinality.io/public",
       "https://base-mainnet.gateway.tatum.io",
       "https://base.rpc.subquery.network/public",
       "https://api.zan.top/base-mainnet",
       "https://endpoints.omniatech.io/v1/base/mainnet/public",
       "https://base.lava.build",
       "https://rpc.poolz.finance/base",
-      "https://base.rpc.grove.city/v1/01fdb492"
+      "https://base.rpc.grove.city/v1/01fdb492",
+      "https://base.rpc.blxrbdn.com"
     ],
     "42161": [
       "https://arb1.arbitrum.io/rpc",
@@ -178,6 +181,7 @@
     ],
     "42220": [
       "https://forno.celo.org",
+      "https://rpc.celocolombia.org",
       "https://rpc.ankr.com/celo",
       "https://celo-mainnet.gateway.tatum.io",
       "https://celo.drpc.org",
@@ -188,6 +192,7 @@
       "https://api.avax.network/ext/bc/C/rpc",
       "https://ava-mainnet.public.blastapi.io/ext/bc/C/rpc",
       "https://avalanche-c-chain-rpc.publicnode.com",
+      "https://1rpc.io/avax/c",
       "https://avalanche-public.nodies.app/ext/bc/C/rpc",
       "https://avalanche.api.onfinality.io/public/ext/bc/C/rpc",
       "https://endpoints.omniatech.io/v1/avax/mainnet/public",
