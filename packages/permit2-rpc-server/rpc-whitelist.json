@@ -1,6 +1,8 @@
 {
   "rpcs": {
     "1": [
+      "https://eth.llamarpc.com",
+      "https://go.getblock.io/aefd01aa907c4805ba3c00a9e5b48c6b",
       "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
       "https://ethereum-rpc.publicnode.com",
       "https://1rpc.io/eth",
@@ -25,16 +27,18 @@
       "https://virtual.mainnet.rpc.tenderly.co/5804dcf7-70e6-4988-b2b0-3672193e0c91",
       "https://gateway.tenderly.co/public/mainnet",
       "https://api.zan.top/eth-mainnet",
+      "https://eth.merkle.io",
       "https://ethereum-mainnet.gateway.tatum.io",
-      "https://public-eth.nownodes.io",
       "https://ethereum.rpc.subquery.network/public",
       "https://eth.blockrazor.xyz",
       "https://endpoints.omniatech.io/v1/eth/mainnet/public",
+      "https://eth1.lava.build",
       "https://0xrpc.io/eth",
       "https://eth.api.onfinality.io/public",
       "https://ethereum-json-rpc.stakely.io",
       "https://rpc.poolz.finance/eth",
       "https://eth.api.pocket.network",
+      "https://rpc.fullsend.to",
       "https://rpc.flashbots.net/fast",
       "https://rpc.mevblocker.io/fast",
       "https://rpc.mevblocker.io/noreverts",
@@ -57,8 +61,7 @@
       "https://endpoints.omniatech.io/v1/op/mainnet/public",
       "https://optimism.rpc.subquery.network/public",
       "https://0xrpc.io/op",
-      "https://public-op-mainnet.fastnode.io",
-      "https://api-optimism-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+      "https://public-op-mainnet.fastnode.io"
     ],
     "56": [
       "https://binance.llamarpc.com",
@@ -97,7 +100,8 @@
       "https://endpoints.omniatech.io/v1/bsc/mainnet/public",
       "https://rpc.poolz.finance/bsc",
       "https://bsc.api.pocket.network",
-      "https://public-bsc-mainnet.fastnode.io"
+      "https://public-bsc-mainnet.fastnode.io",
+      "https://api-bsc-mainnet-full.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "100": [
       "https://rpc.gnosischain.com",
@@ -106,8 +110,8 @@
       "https://rpc.ap-southeast-1.gateway.fm/v4/gnosis/non-archival/mainnet",
       "https://gnosis.api.onfinality.io/public",
       "https://gnosis.drpc.org",
-      "https://endpoints.omniatech.io/v1/gnosis/mainnet/public",
       "https://gnosis-rpc.publicnode.com",
+      "https://1rpc.io/gnosis",
       "https://gno-mainnet.gateway.tatum.io",
       "https://0xrpc.io/gno",
       "https://gnosis.api.pocket.network",
@@ -118,6 +122,7 @@
       "https://rpc-mainnet.matic.quiknode.pro",
       "https://polygon-public.nodies.app",
       "https://1rpc.io/matic",
+      "https://polygon-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://polygon-bor-rpc.publicnode.com",
       "https://polygon-mainnet.g.alchemy.com/v2/demo",
       "https://go.getblock.io/02667b699f05444ab2c64f9bff28f027",
@@ -150,15 +155,14 @@
       "https://base-mainnet.gateway.tatum.io",
       "https://base.rpc.subquery.network/public",
       "https://api.zan.top/base-mainnet",
-      "https://endpoints.omniatech.io/v1/base/mainnet/public",
       "https://base.lava.build",
       "https://rpc.poolz.finance/base",
       "https://base.api.pocket.network",
-      "https://base.rpc.blxrbdn.com",
       "https://api-base-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "42161": [
       "https://arb1.arbitrum.io/rpc",
+      "https://1rpc.io/arb",
       "https://arbitrum-one-public.nodies.app",
       "https://arb-mainnet.g.alchemy.com/v2/demo",
       "https://arbitrum.public.blockpi.network/v1/rpc/public",
@@ -211,6 +215,7 @@
       "https://blast.gateway.tenderly.co",
       "https://endpoints.omniatech.io/v1/blast/mainnet/public",
       "https://blast-public.nodies.app",
+      "https://blast.api.pocket.network",
       "https://api-blast-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "7777777": [
