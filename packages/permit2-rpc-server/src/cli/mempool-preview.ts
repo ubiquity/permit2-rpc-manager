@@ -398,7 +398,7 @@ class JsonRpcWsClient {
   private readonly pending = new Map<JsonRpcId, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
-    timeout: number;
+    timeout: ReturnType<typeof setTimeout>;
   }>();
   private readonly subscriptions = new Map<string, (result: unknown) => void>();
 
@@ -453,7 +453,7 @@ class JsonRpcWsClient {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`JSON-RPC request timed out: ${method}`));
-      }, timeoutMs) as unknown as number;
+      }, timeoutMs);
 
       this.pending.set(id, { resolve, reject, timeout });
     });

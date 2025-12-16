@@ -71,7 +71,7 @@ export class ChainlistWsDataSource {
           .map((u) => normalizeWsUrl(u))
           .filter((u): u is string => typeof u === "string");
 
-        const derived = explicit.length > 0 ? [] : (rpcs[chainIdStr] ?? [])
+        const derived = (rpcs[chainIdStr] ?? [])
           .filter((u): u is string => typeof u === "string")
           .map((u) => deriveWsUrl(u))
           .filter((u): u is string => typeof u === "string");

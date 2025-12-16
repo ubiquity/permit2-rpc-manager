@@ -249,7 +249,24 @@ const handler = async (request: Request): Promise<Response> => {
           return;
         }
         if (!upstream || upstream.readyState === WebSocket.CONNECTING) {
-          if (queuedToUpstream.length < MAX_QUEUE) queuedToUpstream.push(payload);
+          if (queuedToUpstream.length < MAX_QUEUE) {
+            queuedToUpstream.push(payload);
+          } else if (!clientClosed) {
+            clientClosed = true;
+            console.warn(
+              `WebSocket upstream queue overflow (limit: ${MAX_QUEUE}) for chainId ${chainId}. Closing client connection.`,
+            );
+            try {
+              socket.close(4000, "Upstream queue overflow");
+            } catch {
+              // ignore
+            }
+            try {
+              upstream?.close();
+            } catch {
+              // ignore
+            }
+          }
         }
       };
 
