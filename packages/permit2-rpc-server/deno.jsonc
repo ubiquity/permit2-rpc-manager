@@ -5,6 +5,7 @@
     "lint": "deno lint",
     "fmt": "deno fmt",
     "test": "deno test --unstable-kv --allow-net --allow-read --allow-env", // Use --unstable-kv
+    "mempool:preview": "deno run --allow-net --allow-env src/cli/mempool-preview.ts",
   },
   "lint": {
     // Use newer include/exclude directly

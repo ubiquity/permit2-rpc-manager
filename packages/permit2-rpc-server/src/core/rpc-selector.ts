@@ -1,6 +1,5 @@
-import { CacheManager } from "./cache-manager.ts";
-import { ChainlistDataSource } from "./chainlist-data-source.ts";
-import { LatencyTester, LatencyTestResult } from "./latency-tester.ts";
+import { CacheManager } from "../infra/cache-manager.ts";
+import { LatencyTestResult } from "../infra/latency-tester.ts";
 
 // Define a logger type
 type LoggerFn = (
@@ -9,22 +8,28 @@ type LoggerFn = (
   ...optionalParams: unknown[] // Changed any[] to unknown[]
 ) => void;
 
+type RpcDataSourceLike = {
+  getRpcUrls(chainId: number): string[];
+};
+
 // Define acceptable statuses for selection
 const ACCEPTABLE_STATUSES: LatencyTestResult["status"][] = ["ok", "wrong_bytecode", "syncing"];
 
-// Map to track ongoing latency tests for specific chains
-const ongoingLatencyTests = new Map<number, Promise<Record<string, LatencyTestResult>>>();
+type LatencyTesterLike = {
+  testRpcUrls(urls: string[]): Promise<Record<string, LatencyTestResult>>;
+};
 
 export class RpcSelector {
-  private dataSource: ChainlistDataSource;
+  private dataSource: RpcDataSourceLike;
   private cacheManager: CacheManager;
-  private latencyTester: LatencyTester;
+  private latencyTester: LatencyTesterLike;
   private log: LoggerFn;
+  private ongoingLatencyTests = new Map<number, Promise<Record<string, LatencyTestResult>>>();
 
   constructor(
-    dataSource: ChainlistDataSource,
+    dataSource: RpcDataSourceLike,
     cacheManager: CacheManager,
-    latencyTester: LatencyTester,
+    latencyTester: LatencyTesterLike,
     logger?: LoggerFn,
   ) {
     this.dataSource = dataSource;
@@ -63,7 +68,7 @@ export class RpcSelector {
       }
 
       // --- Latency Test Locking ---
-      let testPromise = ongoingLatencyTests.get(chainId);
+      let testPromise = this.ongoingLatencyTests.get(chainId);
       if (testPromise) {
         this.log("debug", `Latency test already in progress for chain ${chainId}, awaiting result...`);
         latencyMap = await testPromise; // Wait for the ongoing test
@@ -76,7 +81,7 @@ export class RpcSelector {
 
         // Create the promise, store it, run the test, then remove it
         testPromise = this.latencyTester.testRpcUrls(rpcUrls);
-        ongoingLatencyTests.set(chainId, testPromise);
+        this.ongoingLatencyTests.set(chainId, testPromise);
         this.log("debug", `Initiated latency test for chain ${chainId}.`);
 
         try {
@@ -101,7 +106,7 @@ export class RpcSelector {
           this.log("error", `Latency test failed for chain ${chainId}`, error);
           latencyMap = {}; // Set empty map on error
         } finally {
-          ongoingLatencyTests.delete(chainId); // Remove promise once done
+          this.ongoingLatencyTests.delete(chainId); // Remove promise once done
           this.log("debug", `Latency test finished for chain ${chainId}.`);
         }
       }

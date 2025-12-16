@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { CRITICAL_CHAINS } from "../tests/constants.ts";
-import { testRpcs } from "../tests/endpoint.ts";
+import { testRpcs, testWsRpcs } from "../tests/endpoint.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +12,7 @@ const projectRoot = path.join(__dirname, "..");
 const ourWhitelistPath = path.join(projectRoot, "packages/permit2-rpc-server/rpc-whitelist.json");
 
 const RPCS_PER_CHAIN_TO_TEST = 5; // Test more RPCs per chain for better coverage
+const WSS_PER_CHAIN_TO_TEST = 3; // WS checks are heavier; keep this small
 
 async function testWhitelist() {
   console.log("Starting whitelist connectivity test...");
@@ -55,6 +56,26 @@ async function testWhitelist() {
       if (successfulTests === 0) {
         console.error(`  ERROR: No working RPCs found for critical chain ${chainId}!`);
         failedChains++;
+      }
+
+      const wssUrls = ourWhitelist.wss?.[chainIdStr] || ourWhitelist.ws?.[chainIdStr] || [];
+      const wssToTest = wssUrls.slice(0, WSS_PER_CHAIN_TO_TEST);
+
+      if (wssToTest.length > 0) {
+        const workingWss = await testWsRpcs(wssToTest);
+        const successfulWsTests = workingWss.length;
+
+        console.log(
+          `  Tested ${wssToTest.length} WS RPCs for chain ${chainId}: ` +
+            `${successfulWsTests} succeeded (${Math.round((successfulWsTests / wssToTest.length) * 100)}%)`
+        );
+
+        if (successfulWsTests === 0) {
+          console.error(`  ERROR: No working WS RPCs found for chain ${chainId} (but whitelist had entries).`);
+          failedChains++;
+        }
+      } else {
+        console.log(`  No WS RPCs listed for chain ${chainId} (skipping WS test).`);
       }
     }
 

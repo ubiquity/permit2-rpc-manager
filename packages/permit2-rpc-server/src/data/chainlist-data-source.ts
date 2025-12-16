@@ -1,6 +1,6 @@
 // Directly import the JSON data as a fallback.
-// Adjust path to point one level up from src/
-import fallbackWhitelistJson from "../rpc-whitelist.json" with { type: "json" };
+// Adjust path to point two levels up from src/data/
+import fallbackWhitelistJson from "../../rpc-whitelist.json" with { type: "json" };
 
 // Define a logger type
 type LoggerFn = (

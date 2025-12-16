@@ -22,6 +22,7 @@ echo "Deploying project '$PROJECT_NAME' from entrypoint '$ENTRYPOINT'..."
 # Exclude directories not needed for the deployment runtime
 # Note: deployctl usually runs from the root, so paths are relative to root
 deployctl deploy --project="$PROJECT_NAME" "$ENTRYPOINT" \
+  --include=packages/permit2-rpc-server/static \
   --exclude=node_modules \
   --exclude=lib \
   --exclude=.git \

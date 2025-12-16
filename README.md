@@ -31,6 +31,8 @@ This monorepo includes the following packages:
   browser access.
 - **Batch Request Support:** Accepts arrays of JSON-RPC requests for efficient
   data fetching.
+- **WebSocket JSON-RPC (ws/wss):** WebSocket proxy support at `ws://<host>/{chainId}` with separate WS selection + caching (no overlap with HTTP); WS endpoints are validated and written under `wss` in `packages/permit2-rpc-server/rpc-whitelist.json` by the weekly whitelist workflow.
+- **Live Mempool Preview UI:** Visit `GET /` to see a `pending_sample` stream (uses WS when available, with HTTP fallback).
 
 ## CI/CD & Automation
 
@@ -74,8 +76,7 @@ Other common tasks:
   `lib/chainlist`)
 - **Generate Whitelist JSON:** `bun run chainlist:generate` (Generates JSON in
   `lib/chainlist`)
-- **Update Server Whitelist:** `bun run whitelist:update` (Copies generated JSON
-  to the server package)
+- **Update Server Whitelist:** `bun run whitelist:update` (Runs `chainlist:generate`, then tests endpoints and writes `packages/permit2-rpc-server/rpc-whitelist.json`)
 - **Test Whitelist Connectivity:** `bun run whitelist:test` (Tests URLs in the
   server package's whitelist)
 - **Format Root:** `bun run format:root` (Formats root-level files with

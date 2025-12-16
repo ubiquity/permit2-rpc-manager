@@ -1,11 +1,12 @@
 /// <reference lib="deno.ns" />
 // Deno Deploy entrypoint for the Permit2 RPC Manager Proxy with MCP compliance
-import { isMulticall3Request, Multicall3Request } from "./multicall3.ts";
-import { JsonRpcRequest, JsonRpcResponse } from "./types.ts";
-// Note: CacheManager will be adapted for Deno KV later
-// ChainlistDataSource is instantiated internally by Permit2RpcManager
-// import { ChainlistDataSource } from './chainlist-data-source.ts';
-import { Permit2RpcManager } from "./permit2-rpc-manager.ts";
+import { isMulticall3Request, Multicall3Request } from "./evm/multicall3.ts";
+import { JsonRpcRequest, JsonRpcResponse } from "./core/types.ts";
+import { CacheManager } from "./infra/cache-manager.ts";
+import { Permit2RpcManager } from "./core/permit2-rpc-manager.ts";
+import { RpcSelector } from "./core/rpc-selector.ts";
+import { ChainlistWsDataSource } from "./data/chainlist-ws-data-source.ts";
+import { WsLatencyTester } from "./infra/ws-latency-tester.ts";
 // Adjust path to point one level up from src/
 import rpcWhitelist from "../rpc-whitelist.json" with { type: "json" };
 
@@ -668,25 +669,342 @@ const manager = new Permit2RpcManager({
   // TODO: Configure other CacheManager options like TTL if needed
 });
 
+type WsLogLevel = "debug" | "info" | "warn" | "error";
+const wsLogger = (level: WsLogLevel, message: string, ...optionalParams: unknown[]) => {
+  if (level === "debug" || level === "info") return;
+  const logFn = console[level] || console.log;
+  logFn(`[Permit2WSS:${level}] ${message}`, ...optionalParams);
+};
+
+const wsCandidateLimitRaw = Number.parseInt(Deno.env.get("WS_CANDIDATE_LIMIT") ?? "25", 10);
+const wsCandidateLimit = Number.isFinite(wsCandidateLimitRaw) && wsCandidateLimitRaw > 0 ? wsCandidateLimitRaw : 25;
+const wsDataSource = new ChainlistWsDataSource(wsLogger, rpcWhitelist, { candidateLimit: wsCandidateLimit });
+const wsCacheManager = new CacheManager({
+  localStorageKey: "permit2RpcManagerWsCache",
+  logger: wsLogger,
+  disableCache: shouldDisableCache,
+});
+const wsLatencyTesterTimeoutMsRaw = Number.parseInt(Deno.env.get("WS_LATENCY_TIMEOUT_MS") ?? "5000", 10);
+const wsLatencyTesterTimeoutMs = Number.isFinite(wsLatencyTesterTimeoutMsRaw) && wsLatencyTesterTimeoutMsRaw > 0
+  ? wsLatencyTesterTimeoutMsRaw
+  : 5000;
+const wsLatencyTester = new WsLatencyTester(wsLatencyTesterTimeoutMs, wsLogger);
+const wsSelector = new RpcSelector(wsDataSource, wsCacheManager, wsLatencyTester, wsLogger);
+
+function deriveWsUrl(url: string): string | undefined {
+  const trimmed = url.trim().replace(/\/$/, "");
+  if (trimmed.includes("${")) return undefined;
+  if (trimmed.startsWith("ws://") || trimmed.startsWith("wss://")) return trimmed;
+  if (trimmed.startsWith("https://")) return `wss://${trimmed.slice("https://".length)}`;
+  if (trimmed.startsWith("http://")) return `ws://${trimmed.slice("http://".length)}`;
+  return undefined;
+}
+
+function getWsOverrideCandidates(chainId: number): string[] {
+  const candidates: string[] = [];
+
+  const chainSpecific = Deno.env.get(`RPC_WSS_URL_${chainId}`);
+  if (chainSpecific) candidates.push(chainSpecific);
+
+  if (chainId === 1) {
+    const eth = Deno.env.get("ETH_WSS_URL");
+    if (eth) candidates.push(eth);
+  }
+
+  const global = Deno.env.get("RPC_WSS_URL");
+  if (global) candidates.push(global);
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const derived = deriveWsUrl(candidate);
+    if (!derived) continue;
+    if (seen.has(derived)) continue;
+    seen.add(derived);
+    deduped.push(derived);
+  }
+
+  return deduped;
+}
+
+function openWebSocket(url: string, timeoutMs: number): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+
+    const timer = setTimeout(() => {
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+      reject(new Error("Upstream WebSocket connection timed out."));
+    }, timeoutMs);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.onopen = null;
+      ws.onerror = null;
+      ws.onclose = null;
+    };
+
+    ws.onopen = () => {
+      cleanup();
+      resolve(ws);
+    };
+
+    ws.onerror = () => {
+      cleanup();
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+      reject(new Error("Upstream WebSocket connection failed."));
+    };
+
+    ws.onclose = () => {
+      cleanup();
+      reject(new Error("Upstream WebSocket closed before opening."));
+    };
+  });
+}
+
+async function connectFirstWebSocket(urls: string[], timeoutMs: number): Promise<WebSocket> {
+  let lastError: Error | undefined;
+  for (const url of urls) {
+    try {
+      return await openWebSocket(url, timeoutMs);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  throw lastError ?? new Error("No upstream WebSocket candidates available.");
+}
+
+const STATIC_ASSET_ROOT = new URL("../static/", import.meta.url);
+const staticTextAssetCache = new Map<string, string>();
+
+async function readStaticTextAsset(fileName: string): Promise<string> {
+  const cached = staticTextAssetCache.get(fileName);
+  if (cached !== undefined) return cached;
+
+  const text = await Deno.readTextFile(new URL(fileName, STATIC_ASSET_ROOT));
+  staticTextAssetCache.set(fileName, text);
+  return text;
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof Deno.errors.NotFound;
+}
+
 const handler = async (request: Request): Promise<Response> => {
   // Set CORS headers for all responses
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*", // Allow requests from any origin
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization", // Adjust as needed
   };
 
+  // WebSocket JSON-RPC proxy (ws/wss). Connect clients to our server, proxy to an upstream WS RPC.
+  const upgradeHeader = request.headers.get("upgrade");
+  if (upgradeHeader && upgradeHeader.toLowerCase() === "websocket") {
+    if (request.method !== "GET") {
+      return new Response("Method Not Allowed", { status: 405 });
+    }
+
+    const url = new URL(request.url);
+    const pathParts = url.pathname.split("/").filter(Boolean);
+
+    let chainId = 1; // default to Ethereum mainnet if not provided
+    if (pathParts.length === 1) {
+      const parsed = parseInt(pathParts[0], 10);
+      if (Number.isNaN(parsed)) {
+        return new Response("Not Found", { status: 404 });
+      }
+      chainId = parsed;
+    } else if (pathParts.length > 1) {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    const { socket, response } = Deno.upgradeWebSocket(request);
+
+    const queuedToUpstream: Array<string | ArrayBuffer> = [];
+    const MAX_QUEUE = 256;
+    let upstream: WebSocket | null = null;
+    let clientClosed = false;
+
+    const sendToClient = (data: unknown) => {
+      const send = (payload: string | ArrayBuffer) => {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        try {
+          socket.send(payload);
+        } catch {
+          // ignore
+        }
+      };
+
+      if (typeof data === "string") send(data);
+      else if (data instanceof ArrayBuffer) send(data);
+      else if (data instanceof Blob) {
+        data.arrayBuffer().then((buf) => send(buf)).catch(() => undefined);
+      }
+    };
+
+    const enqueueToUpstream = (data: unknown) => {
+      const sendOrQueue = (payload: string | ArrayBuffer) => {
+        if (upstream && upstream.readyState === WebSocket.OPEN) {
+          try {
+            upstream.send(payload);
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        if (!upstream || upstream.readyState === WebSocket.CONNECTING) {
+          if (queuedToUpstream.length < MAX_QUEUE) queuedToUpstream.push(payload);
+        }
+      };
+
+      if (typeof data === "string") sendOrQueue(data);
+      else if (data instanceof ArrayBuffer) sendOrQueue(data);
+      else if (data instanceof Blob) {
+        data.arrayBuffer().then((buf) => sendOrQueue(buf)).catch(() => undefined);
+      }
+    };
+
+    socket.onmessage = (event) => {
+      enqueueToUpstream(event.data);
+    };
+
+    socket.onerror = () => {
+      clientClosed = true;
+      try {
+        upstream?.close();
+      } catch {
+        // ignore
+      }
+    };
+
+    socket.onclose = () => {
+      clientClosed = true;
+      try {
+        upstream?.close();
+      } catch {
+        // ignore
+      }
+    };
+
+    (async () => {
+      const timeoutMs = Number.parseInt(Deno.env.get("WS_CONNECT_TIMEOUT_MS") ?? "5000", 10);
+      const connectTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000;
+
+      const overrideCandidates = getWsOverrideCandidates(chainId);
+      if (overrideCandidates.length > 0) {
+        try {
+          upstream = await connectFirstWebSocket(overrideCandidates, connectTimeout);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to connect to configured WS override";
+          wsLogger("warn", `WS override failed for chain ${chainId}: ${message}`);
+        }
+      }
+
+      if (!upstream) {
+        const rankedCandidates = await wsSelector.getRankedRpcList(chainId);
+        if (rankedCandidates.length === 0) {
+          try {
+            socket.close(1011, `No upstream WS RPCs available for chain ${chainId}`);
+          } catch {
+            // ignore
+          }
+          return;
+        }
+
+        let lastError: Error | undefined;
+        for (const candidate of rankedCandidates) {
+          try {
+            upstream = await openWebSocket(candidate, connectTimeout);
+            break;
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+            try {
+              await wsCacheManager.invalidateRpcInCache(chainId, candidate, "eliminated");
+            } catch {
+              // ignore
+            }
+          }
+        }
+
+        if (!upstream) {
+          const message = lastError?.message ?? "Failed to connect to upstream WebSocket";
+          try {
+            socket.close(1011, message);
+          } catch {
+            // ignore
+          }
+          return;
+        }
+      }
+
+      if (clientClosed) {
+        try {
+          upstream.close();
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      upstream.onmessage = (event) => {
+        sendToClient(event.data);
+      };
+
+      upstream.onerror = () => {
+        try {
+          socket.close(1011, "Upstream WebSocket error");
+        } catch {
+          // ignore
+        }
+      };
+
+      upstream.onclose = () => {
+        try {
+          socket.close(1011, "Upstream WebSocket closed");
+        } catch {
+          // ignore
+        }
+      };
+
+      for (const payload of queuedToUpstream.splice(0, queuedToUpstream.length)) {
+        try {
+          upstream.send(payload);
+        } catch {
+          // ignore
+        }
+      }
+    })();
+
+    return response;
+  }
+
   // Serve logo SVG at GET /logo.svg
   if ((request.method === "GET" || request.method === "HEAD") && new URL(request.url).pathname === "/logo.svg") {
-    const ubiquityDaoLogo =
-      `<?xml version="1.0" encoding="UTF-8"?><svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M90.2449 26.0946C90.2449 24.6236 89.4133 23.2165 88.134 22.449L50.2014 0.575616C49.5617 0.191872 48.8581 0 48.0905 0C47.3868 0 46.6192 0.191872 45.9795 0.575616L8.11092 22.449C6.83157 23.2165 6 24.5596 6 26.0946V69.9054C6 71.3764 6.83157 72.7835 8.11092 73.551L46.0435 95.4244C47.3229 96.1919 48.922 96.1919 50.2014 95.4244L88.134 73.551C89.4133 72.7835 90.2449 71.4404 90.2449 69.9054V26.0946ZM82.6328 66.068C82.6328 67.7948 81.7373 69.3937 80.266 70.2252L50.4573 87.8135C49.7536 88.2612 48.922 88.453 48.0905 88.453C47.2589 88.453 46.4913 88.2612 45.7237 87.8135L15.9149 70.2252C14.4437 69.3937 13.5481 67.7948 13.5481 66.068V34.4091C13.5481 33.6416 13.9319 32.8741 14.6356 32.4903C15.3392 32.1066 16.1068 32.1066 16.8105 32.4903L21.9279 35.4963C23.1432 36.1999 23.8469 37.6069 24.7424 39.2059C24.9343 39.5256 25.0622 39.8454 25.2541 40.1013C27.493 44.1306 28.5804 48.4157 29.6039 52.573C31.5229 60.1839 33.442 68.0506 43.229 70.6089C46.4273 71.4404 49.8815 71.4404 53.0799 70.6089C62.8029 68.0506 64.7859 60.1839 66.7049 52.573C67.7284 48.4157 68.8159 44.1306 71.0547 40.1013C71.2466 39.7815 71.3746 39.4617 71.5665 39.2059C72.398 37.6069 73.1656 36.2638 74.381 35.4963L79.4984 32.4903C80.1381 32.1066 80.9696 32.1066 81.6733 32.4903C82.3769 32.8741 82.7607 33.5776 82.7607 34.4091V66.068H82.6328ZM45.8516 8.57029C47.2589 7.73884 48.986 7.73884 50.3933 8.57029L76.1721 23.8561C76.8118 24.2398 77.1956 24.4957 77.1956 25.2632C77.1956 26.0306 76.8118 26.4783 76.1721 26.8621L71.2466 29.8041C69.0717 31.0833 67.9843 33.1299 67.0248 34.9847L66.9608 35.1126C66.8329 35.3684 66.7049 35.5603 66.577 35.8161C64.1462 40.1652 62.3552 44.7701 61.3317 48.8634C59.2847 56.7941 58.5171 62.0386 51.8645 63.7655C50.6492 64.0853 49.3698 64.2132 48.1544 64.2132C46.8751 64.2132 45.6597 64.0213 44.4443 63.7655C37.7917 62.0386 36.9602 56.7941 34.9772 48.7995C33.9537 44.7062 32.1626 40.1013 29.7319 35.7522C29.6039 35.5603 29.476 35.3045 29.3481 35.1126L29.2841 34.9207C28.3246 33.1299 27.1732 31.0193 25.0622 29.7402L20.1368 26.7981C19.4971 26.4144 19.1133 25.9667 19.1133 25.1992C19.1133 24.4317 19.4971 24.1759 20.1368 23.7921L45.8516 8.57029Z" fill="url(#paint0_linear_1101_5)"/><defs><linearGradient id="paint0_linear_1101_5" x1="90.2449" y1="0" x2="5.96876" y2="95.959" gradientUnits="userSpaceOnUse"><stop stop-color="#00FFBF"/><stop offset="1" stop-color="#00BFFF"/></linearGradient></defs></svg>`;
-    return new Response(ubiquityDaoLogo, {
-      status: 200,
-      headers: {
-        "content-type": "image/svg+xml; charset=utf-8",
-        ...corsHeaders,
-      },
-    });
+    try {
+      const ubiquityDaoLogo = await readStaticTextAsset("logo.svg");
+      return new Response(ubiquityDaoLogo, {
+        status: 200,
+        headers: {
+          "content-type": "image/svg+xml; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to read static asset logo.svg:", error);
+      return new Response("Not Found", {
+        status: isNotFoundError(error) ? 404 : 500,
+        headers: corsHeaders,
+      });
+    }
   }
 
   // Serve health check JSON at GET /health
@@ -694,7 +1012,7 @@ const handler = async (request: Request): Promise<Response> => {
     try {
       // Get health data from manager
       const healthData = await manager.getHealthStatus();
-      
+
       return new Response(JSON.stringify(healthData), {
         status: 200,
         headers: {
@@ -703,30 +1021,40 @@ const handler = async (request: Request): Promise<Response> => {
         },
       });
     } catch (error) {
-      return new Response(JSON.stringify({ 
-        error: "Failed to retrieve health status",
-        message: error instanceof Error ? error.message : String(error)
-      }), {
-        status: 500,
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          ...corsHeaders,
+      return new Response(
+        JSON.stringify({
+          error: "Failed to retrieve health status",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+        {
+          status: 500,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            ...corsHeaders,
+          },
         },
-      });
+      );
     }
   }
 
   // Serve HTML at GET /
   if ((request.method === "GET" || request.method === "HEAD") && new URL(request.url).pathname === "/") {
-    const html =
-      `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>RPC Gateway | Ubiquity DAO</title><meta name="viewport" content="width=320, initial-scale=1"><link rel="icon" type="image/svg+xml" href="/logo.svg"><style>html, body { height: 100%; margin: 0; background: #fff; }body { display: flex; align-items: center; justify-content: center; height: 100vh; }.logo { width: 50vw; height: 50vh; }</style></head><body><div><img class="logo" src="/logo.svg" width="96" height="96" alt="Ubiquity Logo" /></div></body></html>`;
-    return new Response(html, {
-      status: 200,
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        ...corsHeaders,
-      },
-    });
+    try {
+      const html = await readStaticTextAsset("index.html");
+      return new Response(html, {
+        status: 200,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to read static asset index.html:", error);
+      return new Response("Not Found", {
+        status: isNotFoundError(error) ? 404 : 500,
+        headers: corsHeaders,
+      });
+    }
   }
 
   // Handle CORS preflight requests
@@ -919,7 +1247,7 @@ const handler = async (request: Request): Promise<Response> => {
         }
         return acc;
       },
-      {} as Record<string, Multicall3Request[][]>
+      {} as Record<string, Multicall3Request[][]>,
     );
 
     const multicallPromises: Promise<JsonRpcResponse[]>[] = [];
@@ -940,10 +1268,15 @@ const handler = async (request: Request): Promise<Response> => {
           return { jsonrpc: "2.0", id: req.id, result } as JsonRpcResponse;
         } catch (e) {
           const error = e instanceof Error ? e : new Error(String(e));
-          console.error(`Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`, error);
+          console.error(
+            `Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`,
+            error,
+          );
 
           // Extract error details consistently
-          const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number" ? error.code : -32603;
+          const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
+            ? error.code
+            : -32603;
           const data = "data" in error ? error.data : undefined;
 
           return {
@@ -956,7 +1289,7 @@ const handler = async (request: Request): Promise<Response> => {
             },
           } as JsonRpcResponse;
         }
-      })
+      }),
     );
 
     return new Response(JSON.stringify([...multicallResponses, ...otherResponses]), {
