@@ -1,5 +1,5 @@
-import deployments from "../multicall3-deployments.json" with { type: "json" };
-import { JsonRpcRequest } from "./types.ts";
+import deployments from "../../multicall3-deployments.json" with { type: "json" };
+import { JsonRpcRequest } from "../core/types.ts";
 
 export interface Multicall3Request extends JsonRpcRequest {
   id: number | string;
@@ -18,7 +18,7 @@ export const multicall3Addresses = deployments.reduce(
     acc[deployment.chainId] = deployment.address ? deployment.address : "0xcA11bde05977b3631167028862bE2a173976CA11";
     return acc;
   },
-  {} as Record<number, string>
+  {} as Record<number, string>,
 );
 
 export function getMulticall3Address(chainId: number): string | null {

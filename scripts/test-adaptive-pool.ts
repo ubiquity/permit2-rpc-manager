@@ -5,7 +5,7 @@
  * Verifies that bad RPCs are tracked and invalidated correctly
  */
 
-import { Permit2RpcManager } from "../packages/permit2-rpc-server/src/permit2-rpc-manager.ts";
+import { Permit2RpcManager } from "../packages/permit2-rpc-server/src/core/permit2-rpc-manager.ts";
 
 // Mock RPC data with some intentionally bad endpoints
 const mockRpcData = {

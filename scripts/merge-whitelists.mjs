@@ -54,6 +54,7 @@ async function mergeWhitelists(artifactsDir, outputPath) {
   console.log("\nMerging whitelists...");
   const merged = {
     rpcs: {},
+    wss: {},
   };
 
   for (const whitelist of whitelists) {
@@ -66,11 +67,27 @@ async function mergeWhitelists(artifactsDir, outputPath) {
       merged.rpcs[chainId].push(...whitelist.rpcs[chainId]);
       console.log(`Chain ${chainId}: Added ${whitelist.rpcs[chainId].length} RPCs`);
     }
+
+    if (whitelist.wss && typeof whitelist.wss === "object") {
+      const wsChainIds = Object.keys(whitelist.wss);
+      for (const chainId of wsChainIds) {
+        if (!merged.wss[chainId]) {
+          merged.wss[chainId] = [];
+        }
+        merged.wss[chainId].push(...whitelist.wss[chainId]);
+        console.log(`Chain ${chainId}: Added ${whitelist.wss[chainId].length} WS RPCs`);
+      }
+    }
   }
 
   // Deduplicate RPCs for each chain
   for (const chainId of Object.keys(merged.rpcs)) {
     merged.rpcs[chainId] = [...new Set(merged.rpcs[chainId])];
+  }
+
+  // Deduplicate WS RPCs for each chain
+  for (const chainId of Object.keys(merged.wss)) {
+    merged.wss[chainId] = [...new Set(merged.wss[chainId])];
   }
 
   // Validate final structure

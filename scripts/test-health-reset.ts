@@ -5,7 +5,7 @@
  * Tests the specific scenario where all RPCs are marked unhealthy
  */
 
-import { Permit2RpcManager } from "../packages/permit2-rpc-server/src/permit2-rpc-manager.ts";
+import { Permit2RpcManager } from "../packages/permit2-rpc-server/src/core/permit2-rpc-manager.ts";
 
 async function testHealthResetDirectly() {
   console.log("🧪 Direct Health Reset Test\n");

@@ -4,7 +4,7 @@
  * Test script to verify rate limit handling with the new cooldown system
  */
 
-import { Permit2RpcManager } from "../packages/permit2-rpc-server/src/permit2-rpc-manager.ts";
+import { Permit2RpcManager } from "../packages/permit2-rpc-server/src/core/permit2-rpc-manager.ts";
 
 // Create a mock RPC that returns rate limit errors
 const mockServer = Deno.serve({ port: 8545 }, (req) => {

@@ -1,4 +1,4 @@
-import PERMIT2_BYTECODE_PREFIX from "../../../tests/fixtures/permit2-bytecode.ts";
+import PERMIT2_BYTECODE_PREFIX from "../../../../tests/fixtures/permit2-bytecode.ts";
 
 // --- Interfaces ---
 interface JsonRpcRequest {

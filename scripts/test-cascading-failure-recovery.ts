@@ -6,7 +6,7 @@
  * and verifies that the emergency fallback resets RPC health states
  */
 
-import { Permit2RpcManager } from "../packages/permit2-rpc-server/src/permit2-rpc-manager.ts";
+import { Permit2RpcManager } from "../packages/permit2-rpc-server/src/core/permit2-rpc-manager.ts";
 
 // Track request counts per port to simulate different RPC behaviors
 const requestCounts = new Map<number, number>();

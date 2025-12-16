@@ -1,10 +1,16 @@
-import { CacheManager } from "./cache-manager.ts";
+import { CacheManager } from "../infra/cache-manager.ts";
 import { decodeFunctionResult, encodeFunctionData } from "npm:viem@2.9.30";
-import { ChainlistDataSource } from "./chainlist-data-source.ts";
-import { LatencyTester } from "./latency-tester.ts";
+import { ChainlistDataSource } from "../data/chainlist-data-source.ts";
+import { LatencyTester } from "../infra/latency-tester.ts";
 import { RpcSelector } from "./rpc-selector.ts";
-import { AdaptiveTimeout, CircuitBreaker, RequestDeduplicator, RpcScorer, SmartBatcher } from "./reliability-improvements.ts";
-import { getMulticall3Address, multicall3Abi, Multicall3Request } from "./multicall3.ts";
+import {
+  AdaptiveTimeout,
+  CircuitBreaker,
+  RequestDeduplicator,
+  RpcScorer,
+  SmartBatcher,
+} from "./reliability-improvements.ts";
+import { getMulticall3Address, multicall3Abi, Multicall3Request } from "../evm/multicall3.ts";
 
 // JSON-RPC error codes as per specification
 const JSON_RPC_ERROR_CODES = {
@@ -722,17 +728,17 @@ export class Permit2RpcManager {
         healthyRpcs: 0,
         degradedRpcs: 0,
         failedRpcs: 0,
-        eliminatedRpcs: 0
-      }
+        eliminatedRpcs: 0,
+      },
     };
 
     try {
       // Get cache data from CacheManager
       const cacheData = await this.cacheManager.getCacheState();
-      
+
       // Get all available chains from data source
       const availableChains = this.dataSource.getAvailableChains();
-      
+
       for (const chainId of availableChains) {
         const chainData: any = {
           chainId,
@@ -742,7 +748,7 @@ export class Permit2RpcManager {
           healthyRpcs: 0,
           degradedRpcs: 0,
           failedRpcs: 0,
-          eliminatedRpcs: 0
+          eliminatedRpcs: 0,
         };
 
         // Get RPCs for this chain
@@ -761,7 +767,7 @@ export class Permit2RpcManager {
           const rpcInfo: any = {
             url: rpcUrl,
             status: "unknown",
-            healthy: false
+            healthy: false,
           };
 
           // Get health state from memory
@@ -770,15 +776,15 @@ export class Permit2RpcManager {
             rpcInfo.consecutiveFailures = healthState.consecutiveFailures;
             rpcInfo.lastFailureTime = healthState.lastFailureTime > 0 ? healthState.lastFailureTime : null;
             rpcInfo.lastSuccessTime = healthState.lastSuccessTime > 0 ? healthState.lastSuccessTime : null;
-            
+
             // Check if eliminated
             if (healthState.consecutiveFailures >= this.maxConsecutiveFailures) {
               const backoffMs = Math.min(
                 this.backoffBaseMs * Math.pow(2, healthState.consecutiveFailures - this.maxConsecutiveFailures),
-                this.maxBackoffMs
+                this.maxBackoffMs,
               );
               const nextRetryTime = healthState.lastFailureTime + backoffMs;
-              
+
               if (Date.now() < nextRetryTime) {
                 rpcInfo.status = "eliminated";
                 rpcInfo.nextRetryAt = nextRetryTime;
@@ -792,7 +798,7 @@ export class Permit2RpcManager {
             const latencyData = chainCache.latencyMap[rpcUrl];
             rpcInfo.latency = latencyData.latency;
             rpcInfo.cacheStatus = latencyData.status;
-            
+
             // Determine health based on cache status
             if (latencyData.status === "ok" && !rpcInfo.status) {
               rpcInfo.status = "healthy";
@@ -831,9 +837,8 @@ export class Permit2RpcManager {
         logLevel: this.logLevel,
         maxConsecutiveFailures: this.maxConsecutiveFailures,
         backoffBaseMs: this.backoffBaseMs,
-        maxBackoffMs: this.maxBackoffMs
+        maxBackoffMs: this.maxBackoffMs,
       };
-
     } catch (error) {
       this._log("error", "Failed to generate health status:", error);
       throw error;
@@ -845,7 +850,11 @@ export class Permit2RpcManager {
   /**
    * Perform a Multicall3 batch of read-only eth_call requests.
    */
-  async multicall3(chainId: number, requests: Multicall3Request[], blockTag: string | number = "latest"): Promise<JsonRpcResponse[]> {
+  async multicall3(
+    chainId: number,
+    requests: Multicall3Request[],
+    blockTag: string | number = "latest",
+  ): Promise<JsonRpcResponse[]> {
     if (requests.length === 0) {
       return [];
     }
@@ -863,14 +872,16 @@ export class Permit2RpcManager {
       const uniqueRequests = requests.filter(
         (req, index, self) =>
           index ===
-          self.findIndex(
-            (r) => r.params[0].to.toLowerCase() === req.params[0].to.toLowerCase() && r.params[0].data.toLowerCase() === req.params[0].data.toLowerCase()
-          )
+            self.findIndex(
+              (r) =>
+                r.params[0].to.toLowerCase() === req.params[0].to.toLowerCase() &&
+                r.params[0].data.toLowerCase() === req.params[0].data.toLowerCase(),
+            ),
       );
 
       this._log(
         "info",
-        `Performing multicall3 with ${uniqueRequests.length} unique calls for ${requests.length} requests on chain ${chainId} with block tag '${blockTag}'`
+        `Performing multicall3 with ${uniqueRequests.length} unique calls for ${requests.length} requests on chain ${chainId} with block tag '${blockTag}'`,
       );
 
       const viemCalls = uniqueRequests.map((c) => ({
@@ -886,7 +897,10 @@ export class Permit2RpcManager {
       });
 
       // Perform single eth_call to multicall contract
-      const resultHex = await this.send<string>(chainId, "eth_call", [{ to: getMulticall3Address(chainId), data: calldata }, blockTag]);
+      const resultHex = await this.send<string>(chainId, "eth_call", [{
+        to: getMulticall3Address(chainId),
+        data: calldata,
+      }, blockTag]);
 
       const decodedResult = decodeFunctionResult({
         abi: multicall3Abi,
@@ -917,7 +931,9 @@ export class Permit2RpcManager {
         .filter((req) => !uniqueRequests.map((r) => r.id).includes(req.id))
         .map((req) => {
           const requestIndex = uniqueRequests.findIndex(
-            (r) => r.params[0].to.toLowerCase() === req.params[0].to.toLowerCase() && r.params[0].data.toLowerCase() === req.params[0].data.toLowerCase()
+            (r) =>
+              r.params[0].to.toLowerCase() === req.params[0].to.toLowerCase() &&
+              r.params[0].data.toLowerCase() === req.params[0].data.toLowerCase(),
           );
           const response = structuredClone(uniqueResponses[requestIndex]);
           response.id = req.id;
@@ -929,7 +945,9 @@ export class Permit2RpcManager {
       const error = e instanceof Error ? e : new Error(String(e));
       console.error(`Error processing multicall3 batch for chain ${chainId}:`, error);
 
-      const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number" ? error.code : -32603;
+      const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
+        ? error.code
+        : -32603;
       const data = "data" in error ? error.data : undefined;
 
       return requests.map((req) => ({

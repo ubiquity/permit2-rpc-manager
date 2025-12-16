@@ -43,26 +43,26 @@ bun run deploy:manual     # Manually deploy to Deno Deploy
 
 ### Core Components
 
-**Permit2RpcManager** (`packages/permit2-rpc-server/src/permit2-rpc-manager.ts`)
+**Permit2RpcManager** (`packages/permit2-rpc-server/src/core/permit2-rpc-manager.ts`)
 - Central orchestrator for all RPC requests
 - Manages RPC health tracking with exponential backoff
 - Handles error classification and retry logic
 - Routes requests through RpcSelector
 
-**RpcSelector** (`packages/permit2-rpc-server/src/rpc-selector.ts`)
+**RpcSelector** (`packages/permit2-rpc-server/src/core/rpc-selector.ts`)
 - Selects optimal RPC endpoint based on latency tests
 - Maintains ranked list of usable RPCs per chain
 
-**LatencyTester** (`packages/permit2-rpc-server/src/latency-tester.ts`)
+**LatencyTester** (`packages/permit2-rpc-server/src/infra/latency-tester.ts`)
 - Tests RPC endpoints for responsiveness
 - Validates endpoints support required methods (eth_syncing, eth_getCode)
 - Checks for Permit2 contract presence
 
-**CacheManager** (`packages/permit2-rpc-server/src/cache-manager.ts`)
+**CacheManager** (`packages/permit2-rpc-server/src/infra/cache-manager.ts`)
 - Handles caching of RPC test results and responses
 - Uses Deno KV for persistent storage in production
 
-**ChainlistDataSource** (`packages/permit2-rpc-server/src/chainlist-data-source.ts`)
+**ChainlistDataSource** (`packages/permit2-rpc-server/src/data/chainlist-data-source.ts`)
 - Loads and manages RPC whitelist data from `rpc-whitelist.json`
 - Provides RPC URLs for each supported chain
 
