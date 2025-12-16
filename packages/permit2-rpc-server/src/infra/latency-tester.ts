@@ -23,13 +23,22 @@ interface JsonRpcResponse {
 type EthSyncingResult = false | Record<string, unknown>; // Use Record<string, unknown> instead of {}
 
 // Restore 'wrong_bytecode' status
-type LatencyTestStatus = "ok" | "syncing" | "wrong_bytecode" | "timeout" | "http_error" | "rpc_error" | "network_error";
+type LatencyTestStatus =
+  | "ok"
+  | "syncing"
+  | "wrong_bytecode"
+  | "wrong_chain_id"
+  | "timeout"
+  | "http_error"
+  | "rpc_error"
+  | "network_error";
 
 export interface LatencyTestResult {
   url: string;
   latency: number; // Infinity indicates failure
   status: LatencyTestStatus;
   error?: string; // Optional error message string
+  observedChainId?: number;
 }
 
 // Define a logger type (can be shared or defined per file)
@@ -47,9 +56,11 @@ const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3"; // Restore
 export class LatencyTester {
   private timeoutMs: number;
   private log: LoggerFn;
+  private validateChainId: boolean;
 
-  constructor(timeoutMs: number = DEFAULT_TIMEOUT_MS, logger?: LoggerFn) {
+  constructor(timeoutMs: number = DEFAULT_TIMEOUT_MS, logger?: LoggerFn, options: { validateChainId?: boolean } = {}) {
     this.timeoutMs = timeoutMs;
+    this.validateChainId = options.validateChainId ?? true;
     // Use provided logger or a no-op function if none is given
     this.log = logger || (() => {});
   }
@@ -92,19 +103,25 @@ export class LatencyTester {
    * Tests latency, sync status, and Permit2 bytecode for a single RPC URL.
    * Returns a detailed result object.
    */
-  private async testSingleRpc(url: string): Promise<LatencyTestResult> {
+  private async testSingleRpc(chainId: number, url: string): Promise<LatencyTestResult> {
     const startTime = Date.now();
     let getCodeResponse: JsonRpcResponse | null = null;
     let syncingResponse: JsonRpcResponse | null = null;
+    let chainIdResponse: JsonRpcResponse | null = null;
     // let error: unknown = null; // Removed unused variable
     let status: LatencyTestStatus = "network_error"; // Default to network error
 
     try {
-      // Restore concurrent calls
-      [getCodeResponse, syncingResponse] = await Promise.all([
+      const calls = [
         this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]),
         this._makeRpcCall(url, "eth_syncing", []),
-      ]);
+      ];
+
+      if (this.validateChainId) {
+        calls.push(this._makeRpcCall(url, "eth_chainId", []));
+      }
+
+      [getCodeResponse, syncingResponse, chainIdResponse] = await Promise.all(calls);
     } catch (e) {
       // Catch as unknown
       const err = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
@@ -141,6 +158,38 @@ export class LatencyTester {
       const errMsg = `eth_syncing RPC error ${syncingResponse.error.code} - ${syncingResponse.error.message}`;
       this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
       return { url, latency: Infinity, status, error: errMsg };
+    }
+    if (chainIdResponse?.error) {
+      status = "rpc_error";
+      const errMsg = `eth_chainId RPC error ${chainIdResponse.error.code} - ${chainIdResponse.error.message}`;
+      this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
+      return { url, latency: Infinity, status, error: errMsg };
+    }
+
+    // Chain identity validation (eth_chainId)
+    if (this.validateChainId) {
+      let observedChainId: number | undefined;
+      if (typeof chainIdResponse?.result === "string") {
+        const value = chainIdResponse.result.trim().toLowerCase();
+        const parsed = value.startsWith("0x") ? Number.parseInt(value, 16) : Number.parseInt(value, 10);
+        if (Number.isFinite(parsed)) observedChainId = parsed;
+      } else if (typeof chainIdResponse?.result === "number") {
+        if (Number.isFinite(chainIdResponse.result)) observedChainId = chainIdResponse.result;
+      }
+
+      if (observedChainId === undefined) {
+        status = "rpc_error";
+        const errMsg = `Invalid eth_chainId result: ${JSON.stringify(chainIdResponse?.result)}`;
+        this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
+        return { url, latency: Infinity, status, error: errMsg };
+      }
+
+      if (observedChainId !== chainId) {
+        status = "wrong_chain_id";
+        const errMsg = `Chain ID mismatch: expected ${chainId}, got ${observedChainId}`;
+        this.log("warn", `RPC ${url} returned wrong chainId: ${errMsg}`);
+        return { url, latency, status, error: errMsg, observedChainId };
+      }
     }
 
     // Check sync status first
@@ -191,11 +240,14 @@ export class LatencyTester {
   /**
    * Tests a list of RPC URLs concurrently and returns a map of URL to detailed results.
    */
-  async testRpcUrls(urls: string[]): Promise<Record<string, LatencyTestResult>> {
+  async testRpcUrls(chainId: number, urls: string[]): Promise<Record<string, LatencyTestResult>> {
     if (!urls || urls.length === 0) return {};
-    this.log("info", `Starting latency tests for ${urls.length} RPC URLs (incl. sync & bytecode check)...`);
+    this.log(
+      "info",
+      `Starting latency tests for chain ${chainId} across ${urls.length} RPC URLs (incl. chainId, sync & bytecode check)...`,
+    );
 
-    const results = await Promise.allSettled(urls.map((url) => this.testSingleRpc(url)));
+    const results = await Promise.allSettled(urls.map((url) => this.testSingleRpc(chainId, url)));
     const resultMap: Record<string, LatencyTestResult> = {};
 
     results.forEach((result, index) => {

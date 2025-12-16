@@ -3,14 +3,19 @@ import { decodeFunctionResult, encodeFunctionData } from "npm:viem@2.9.30";
 import { ChainlistDataSource } from "../data/chainlist-data-source.ts";
 import { LatencyTester } from "../infra/latency-tester.ts";
 import { RpcSelector } from "./rpc-selector.ts";
-import {
-  AdaptiveTimeout,
-  CircuitBreaker,
-  RequestDeduplicator,
-  RpcScorer,
-  SmartBatcher,
-} from "./reliability-improvements.ts";
+import { AdaptiveTimeout, RequestDeduplicator, RpcScorer, SmartBatcher } from "./reliability-improvements.ts";
 import { getMulticall3Address, multicall3Abi, Multicall3Request } from "../evm/multicall3.ts";
+import { CircuitBreakerV2 } from "./circuit-breaker-v2.ts";
+import { RpcMethodCapabilities } from "./rpc-capabilities.ts";
+import { RpcMetricsRegistry } from "./rpc-metrics.ts";
+import { RpcScorerV2 } from "./rpc-scoring-v2.ts";
+import type { ScoringConfig } from "./rpc-scoring-v2.ts";
+import { HeadTracker } from "./head-tracker.ts";
+import { HEDGE_ABORT_REASON, HedgedNonRetryableError, HedgedRequester } from "./hedged-requester.ts";
+import type { HedgeConfig } from "./hedged-requester.ts";
+import { isWriteMethod } from "./method-classifier.ts";
+import { ConsensusExecutor } from "./consensus.ts";
+import type { ConsensusConfig, ConsensusOptions } from "./consensus.ts";
 
 // JSON-RPC error codes as per specification
 const JSON_RPC_ERROR_CODES = {
@@ -76,7 +81,7 @@ interface RpcHealthState {
 enum ErrorBehavior {
   RETRY_WITH_BACKOFF, // Temporary issues (rate limits, timeouts)
   RETRY_DIFFERENT_RPC, // Provider-specific issues
-  DO_NOT_RETRY, // Client errors (bad request, method not found)
+  DO_NOT_RETRY, // Client errors (bad request, invalid params)
   BLOCKCHAIN_ERROR, // Execution errors (revert, insufficient funds)
 }
 
@@ -84,6 +89,16 @@ interface ErrorClassification {
   behavior: ErrorBehavior;
   reason: string;
   isProviderIssue: boolean;
+}
+
+type ScoringV2Options = Partial<ScoringConfig> & { enabled?: boolean };
+type HedgeOptions = Partial<HedgeConfig>;
+
+interface HeadSamplingConfig {
+  enabled?: boolean;
+  sampleIntervalMs?: number;
+  maxRpcsPerSample?: number;
+  timeoutMs?: number;
 }
 
 export interface Permit2RpcManagerOptions {
@@ -95,12 +110,22 @@ export interface Permit2RpcManagerOptions {
   logLevel?: "debug" | "info" | "warn" | "error" | "none";
   initialRpcData?: { rpcs: { [chainId: string]: string[] } };
   disableCache?: boolean;
+  validateChainId?: boolean;
 
   // Health management
   maxConsecutiveFailures?: number;
   backoffBaseMs?: number;
   maxBackoffMs?: number;
   healthCheckIntervalMs?: number;
+
+  // Capability tracking
+  capabilityTtlMs?: number;
+
+  scoringV2?: ScoringV2Options;
+
+  hedge?: HedgeOptions;
+  headSampling?: HeadSamplingConfig;
+  consensus?: ConsensusOptions;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
@@ -108,6 +133,11 @@ const DEFAULT_LOG_LEVEL = "warn";
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
 const DEFAULT_BACKOFF_BASE_MS = 1000;
 const DEFAULT_MAX_BACKOFF_MS = 60000;
+const DEFAULT_CAPABILITY_TTL_MS = 10 * 60_000;
+const DEFAULT_HEDGE_DELAY_MS = 50;
+const DEFAULT_HEDGE_MAX_HEDGES = 1;
+const DEFAULT_HEDGE_MIN_DELAY_MS = 10;
+const DEFAULT_HEDGE_MAX_DELAY_MS = 250;
 
 const LOG_LEVEL_HIERARCHY: Record<NonNullable<Permit2RpcManagerOptions["logLevel"]>, number> = {
   debug: 0,
@@ -125,6 +155,7 @@ export class Permit2RpcManager {
   private requestTimeoutMs: number;
   private logLevel: NonNullable<Permit2RpcManagerOptions["logLevel"]>;
   private configuredLogLevelValue: number;
+  private validateChainId: boolean;
 
   // Health tracking
   private rpcHealthStates = new Map<string, RpcHealthState>();
@@ -140,7 +171,22 @@ export class Permit2RpcManager {
   private adaptiveTimeout: AdaptiveTimeout;
   private smartBatcher: SmartBatcher;
   private rpcScorer: RpcScorer;
-  private circuitBreaker: CircuitBreaker;
+  private circuitBreaker: CircuitBreakerV2;
+  private rpcMethodCapabilities: RpcMethodCapabilities;
+  private capabilityTtlMs: number;
+  private rpcMetrics: RpcMetricsRegistry;
+  private rpcScorerV2: RpcScorerV2;
+  private scoringV2Enabled: boolean;
+  private hedgedRequester: HedgedRequester;
+  private hedgeConfig:
+    & Required<Pick<HedgeConfig, "enabled" | "maxHedges" | "delayMs">>
+    & Pick<HedgeConfig, "quantile" | "minDelayMs" | "maxDelayMs">;
+  private headTracker: HeadTracker;
+  private headSampling: Required<
+    Pick<HeadSamplingConfig, "enabled" | "sampleIntervalMs" | "maxRpcsPerSample" | "timeoutMs">
+  >;
+  private consensusExecutor: ConsensusExecutor;
+  private consensus: ConsensusConfig;
 
   constructor(options: Permit2RpcManagerOptions = {}) {
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
@@ -154,7 +200,8 @@ export class Permit2RpcManager {
       logger: logger,
       disableCache: options.disableCache,
     });
-    this.latencyTester = new LatencyTester(options.latencyTimeoutMs, logger);
+    this.validateChainId = options.validateChainId ?? true;
+    this.latencyTester = new LatencyTester(options.latencyTimeoutMs, logger, { validateChainId: this.validateChainId });
     this.rpcSelector = new RpcSelector(this.dataSource, this.cacheManager, this.latencyTester, logger);
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
@@ -167,7 +214,50 @@ export class Permit2RpcManager {
     this.adaptiveTimeout = new AdaptiveTimeout();
     this.smartBatcher = new SmartBatcher();
     this.rpcScorer = new RpcScorer();
-    this.circuitBreaker = new CircuitBreaker();
+    this.circuitBreaker = new CircuitBreakerV2();
+    this.rpcMethodCapabilities = new RpcMethodCapabilities();
+    this.capabilityTtlMs = options.capabilityTtlMs ?? DEFAULT_CAPABILITY_TTL_MS;
+
+    const scoringV2Options = options.scoringV2 ?? {};
+    this.scoringV2Enabled = scoringV2Options.enabled ?? true;
+    const { enabled: _enabled, ...scoringConfig } = scoringV2Options;
+    this.rpcMetrics = new RpcMetricsRegistry();
+    this.rpcScorerV2 = new RpcScorerV2(this.rpcMetrics, scoringConfig);
+
+    const hedgeOptions = options.hedge ?? {};
+    this.hedgeConfig = {
+      enabled: hedgeOptions.enabled ?? false,
+      maxHedges: Math.max(0, hedgeOptions.maxHedges ?? DEFAULT_HEDGE_MAX_HEDGES),
+      delayMs: Math.max(0, hedgeOptions.delayMs ?? DEFAULT_HEDGE_DELAY_MS),
+      quantile: hedgeOptions.quantile,
+      minDelayMs: hedgeOptions.minDelayMs ?? DEFAULT_HEDGE_MIN_DELAY_MS,
+      maxDelayMs: hedgeOptions.maxDelayMs ?? DEFAULT_HEDGE_MAX_DELAY_MS,
+    };
+    this.hedgedRequester = new HedgedRequester();
+
+    const headSampling = options.headSampling ?? {};
+    this.headSampling = {
+      enabled: headSampling.enabled ?? false,
+      sampleIntervalMs: Math.max(0, headSampling.sampleIntervalMs ?? 60_000),
+      maxRpcsPerSample: Math.max(1, headSampling.maxRpcsPerSample ?? 5),
+      timeoutMs: Math.max(250, headSampling.timeoutMs ?? 2000),
+    };
+    this.headTracker = new HeadTracker(this.rpcMetrics, {
+      sampleIntervalMs: this.headSampling.sampleIntervalMs,
+      maxRpcsPerSample: this.headSampling.maxRpcsPerSample,
+      timeoutMs: this.headSampling.timeoutMs,
+      logger,
+    });
+
+    const consensusOptions = options.consensus ?? {};
+    this.consensus = {
+      enabled: consensusOptions.enabled ?? false,
+      methods: (consensusOptions.methods ?? []).map((m) => m.trim().toLowerCase()).filter((m) => m.length > 0),
+      participants: Math.max(1, consensusOptions.participants ?? 3),
+      agreementThreshold: Math.max(1, consensusOptions.agreementThreshold ?? 2),
+      preferNonEmpty: consensusOptions.preferNonEmpty ?? false,
+    };
+    this.consensusExecutor = new ConsensusExecutor(this.rpcMetrics);
   }
 
   private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]): void {
@@ -197,6 +287,14 @@ export class Permit2RpcManager {
           };
         }
 
+        if (httpStatus === 401) {
+          return {
+            behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+            reason: "unauthorized",
+            isProviderIssue: true,
+          };
+        }
+
         if (httpStatus === 403) {
           // 403 with specific JSON-RPC codes indicates quota
           if (code === JSON_RPC_ERROR_CODES.QUOTA_EXCEEDED || code === JSON_RPC_ERROR_CODES.REQUEST_LIMIT) {
@@ -206,11 +304,11 @@ export class Permit2RpcManager {
               isProviderIssue: true,
             };
           }
-          // Other 403s might be auth issues
+          // Other 403s are usually upstream auth/billing issues; try a different RPC.
           return {
-            behavior: ErrorBehavior.DO_NOT_RETRY,
+            behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
             reason: "forbidden",
-            isProviderIssue: false,
+            isProviderIssue: true,
           };
         }
 
@@ -245,6 +343,14 @@ export class Permit2RpcManager {
           behavior: ErrorBehavior.BLOCKCHAIN_ERROR,
           reason: "execution_reverted",
           isProviderIssue: false,
+        };
+      }
+
+      if (code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND) {
+        return {
+          behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+          reason: "method_not_found",
+          isProviderIssue: true,
         };
       }
 
@@ -449,8 +555,36 @@ export class Permit2RpcManager {
     // Filter available RPCs using both health state and circuit breaker
     const availableRpcs = allRpcs.filter((rpc) => this.isRpcAvailable(rpc) && this.circuitBreaker.canRequest(rpc));
 
-    // Use RPC scorer to rank available RPCs by performance
-    const rankedRpcs = this.rpcScorer.getRankedRpcs(availableRpcs);
+    if (this.headSampling.enabled) {
+      try {
+        await this.headTracker.maybeSampleHeads(chainId, availableRpcs);
+      } catch (error) {
+        this._log("debug", `[HEAD] Head sampling failed for chain ${chainId}`, error);
+      }
+    }
+
+    const getCandidates = (rpcs: string[]): string[] => {
+      const capabilityFiltered = this.rpcMethodCapabilities.filterSupported(chainId, method, rpcs);
+      if (capabilityFiltered.length > 0) return capabilityFiltered;
+
+      if (rpcs.length > 0) {
+        this._log(
+          "debug",
+          `[CAPABILITIES] All candidate RPCs are marked unsupported for ${method} on chain ${chainId}; ` +
+            `proceeding without capability filtering.`,
+        );
+      }
+
+      return rpcs;
+    };
+
+    const rankCandidates = (candidates: string[]): string[] => {
+      if (!this.scoringV2Enabled) return this.rpcScorer.getRankedRpcs(candidates);
+      return this.rpcScorerV2.rank(chainId, method, candidates);
+    };
+
+    // Use scoring to rank available RPCs by performance
+    let rankedRpcs = rankCandidates(getCandidates(availableRpcs));
 
     if (rankedRpcs.length === 0) {
       // Check if all are in backoff
@@ -481,8 +615,7 @@ export class Permit2RpcManager {
 
       if (resetAvailableRpcs.length > 0) {
         // Continue with the reset RPCs - update rankedRpcs for the rest of the method
-        rankedRpcs.length = 0;
-        rankedRpcs.push(...this.rpcScorer.getRankedRpcs(resetAvailableRpcs));
+        rankedRpcs = rankCandidates(getCandidates(resetAvailableRpcs));
 
         this._log(
           "info",
@@ -511,6 +644,210 @@ export class Permit2RpcManager {
     let lastError: Error | null = null;
     const attemptedRpcs: string[] = [];
 
+    const orderedRpcs = rankedRpcs.slice(startIndex).concat(rankedRpcs.slice(0, startIndex));
+    const normalizedMethod = method.trim().toLowerCase();
+
+    const consensusEnabled = this.consensus.enabled && !isWriteMethod(method) &&
+      this.consensus.methods.includes(normalizedMethod) &&
+      orderedRpcs.length > 1;
+
+    if (consensusEnabled) {
+      try {
+        return await this.consensusExecutor.execute<T>(
+          chainId,
+          method,
+          orderedRpcs,
+          async (rpcUrl) => {
+            attemptedRpcs.push(rpcUrl);
+            this._log("info", `[SEND] (consensus) Trying ${rpcUrl} for ${method} on chain ${chainId}`);
+
+            const startTime = Date.now();
+            try {
+              const result = await this.executeRpcCall<T>(rpcUrl, method, params);
+              const responseTime = Date.now() - startTime;
+
+              await this.recordSuccess(chainId, rpcUrl);
+              this.rpcMetrics.recordSuccess({ chainId, rpcUrl, method }, responseTime);
+              this.rpcScorer.updateScore(rpcUrl, true, responseTime);
+              this.circuitBreaker.recordResult(rpcUrl, undefined, true);
+              this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
+
+              return result;
+            } catch (error) {
+              const err = error instanceof Error ? error : new Error(String(error));
+              lastError = err;
+
+              if (err instanceof JsonRpcError && err.code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND) {
+                this.rpcMethodCapabilities.markUnsupported(chainId, rpcUrl, method, err.message, this.capabilityTtlMs);
+              }
+
+              const classification = this.classifyError(err);
+              const circuitClassification = classification.reason === "method_not_found"
+                ? { ...classification, isProviderIssue: false }
+                : classification;
+
+              this._log(
+                "warn",
+                `[SEND] RPC ${rpcUrl} failed: ${classification.reason} ` +
+                  `(behavior: ${ErrorBehavior[classification.behavior]})`,
+              );
+
+              if (
+                classification.behavior === ErrorBehavior.DO_NOT_RETRY ||
+                classification.behavior === ErrorBehavior.BLOCKCHAIN_ERROR
+              ) {
+                this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
+                throw err;
+              }
+
+              this.rpcMetrics.recordFailure({ chainId, rpcUrl, method }, classification);
+              if (classification.reason !== "method_not_found") {
+                await this.recordFailure(chainId, rpcUrl, classification);
+                this.rpcScorer.updateScore(rpcUrl, false);
+              }
+              this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
+              throw err;
+            }
+          },
+          this.consensus,
+        );
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        const classification = this.classifyError(err);
+
+        if (
+          classification.behavior === ErrorBehavior.DO_NOT_RETRY ||
+          classification.behavior === ErrorBehavior.BLOCKCHAIN_ERROR
+        ) {
+          throw err;
+        }
+
+        const errorMsg = err.message || "Unknown error";
+        throw new JsonRpcError(
+          -32000,
+          `All ${attemptedRpcs.length} RPC endpoints failed for chain ${chainId}. ` +
+            `Attempted: [${attemptedRpcs.join(", ")}]. Last error: ${errorMsg}`,
+          { attemptedRpcs, chainId },
+        );
+      }
+    }
+
+    const hedgingEnabled = this.hedgeConfig.enabled && !isWriteMethod(method) && orderedRpcs.length > 1;
+
+    if (hedgingEnabled) {
+      const computeDelayMs = (): number => {
+        const baseDelayMs = this.hedgeConfig.delayMs;
+        const minDelayMs = this.hedgeConfig.minDelayMs ?? DEFAULT_HEDGE_MIN_DELAY_MS;
+        const maxDelayMs = this.hedgeConfig.maxDelayMs ?? DEFAULT_HEDGE_MAX_DELAY_MS;
+
+        if (typeof this.hedgeConfig.quantile !== "number") {
+          return Math.max(minDelayMs, Math.min(maxDelayMs, Math.round(baseDelayMs)));
+        }
+
+        const quantileKey = String(this.hedgeConfig.quantile);
+        const stats = this.rpcMetrics.getMethodStats(chainId, method, orderedRpcs);
+        const quantiles: number[] = [];
+        for (const rpcUrl of orderedRpcs) {
+          const q = stats.get(rpcUrl)?.latencyQuantiles?.[quantileKey];
+          if (typeof q === "number" && Number.isFinite(q) && q >= 0) quantiles.push(q);
+        }
+        quantiles.sort((a, b) => a - b);
+        const baseline = quantiles.length > 0 ? quantiles[Math.floor(quantiles.length / 2)] : 0;
+        const delay = baseline + baseDelayMs;
+        return Math.max(minDelayMs, Math.min(maxDelayMs, Math.round(delay)));
+      };
+
+      const hedgeDelayMs = computeDelayMs();
+
+      try {
+        return await this.hedgedRequester.execute<T>(
+          orderedRpcs,
+          async (rpcUrl, signal) => {
+            attemptedRpcs.push(rpcUrl);
+            this._log("info", `[SEND] (hedged) Trying ${rpcUrl} for ${method} on chain ${chainId}`);
+
+            const startTime = Date.now();
+            try {
+              const result = await this.executeRpcCall<T>(rpcUrl, method, params, { signal });
+              const responseTime = Date.now() - startTime;
+
+              await this.recordSuccess(chainId, rpcUrl);
+              this.rpcMetrics.recordSuccess({ chainId, rpcUrl, method }, responseTime);
+              this.rpcScorer.updateScore(rpcUrl, true, responseTime);
+              this.circuitBreaker.recordResult(rpcUrl, undefined, true);
+              this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
+
+              return result;
+            } catch (error) {
+              const err = error instanceof Error ? error : new Error(String(error));
+
+              if (signal.aborted && signal.reason === HEDGE_ABORT_REASON) {
+                throw err;
+              }
+
+              lastError = err;
+
+              if (err instanceof JsonRpcError && err.code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND) {
+                this.rpcMethodCapabilities.markUnsupported(chainId, rpcUrl, method, err.message, this.capabilityTtlMs);
+              }
+
+              const classification = this.classifyError(err);
+              const circuitClassification = classification.reason === "method_not_found"
+                ? { ...classification, isProviderIssue: false }
+                : classification;
+
+              this._log(
+                "warn",
+                `[SEND] RPC ${rpcUrl} failed: ${classification.reason} ` +
+                  `(behavior: ${ErrorBehavior[classification.behavior]})`,
+              );
+
+              if (
+                classification.behavior === ErrorBehavior.DO_NOT_RETRY ||
+                classification.behavior === ErrorBehavior.BLOCKCHAIN_ERROR
+              ) {
+                this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
+                this._log(
+                  "info",
+                  `[SEND] Error type ${ErrorBehavior[classification.behavior]} detected. ` +
+                    `Not recording as RPC failure to prevent cascade.`,
+                );
+                throw new HedgedNonRetryableError(err);
+              }
+
+              this.rpcMetrics.recordFailure({ chainId, rpcUrl, method }, classification);
+              if (classification.reason !== "method_not_found") {
+                await this.recordFailure(chainId, rpcUrl, classification);
+                this.rpcScorer.updateScore(rpcUrl, false);
+              }
+              this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
+
+              throw err;
+            }
+          },
+          { maxHedges: this.hedgeConfig.maxHedges, delayMs: hedgeDelayMs },
+        );
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        const classification = this.classifyError(err);
+
+        if (
+          classification.behavior === ErrorBehavior.DO_NOT_RETRY ||
+          classification.behavior === ErrorBehavior.BLOCKCHAIN_ERROR
+        ) {
+          throw err;
+        }
+
+        const errorMsg = err.message || "Unknown error";
+        throw new JsonRpcError(
+          -32000,
+          `All ${attemptedRpcs.length} RPC endpoints failed for chain ${chainId}. ` +
+            `Attempted: [${attemptedRpcs.join(", ")}]. Last error: ${errorMsg}`,
+          { attemptedRpcs, chainId },
+        );
+      }
+    }
+
     // Try each available RPC
     for (let i = 0; i < rankedRpcs.length; i++) {
       const rpcIndex = (startIndex + i) % rankedRpcs.length;
@@ -527,16 +864,24 @@ export class Permit2RpcManager {
 
         // Record success metrics
         await this.recordSuccess(chainId, rpcUrl);
+        this.rpcMetrics.recordSuccess({ chainId, rpcUrl, method }, responseTime);
         this.rpcScorer.updateScore(rpcUrl, true, responseTime);
-        this.circuitBreaker.recordResult(rpcUrl, true);
+        this.circuitBreaker.recordResult(rpcUrl, undefined, true);
         this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
 
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
+        if (lastError instanceof JsonRpcError && lastError.code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND) {
+          this.rpcMethodCapabilities.markUnsupported(chainId, rpcUrl, method, lastError.message, this.capabilityTtlMs);
+        }
+
         // Classify the error
         const classification = this.classifyError(lastError);
+        const circuitClassification = classification.reason === "method_not_found"
+          ? { ...classification, isProviderIssue: false }
+          : classification;
 
         this._log(
           "warn",
@@ -548,6 +893,7 @@ export class Permit2RpcManager {
         switch (classification.behavior) {
           case ErrorBehavior.DO_NOT_RETRY:
           case ErrorBehavior.BLOCKCHAIN_ERROR:
+            this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
             // These are client/request errors that will be the same on all RPCs
             // Don't record as failures to prevent cascading health issues
             this._log(
@@ -559,10 +905,13 @@ export class Permit2RpcManager {
 
           case ErrorBehavior.RETRY_WITH_BACKOFF:
           case ErrorBehavior.RETRY_DIFFERENT_RPC:
-            // These are RPC-specific issues that should count toward health
-            await this.recordFailure(chainId, rpcUrl, classification);
-            this.rpcScorer.updateScore(rpcUrl, false);
-            this.circuitBreaker.recordResult(rpcUrl, false);
+            this.rpcMetrics.recordFailure({ chainId, rpcUrl, method }, classification);
+            if (classification.reason !== "method_not_found") {
+              // These are RPC-specific issues that should count toward health
+              await this.recordFailure(chainId, rpcUrl, classification);
+              this.rpcScorer.updateScore(rpcUrl, false);
+            }
+            this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
             // Continue to next RPC
             continue;
         }
@@ -586,11 +935,29 @@ export class Permit2RpcManager {
     url: string,
     method: string,
     params: unknown[],
+    options: { signal?: AbortSignal } = {},
   ): Promise<T> {
     const controller = new AbortController();
     // Use adaptive timeout if available, otherwise default
     const timeout = this.adaptiveTimeout.getTimeout(url, this.requestTimeoutMs);
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const timeoutId = setTimeout(() => controller.abort("timeout"), timeout);
+
+    const externalSignal = options.signal;
+    const abortListener = () => {
+      try {
+        controller.abort(externalSignal?.reason);
+      } catch {
+        controller.abort();
+      }
+    };
+
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        abortListener();
+      } else {
+        externalSignal.addEventListener("abort", abortListener, { once: true });
+      }
+    }
 
     const requestBody: JsonRpcRequest = {
       jsonrpc: "2.0",
@@ -608,6 +975,7 @@ export class Permit2RpcManager {
       });
 
       clearTimeout(timeoutId);
+      if (externalSignal) externalSignal.removeEventListener("abort", abortListener);
 
       // Parse response regardless of HTTP status
       let responseData: any;
@@ -645,8 +1013,15 @@ export class Permit2RpcManager {
       return responseData.result as T;
     } catch (error) {
       clearTimeout(timeoutId);
+      if (externalSignal) externalSignal.removeEventListener("abort", abortListener);
 
       if (error instanceof Error && error.name === "AbortError") {
+        if (controller.signal.reason === HEDGE_ABORT_REASON || controller.signal.reason === "hedged-loser") {
+          throw error;
+        }
+        if (controller.signal.reason && controller.signal.reason !== "timeout") {
+          throw error;
+        }
         throw new JsonRpcError(
           JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
           `Request timeout after ${this.requestTimeoutMs}ms`,
@@ -729,6 +1104,7 @@ export class Permit2RpcManager {
         degradedRpcs: 0,
         failedRpcs: 0,
         eliminatedRpcs: 0,
+        wrongChainIdRpcs: 0,
       },
     };
 
@@ -749,6 +1125,7 @@ export class Permit2RpcManager {
           degradedRpcs: 0,
           failedRpcs: 0,
           eliminatedRpcs: 0,
+          wrongChainIdRpcs: 0,
         };
 
         // Get RPCs for this chain
@@ -800,16 +1177,25 @@ export class Permit2RpcManager {
             rpcInfo.cacheStatus = latencyData.status;
 
             // Determine health based on cache status
-            if (latencyData.status === "ok" && !rpcInfo.status) {
-              rpcInfo.status = "healthy";
-              rpcInfo.healthy = true;
-              chainData.healthyRpcs++;
-            } else if (["syncing", "wrong_bytecode"].includes(latencyData.status) && !rpcInfo.status) {
-              rpcInfo.status = "degraded";
-              chainData.degradedRpcs++;
-            } else if (!rpcInfo.status) {
-              rpcInfo.status = "failed";
-              chainData.failedRpcs++;
+            if (latencyData.status === "wrong_chain_id") {
+              chainData.wrongChainIdRpcs++;
+            }
+
+            if (rpcInfo.status === "unknown") {
+              if (latencyData.status === "ok") {
+                rpcInfo.status = "healthy";
+                rpcInfo.healthy = true;
+                chainData.healthyRpcs++;
+              } else if (["syncing", "wrong_bytecode"].includes(latencyData.status)) {
+                rpcInfo.status = "degraded";
+                chainData.degradedRpcs++;
+              } else if (latencyData.status === "wrong_chain_id") {
+                rpcInfo.status = "wrong_chain_id";
+                chainData.failedRpcs++;
+              } else {
+                rpcInfo.status = "failed";
+                chainData.failedRpcs++;
+              }
             }
           } else if (rpcInfo.status === "unknown") {
             // No cache data and not eliminated
@@ -829,6 +1215,7 @@ export class Permit2RpcManager {
         healthReport.summary.degradedRpcs += chainData.degradedRpcs;
         healthReport.summary.failedRpcs += chainData.failedRpcs;
         healthReport.summary.eliminatedRpcs += chainData.eliminatedRpcs;
+        healthReport.summary.wrongChainIdRpcs += chainData.wrongChainIdRpcs;
       }
 
       // Add system info
@@ -838,6 +1225,16 @@ export class Permit2RpcManager {
         maxConsecutiveFailures: this.maxConsecutiveFailures,
         backoffBaseMs: this.backoffBaseMs,
         maxBackoffMs: this.maxBackoffMs,
+        validateChainId: this.validateChainId,
+        scoringV2Enabled: this.scoringV2Enabled,
+        hedge: this.hedgeConfig,
+        headSampling: this.headSampling,
+        consensus: {
+          enabled: this.consensus.enabled,
+          participants: this.consensus.participants,
+          agreementThreshold: this.consensus.agreementThreshold,
+          methodCount: this.consensus.methods.length,
+        },
       };
     } catch (error) {
       this._log("error", "Failed to generate health status:", error);

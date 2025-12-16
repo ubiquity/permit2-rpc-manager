@@ -234,7 +234,7 @@ export class WsLatencyTester {
     }
   }
 
-  async testRpcUrls(urls: string[]): Promise<Record<string, LatencyTestResult>> {
+  async testRpcUrls(_chainId: number, urls: string[]): Promise<Record<string, LatencyTestResult>> {
     if (!urls || urls.length === 0) return {};
     this.log("info", `Starting WS latency tests for ${urls.length} RPC URLs (incl. sync & bytecode check)...`);
 

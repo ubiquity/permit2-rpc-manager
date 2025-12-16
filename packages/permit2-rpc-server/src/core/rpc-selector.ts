@@ -16,7 +16,7 @@ type RpcDataSourceLike = {
 const ACCEPTABLE_STATUSES: LatencyTestResult["status"][] = ["ok", "wrong_bytecode", "syncing"];
 
 type LatencyTesterLike = {
-  testRpcUrls(urls: string[]): Promise<Record<string, LatencyTestResult>>;
+  testRpcUrls(chainId: number, urls: string[]): Promise<Record<string, LatencyTestResult>>;
 };
 
 export class RpcSelector {
@@ -80,7 +80,7 @@ export class RpcSelector {
         }
 
         // Create the promise, store it, run the test, then remove it
-        testPromise = this.latencyTester.testRpcUrls(rpcUrls);
+        testPromise = this.latencyTester.testRpcUrls(chainId, rpcUrls);
         this.ongoingLatencyTests.set(chainId, testPromise);
         this.log("debug", `Initiated latency test for chain ${chainId}.`);
 
