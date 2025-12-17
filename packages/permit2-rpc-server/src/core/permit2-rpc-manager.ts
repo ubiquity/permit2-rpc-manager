@@ -600,6 +600,14 @@ export class Permit2RpcManager {
         );
       }
 
+      const circuitBlockedCount = allRpcs.filter((rpc) => !this.circuitBreaker.canRequest(rpc)).length;
+      if (allRpcs.length > 0 && circuitBlockedCount === allRpcs.length) {
+        throw new Error(
+          `All ${circuitBlockedCount} RPC endpoints are temporarily unavailable for chain ${chainId} ` +
+            `(circuit breaker open). Please retry in a few seconds.`,
+        );
+      }
+
       // Emergency fallback: Reset all RPC health states and retry with full list
       this._log(
         "warn",
@@ -611,7 +619,9 @@ export class Permit2RpcManager {
       await this.resetAllRpcHealthStates(chainId, allRpcs);
 
       // Re-filter available RPCs after reset
-      const resetAvailableRpcs = allRpcs.filter((rpc) => this.isRpcAvailable(rpc));
+      const resetAvailableRpcs = allRpcs.filter((rpc) =>
+        this.isRpcAvailable(rpc) && this.circuitBreaker.canRequest(rpc)
+      );
 
       if (resetAvailableRpcs.length > 0) {
         // Continue with the reset RPCs - update rankedRpcs for the rest of the method
@@ -619,7 +629,7 @@ export class Permit2RpcManager {
 
         this._log(
           "info",
-          `[EMERGENCY FALLBACK] Successfully reset ${resetAvailableRpcs.length} RPCs for chain ${chainId}`,
+          `[EMERGENCY FALLBACK] Found ${resetAvailableRpcs.length} available RPCs for chain ${chainId} after reset`,
         );
       } else {
         // If still no RPCs available after reset, this is a configuration issue
