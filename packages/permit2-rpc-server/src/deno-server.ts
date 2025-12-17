@@ -4,6 +4,7 @@ import { isMulticall3Request, Multicall3Request } from "./evm/multicall3.ts";
 import { JsonRpcRequest, JsonRpcResponse } from "./core/types.ts";
 import { CacheManager } from "./infra/cache-manager.ts";
 import { Permit2RpcManager } from "./core/permit2-rpc-manager.ts";
+import type { Permit2RpcManagerOptions } from "./core/permit2-rpc-manager.ts";
 import { RpcSelector } from "./core/rpc-selector.ts";
 import { ChainlistWsDataSource } from "./data/chainlist-ws-data-source.ts";
 import { WsLatencyTester } from "./infra/ws-latency-tester.ts";
@@ -49,12 +50,111 @@ if (shouldDisableCache) {
   console.warn("RPC Caching is DISABLED via DISABLE_RPC_CACHE environment variable.");
 }
 
+function parseBoolEnv(name: string): boolean | undefined {
+  const raw = Deno.env.get(name);
+  if (raw === undefined) return undefined;
+  const value = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(value)) return true;
+  if (["0", "false", "no", "n", "off"].includes(value)) return false;
+  return undefined;
+}
+
+function parseIntEnv(name: string): number | undefined {
+  const raw = Deno.env.get(name);
+  if (raw === undefined) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseFloatEnv(name: string): number | undefined {
+  const raw = Deno.env.get(name);
+  if (raw === undefined) return undefined;
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseCsvEnv(name: string): string[] | undefined {
+  const raw = Deno.env.get(name);
+  if (raw === undefined) return undefined;
+  const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  return parts.length > 0 ? parts : undefined;
+}
+
+function buildPermit2RpcManagerOptionsFromEnv(
+  initialRpcData: Permit2RpcManagerOptions["initialRpcData"],
+  disableCache: boolean,
+): Permit2RpcManagerOptions {
+  const scoringV2: NonNullable<Permit2RpcManagerOptions["scoringV2"]> = {};
+  const scoringV2Enabled = parseBoolEnv("RPC_SCORING_V2_ENABLED");
+  if (scoringV2Enabled !== undefined) scoringV2.enabled = scoringV2Enabled;
+  const scoringLatencyQuantile = parseFloatEnv("RPC_SCORING_V2_LATENCY_QUANTILE");
+  if (scoringLatencyQuantile !== undefined) scoringV2.latencyQuantile = scoringLatencyQuantile;
+  const scoringMinSamples = parseIntEnv("RPC_SCORING_V2_MIN_SAMPLES");
+  if (scoringMinSamples !== undefined) scoringV2.minSamplesForConfidence = scoringMinSamples;
+  const scoringEmaPrevWeight = parseFloatEnv("RPC_SCORING_V2_EMA_PREV_WEIGHT");
+  if (scoringEmaPrevWeight !== undefined) scoringV2.emaPrevWeight = scoringEmaPrevWeight;
+  const scoringWLatency = parseFloatEnv("RPC_SCORING_V2_W_LATENCY");
+  if (scoringWLatency !== undefined) scoringV2.wLatency = scoringWLatency;
+  const scoringWError = parseFloatEnv("RPC_SCORING_V2_W_ERROR");
+  if (scoringWError !== undefined) scoringV2.wError = scoringWError;
+  const scoringWThrottle = parseFloatEnv("RPC_SCORING_V2_W_THROTTLE");
+  if (scoringWThrottle !== undefined) scoringV2.wThrottle = scoringWThrottle;
+  const scoringWHeadLag = parseFloatEnv("RPC_SCORING_V2_W_HEAD_LAG");
+  if (scoringWHeadLag !== undefined) scoringV2.wHeadLag = scoringWHeadLag;
+  const scoringWMisbehavior = parseFloatEnv("RPC_SCORING_V2_W_MISBEHAVIOR");
+  if (scoringWMisbehavior !== undefined) scoringV2.wMisbehavior = scoringWMisbehavior;
+
+  const hedge: NonNullable<Permit2RpcManagerOptions["hedge"]> = {};
+  const hedgeEnabled = parseBoolEnv("RPC_HEDGE_ENABLED");
+  if (hedgeEnabled !== undefined) hedge.enabled = hedgeEnabled;
+  const hedgeMaxHedges = parseIntEnv("RPC_HEDGE_MAX_HEDGES");
+  if (hedgeMaxHedges !== undefined) hedge.maxHedges = hedgeMaxHedges;
+  const hedgeDelayMs = parseIntEnv("RPC_HEDGE_DELAY_MS");
+  if (hedgeDelayMs !== undefined) hedge.delayMs = hedgeDelayMs;
+  const hedgeQuantile = parseFloatEnv("RPC_HEDGE_QUANTILE");
+  if (hedgeQuantile !== undefined) hedge.quantile = hedgeQuantile;
+  const hedgeMinDelayMs = parseIntEnv("RPC_HEDGE_MIN_DELAY_MS");
+  if (hedgeMinDelayMs !== undefined) hedge.minDelayMs = hedgeMinDelayMs;
+  const hedgeMaxDelayMs = parseIntEnv("RPC_HEDGE_MAX_DELAY_MS");
+  if (hedgeMaxDelayMs !== undefined) hedge.maxDelayMs = hedgeMaxDelayMs;
+
+  const headSampling: NonNullable<Permit2RpcManagerOptions["headSampling"]> = {};
+  const headSamplingEnabled = parseBoolEnv("RPC_HEAD_SAMPLING_ENABLED");
+  if (headSamplingEnabled !== undefined) headSampling.enabled = headSamplingEnabled;
+  const headSampleIntervalMs = parseIntEnv("RPC_HEAD_SAMPLING_INTERVAL_MS");
+  if (headSampleIntervalMs !== undefined) headSampling.sampleIntervalMs = headSampleIntervalMs;
+  const headMaxRpcs = parseIntEnv("RPC_HEAD_SAMPLING_MAX_RPCS");
+  if (headMaxRpcs !== undefined) headSampling.maxRpcsPerSample = headMaxRpcs;
+  const headTimeoutMs = parseIntEnv("RPC_HEAD_SAMPLING_TIMEOUT_MS");
+  if (headTimeoutMs !== undefined) headSampling.timeoutMs = headTimeoutMs;
+
+  const consensus: NonNullable<Permit2RpcManagerOptions["consensus"]> = {};
+  const consensusEnabled = parseBoolEnv("RPC_CONSENSUS_ENABLED");
+  if (consensusEnabled !== undefined) consensus.enabled = consensusEnabled;
+  const consensusMethods = parseCsvEnv("RPC_CONSENSUS_METHODS");
+  if (consensusMethods !== undefined) consensus.methods = consensusMethods;
+  const consensusParticipants = parseIntEnv("RPC_CONSENSUS_PARTICIPANTS");
+  if (consensusParticipants !== undefined) consensus.participants = consensusParticipants;
+  const consensusThreshold = parseIntEnv("RPC_CONSENSUS_THRESHOLD");
+  if (consensusThreshold !== undefined) consensus.agreementThreshold = consensusThreshold;
+  const consensusPreferNonEmpty = parseBoolEnv("RPC_CONSENSUS_PREFER_NON_EMPTY");
+  if (consensusPreferNonEmpty !== undefined) consensus.preferNonEmpty = consensusPreferNonEmpty;
+
+  return {
+    initialRpcData,
+    disableCache,
+    validateChainId: parseBoolEnv("RPC_VALIDATE_CHAIN_ID"),
+    capabilityTtlMs: parseIntEnv("RPC_CAPABILITY_TTL_MS"),
+    scoringV2: Object.keys(scoringV2).length > 0 ? scoringV2 : undefined,
+    hedge: Object.keys(hedge).length > 0 ? hedge : undefined,
+    headSampling: Object.keys(headSampling).length > 0 ? headSampling : undefined,
+    consensus: Object.keys(consensus).length > 0 ? consensus : undefined,
+    // TODO: Configure other CacheManager options like TTL if needed
+  };
+}
+
 // Instantiate Permit2RpcManager, passing initial data and cache option.
-const manager = new Permit2RpcManager({
-  initialRpcData: rpcWhitelist,
-  disableCache: shouldDisableCache,
-  // TODO: Configure other CacheManager options like TTL if needed
-});
+const manager = new Permit2RpcManager(buildPermit2RpcManagerOptionsFromEnv(rpcWhitelist, shouldDisableCache));
 
 type WsLogLevel = "debug" | "info" | "warn" | "error";
 const wsLogger = (level: WsLogLevel, message: string, ...optionalParams: unknown[]) => {
@@ -171,13 +271,24 @@ async function connectFirstWebSocket(urls: string[], timeoutMs: number): Promise
 
 const STATIC_ASSET_ROOT = new URL("../static/", import.meta.url);
 const staticTextAssetCache = new Map<string, string>();
+const CACHE_STATIC_ASSETS = (() => {
+  try {
+    return Deno.env.get("DENO_DEPLOY") === "1";
+  } catch {
+    return false;
+  }
+})();
 
 async function readStaticTextAsset(fileName: string): Promise<string> {
-  const cached = staticTextAssetCache.get(fileName);
-  if (cached !== undefined) return cached;
+  if (CACHE_STATIC_ASSETS) {
+    const cached = staticTextAssetCache.get(fileName);
+    if (cached !== undefined) return cached;
+  }
 
   const text = await Deno.readTextFile(new URL(fileName, STATIC_ASSET_ROOT));
-  staticTextAssetCache.set(fileName, text);
+  if (CACHE_STATIC_ASSETS) {
+    staticTextAssetCache.set(fileName, text);
+  }
   return text;
 }
 
@@ -404,6 +515,46 @@ const handler = async (request: Request): Promise<Response> => {
       });
     } catch (error) {
       console.error("Failed to read static asset logo.svg:", error);
+      return new Response("Not Found", {
+        status: isNotFoundError(error) ? 404 : 500,
+        headers: corsHeaders,
+      });
+    }
+  }
+
+  // Serve app.css at GET /app.css
+  if ((request.method === "GET" || request.method === "HEAD") && new URL(request.url).pathname === "/app.css") {
+    try {
+      const css = await readStaticTextAsset("app.css");
+      return new Response(css, {
+        status: 200,
+        headers: {
+          "content-type": "text/css; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to read static asset app.css:", error);
+      return new Response("Not Found", {
+        status: isNotFoundError(error) ? 404 : 500,
+        headers: corsHeaders,
+      });
+    }
+  }
+
+  // Serve app.js at GET /app.js
+  if ((request.method === "GET" || request.method === "HEAD") && new URL(request.url).pathname === "/app.js") {
+    try {
+      const js = await readStaticTextAsset("app.js");
+      return new Response(js, {
+        status: 200,
+        headers: {
+          "content-type": "text/javascript; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to read static asset app.js:", error);
       return new Response("Not Found", {
         status: isNotFoundError(error) ? 404 : 500,
         headers: corsHeaders,
