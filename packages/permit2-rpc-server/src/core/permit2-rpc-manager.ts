@@ -288,6 +288,7 @@ export class Permit2RpcManager {
         }
 
         if (httpStatus === 401) {
+          // Unauthorized (missing/invalid credentials) for this upstream; try a different RPC.
           return {
             behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
             reason: "unauthorized",
@@ -304,7 +305,7 @@ export class Permit2RpcManager {
               isProviderIssue: true,
             };
           }
-          // Other 403s are usually upstream auth/billing issues; try a different RPC.
+          // Other 403s are usually upstream permission/billing issues; try a different RPC.
           return {
             behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
             reason: "forbidden",
@@ -1026,7 +1027,7 @@ export class Permit2RpcManager {
       if (externalSignal) externalSignal.removeEventListener("abort", abortListener);
 
       if (error instanceof Error && error.name === "AbortError") {
-        if (controller.signal.reason === HEDGE_ABORT_REASON || controller.signal.reason === "hedged-loser") {
+        if (controller.signal.reason === HEDGE_ABORT_REASON) {
           throw error;
         }
         if (controller.signal.reason && controller.signal.reason !== "timeout") {

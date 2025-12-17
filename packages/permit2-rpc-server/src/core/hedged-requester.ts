@@ -20,6 +20,10 @@ type AttemptOutcome<T> =
   | { type: "success"; rpcUrl: string; value: T }
   | { type: "error"; rpcUrl: string; error: unknown; aborted: boolean; abortReason?: unknown };
 
+type DelayRaceResult = { type: "delay" };
+type AttemptRaceResult<T> = { index: number } & AttemptOutcome<T>;
+type RaceResult<T> = DelayRaceResult | AttemptRaceResult<T>;
+
 function sleep(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -91,14 +95,29 @@ export class HedgedRequester {
       const canStartMore = nextIndex < urls.length && inFlight.size < concurrencyLimit;
 
       const delayMs = canStartMore ? Math.max(0, nextHedgeAt - this.now()) : Number.POSITIVE_INFINITY;
-      const delayPromise = canStartMore ? sleep(delayMs).then(() => ({ type: "delay" as const })) : null;
+      const delayPromise: Promise<DelayRaceResult> | null = canStartMore
+        ? sleep(delayMs).then(() => ({ type: "delay" as const }))
+        : null;
 
-      const raced = await Promise.race([
-        ...[...inFlight.entries()].map(async ([index, promise]) => ({ index, ...(await promise) })),
+      const raced = await Promise.race<RaceResult<T>>([
+        ...[...inFlight.entries()].map(async ([index, promise]): Promise<AttemptRaceResult<T>> => {
+          const outcome = await promise;
+          if (outcome.type === "success") {
+            return { index, type: "success", rpcUrl: outcome.rpcUrl, value: outcome.value };
+          }
+          return {
+            index,
+            type: "error",
+            rpcUrl: outcome.rpcUrl,
+            error: outcome.error,
+            aborted: outcome.aborted,
+            abortReason: outcome.abortReason,
+          };
+        }),
         ...(delayPromise ? [delayPromise] : []),
       ]);
 
-      if ("type" in raced && raced.type === "delay") {
+      if (raced.type === "delay") {
         if (nextIndex < urls.length && inFlight.size < concurrencyLimit) {
           startAttempt(nextIndex);
           nextIndex++;
@@ -107,17 +126,14 @@ export class HedgedRequester {
         continue;
       }
 
-      const { index, type } = raced as { index: number } & AttemptOutcome<T>;
-      inFlight.delete(index);
+      inFlight.delete(raced.index);
 
-      if (type === "success") {
-        abortAllExcept(index);
-        return (raced as any).value as T;
+      if (raced.type === "success") {
+        abortAllExcept(raced.index);
+        return raced.value;
       }
 
-      const error = (raced as any).error as unknown;
-      const aborted = (raced as any).aborted as boolean;
-      const abortReason = (raced as any).abortReason as unknown;
+      const { error, aborted, abortReason } = raced;
 
       if (aborted && abortReason === HEDGE_ABORT_REASON) {
         // Expected cancellation of a losing hedge.

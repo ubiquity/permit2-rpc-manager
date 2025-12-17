@@ -16,6 +16,8 @@ export interface RpcMethodCapabilitiesOptions {
   maxEntries?: number;
 }
 
+const TTL_STRIKE_MULTIPLIER_CAP = 32;
+
 export class RpcMethodCapabilities {
   private records = new Map<string, CapabilityRecord>();
   private readonly now: () => number;
@@ -63,7 +65,7 @@ export class RpcMethodCapabilities {
       }
     }
 
-    const multiplier = Math.min(2 ** (strikeCount - 1), 32);
+    const multiplier = Math.min(2 ** (strikeCount - 1), TTL_STRIKE_MULTIPLIER_CAP);
     const effectiveTtlMs = Math.min(ttlMs * multiplier, this.maxTtlMs);
 
     this.records.set(key, {

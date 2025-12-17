@@ -80,74 +80,81 @@ function parseCsvEnv(name: string): string[] | undefined {
   return parts.length > 0 ? parts : undefined;
 }
 
-const scoringV2: NonNullable<Permit2RpcManagerOptions["scoringV2"]> = {};
-const scoringV2Enabled = parseBoolEnv("RPC_SCORING_V2_ENABLED");
-if (scoringV2Enabled !== undefined) scoringV2.enabled = scoringV2Enabled;
-const scoringLatencyQuantile = parseFloatEnv("RPC_SCORING_V2_LATENCY_QUANTILE");
-if (scoringLatencyQuantile !== undefined) scoringV2.latencyQuantile = scoringLatencyQuantile;
-const scoringMinSamples = parseIntEnv("RPC_SCORING_V2_MIN_SAMPLES");
-if (scoringMinSamples !== undefined) scoringV2.minSamplesForConfidence = scoringMinSamples;
-const scoringEmaPrevWeight = parseFloatEnv("RPC_SCORING_V2_EMA_PREV_WEIGHT");
-if (scoringEmaPrevWeight !== undefined) scoringV2.emaPrevWeight = scoringEmaPrevWeight;
-const scoringWLatency = parseFloatEnv("RPC_SCORING_V2_W_LATENCY");
-if (scoringWLatency !== undefined) scoringV2.wLatency = scoringWLatency;
-const scoringWError = parseFloatEnv("RPC_SCORING_V2_W_ERROR");
-if (scoringWError !== undefined) scoringV2.wError = scoringWError;
-const scoringWThrottle = parseFloatEnv("RPC_SCORING_V2_W_THROTTLE");
-if (scoringWThrottle !== undefined) scoringV2.wThrottle = scoringWThrottle;
-const scoringWHeadLag = parseFloatEnv("RPC_SCORING_V2_W_HEAD_LAG");
-if (scoringWHeadLag !== undefined) scoringV2.wHeadLag = scoringWHeadLag;
-const scoringWMisbehavior = parseFloatEnv("RPC_SCORING_V2_W_MISBEHAVIOR");
-if (scoringWMisbehavior !== undefined) scoringV2.wMisbehavior = scoringWMisbehavior;
+function buildPermit2RpcManagerOptionsFromEnv(
+  initialRpcData: Permit2RpcManagerOptions["initialRpcData"],
+  disableCache: boolean,
+): Permit2RpcManagerOptions {
+  const scoringV2: NonNullable<Permit2RpcManagerOptions["scoringV2"]> = {};
+  const scoringV2Enabled = parseBoolEnv("RPC_SCORING_V2_ENABLED");
+  if (scoringV2Enabled !== undefined) scoringV2.enabled = scoringV2Enabled;
+  const scoringLatencyQuantile = parseFloatEnv("RPC_SCORING_V2_LATENCY_QUANTILE");
+  if (scoringLatencyQuantile !== undefined) scoringV2.latencyQuantile = scoringLatencyQuantile;
+  const scoringMinSamples = parseIntEnv("RPC_SCORING_V2_MIN_SAMPLES");
+  if (scoringMinSamples !== undefined) scoringV2.minSamplesForConfidence = scoringMinSamples;
+  const scoringEmaPrevWeight = parseFloatEnv("RPC_SCORING_V2_EMA_PREV_WEIGHT");
+  if (scoringEmaPrevWeight !== undefined) scoringV2.emaPrevWeight = scoringEmaPrevWeight;
+  const scoringWLatency = parseFloatEnv("RPC_SCORING_V2_W_LATENCY");
+  if (scoringWLatency !== undefined) scoringV2.wLatency = scoringWLatency;
+  const scoringWError = parseFloatEnv("RPC_SCORING_V2_W_ERROR");
+  if (scoringWError !== undefined) scoringV2.wError = scoringWError;
+  const scoringWThrottle = parseFloatEnv("RPC_SCORING_V2_W_THROTTLE");
+  if (scoringWThrottle !== undefined) scoringV2.wThrottle = scoringWThrottle;
+  const scoringWHeadLag = parseFloatEnv("RPC_SCORING_V2_W_HEAD_LAG");
+  if (scoringWHeadLag !== undefined) scoringV2.wHeadLag = scoringWHeadLag;
+  const scoringWMisbehavior = parseFloatEnv("RPC_SCORING_V2_W_MISBEHAVIOR");
+  if (scoringWMisbehavior !== undefined) scoringV2.wMisbehavior = scoringWMisbehavior;
 
-const hedge: NonNullable<Permit2RpcManagerOptions["hedge"]> = {};
-const hedgeEnabled = parseBoolEnv("RPC_HEDGE_ENABLED");
-if (hedgeEnabled !== undefined) hedge.enabled = hedgeEnabled;
-const hedgeMaxHedges = parseIntEnv("RPC_HEDGE_MAX_HEDGES");
-if (hedgeMaxHedges !== undefined) hedge.maxHedges = hedgeMaxHedges;
-const hedgeDelayMs = parseIntEnv("RPC_HEDGE_DELAY_MS");
-if (hedgeDelayMs !== undefined) hedge.delayMs = hedgeDelayMs;
-const hedgeQuantile = parseFloatEnv("RPC_HEDGE_QUANTILE");
-if (hedgeQuantile !== undefined) hedge.quantile = hedgeQuantile;
-const hedgeMinDelayMs = parseIntEnv("RPC_HEDGE_MIN_DELAY_MS");
-if (hedgeMinDelayMs !== undefined) hedge.minDelayMs = hedgeMinDelayMs;
-const hedgeMaxDelayMs = parseIntEnv("RPC_HEDGE_MAX_DELAY_MS");
-if (hedgeMaxDelayMs !== undefined) hedge.maxDelayMs = hedgeMaxDelayMs;
+  const hedge: NonNullable<Permit2RpcManagerOptions["hedge"]> = {};
+  const hedgeEnabled = parseBoolEnv("RPC_HEDGE_ENABLED");
+  if (hedgeEnabled !== undefined) hedge.enabled = hedgeEnabled;
+  const hedgeMaxHedges = parseIntEnv("RPC_HEDGE_MAX_HEDGES");
+  if (hedgeMaxHedges !== undefined) hedge.maxHedges = hedgeMaxHedges;
+  const hedgeDelayMs = parseIntEnv("RPC_HEDGE_DELAY_MS");
+  if (hedgeDelayMs !== undefined) hedge.delayMs = hedgeDelayMs;
+  const hedgeQuantile = parseFloatEnv("RPC_HEDGE_QUANTILE");
+  if (hedgeQuantile !== undefined) hedge.quantile = hedgeQuantile;
+  const hedgeMinDelayMs = parseIntEnv("RPC_HEDGE_MIN_DELAY_MS");
+  if (hedgeMinDelayMs !== undefined) hedge.minDelayMs = hedgeMinDelayMs;
+  const hedgeMaxDelayMs = parseIntEnv("RPC_HEDGE_MAX_DELAY_MS");
+  if (hedgeMaxDelayMs !== undefined) hedge.maxDelayMs = hedgeMaxDelayMs;
 
-const headSampling: NonNullable<Permit2RpcManagerOptions["headSampling"]> = {};
-const headSamplingEnabled = parseBoolEnv("RPC_HEAD_SAMPLING_ENABLED");
-if (headSamplingEnabled !== undefined) headSampling.enabled = headSamplingEnabled;
-const headSampleIntervalMs = parseIntEnv("RPC_HEAD_SAMPLING_INTERVAL_MS");
-if (headSampleIntervalMs !== undefined) headSampling.sampleIntervalMs = headSampleIntervalMs;
-const headMaxRpcs = parseIntEnv("RPC_HEAD_SAMPLING_MAX_RPCS");
-if (headMaxRpcs !== undefined) headSampling.maxRpcsPerSample = headMaxRpcs;
-const headTimeoutMs = parseIntEnv("RPC_HEAD_SAMPLING_TIMEOUT_MS");
-if (headTimeoutMs !== undefined) headSampling.timeoutMs = headTimeoutMs;
+  const headSampling: NonNullable<Permit2RpcManagerOptions["headSampling"]> = {};
+  const headSamplingEnabled = parseBoolEnv("RPC_HEAD_SAMPLING_ENABLED");
+  if (headSamplingEnabled !== undefined) headSampling.enabled = headSamplingEnabled;
+  const headSampleIntervalMs = parseIntEnv("RPC_HEAD_SAMPLING_INTERVAL_MS");
+  if (headSampleIntervalMs !== undefined) headSampling.sampleIntervalMs = headSampleIntervalMs;
+  const headMaxRpcs = parseIntEnv("RPC_HEAD_SAMPLING_MAX_RPCS");
+  if (headMaxRpcs !== undefined) headSampling.maxRpcsPerSample = headMaxRpcs;
+  const headTimeoutMs = parseIntEnv("RPC_HEAD_SAMPLING_TIMEOUT_MS");
+  if (headTimeoutMs !== undefined) headSampling.timeoutMs = headTimeoutMs;
 
-const consensus: NonNullable<Permit2RpcManagerOptions["consensus"]> = {};
-const consensusEnabled = parseBoolEnv("RPC_CONSENSUS_ENABLED");
-if (consensusEnabled !== undefined) consensus.enabled = consensusEnabled;
-const consensusMethods = parseCsvEnv("RPC_CONSENSUS_METHODS");
-if (consensusMethods !== undefined) consensus.methods = consensusMethods;
-const consensusParticipants = parseIntEnv("RPC_CONSENSUS_PARTICIPANTS");
-if (consensusParticipants !== undefined) consensus.participants = consensusParticipants;
-const consensusThreshold = parseIntEnv("RPC_CONSENSUS_THRESHOLD");
-if (consensusThreshold !== undefined) consensus.agreementThreshold = consensusThreshold;
-const consensusPreferNonEmpty = parseBoolEnv("RPC_CONSENSUS_PREFER_NON_EMPTY");
-if (consensusPreferNonEmpty !== undefined) consensus.preferNonEmpty = consensusPreferNonEmpty;
+  const consensus: NonNullable<Permit2RpcManagerOptions["consensus"]> = {};
+  const consensusEnabled = parseBoolEnv("RPC_CONSENSUS_ENABLED");
+  if (consensusEnabled !== undefined) consensus.enabled = consensusEnabled;
+  const consensusMethods = parseCsvEnv("RPC_CONSENSUS_METHODS");
+  if (consensusMethods !== undefined) consensus.methods = consensusMethods;
+  const consensusParticipants = parseIntEnv("RPC_CONSENSUS_PARTICIPANTS");
+  if (consensusParticipants !== undefined) consensus.participants = consensusParticipants;
+  const consensusThreshold = parseIntEnv("RPC_CONSENSUS_THRESHOLD");
+  if (consensusThreshold !== undefined) consensus.agreementThreshold = consensusThreshold;
+  const consensusPreferNonEmpty = parseBoolEnv("RPC_CONSENSUS_PREFER_NON_EMPTY");
+  if (consensusPreferNonEmpty !== undefined) consensus.preferNonEmpty = consensusPreferNonEmpty;
+
+  return {
+    initialRpcData,
+    disableCache,
+    validateChainId: parseBoolEnv("RPC_VALIDATE_CHAIN_ID"),
+    capabilityTtlMs: parseIntEnv("RPC_CAPABILITY_TTL_MS"),
+    scoringV2: Object.keys(scoringV2).length > 0 ? scoringV2 : undefined,
+    hedge: Object.keys(hedge).length > 0 ? hedge : undefined,
+    headSampling: Object.keys(headSampling).length > 0 ? headSampling : undefined,
+    consensus: Object.keys(consensus).length > 0 ? consensus : undefined,
+    // TODO: Configure other CacheManager options like TTL if needed
+  };
+}
 
 // Instantiate Permit2RpcManager, passing initial data and cache option.
-const manager = new Permit2RpcManager({
-  initialRpcData: rpcWhitelist,
-  disableCache: shouldDisableCache,
-  validateChainId: parseBoolEnv("RPC_VALIDATE_CHAIN_ID"),
-  capabilityTtlMs: parseIntEnv("RPC_CAPABILITY_TTL_MS"),
-  scoringV2: Object.keys(scoringV2).length > 0 ? scoringV2 : undefined,
-  hedge: Object.keys(hedge).length > 0 ? hedge : undefined,
-  headSampling: Object.keys(headSampling).length > 0 ? headSampling : undefined,
-  consensus: Object.keys(consensus).length > 0 ? consensus : undefined,
-  // TODO: Configure other CacheManager options like TTL if needed
-});
+const manager = new Permit2RpcManager(buildPermit2RpcManagerOptionsFromEnv(rpcWhitelist, shouldDisableCache));
 
 type WsLogLevel = "debug" | "info" | "warn" | "error";
 const wsLogger = (level: WsLogLevel, message: string, ...optionalParams: unknown[]) => {

@@ -40,6 +40,7 @@ function isNonEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") {
     const trimmed = value.trim();
+    // Special case: In blockchain contexts, `0x` is often used to represent empty bytecode/bytes.
     if (trimmed.toLowerCase() === "0x") return false;
     return trimmed.length > 0;
   }

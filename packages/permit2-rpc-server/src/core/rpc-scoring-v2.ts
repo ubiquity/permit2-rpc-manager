@@ -68,6 +68,8 @@ const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   logNormalizeHeadLag: true,
 };
 
+const DEFAULT_BASELINE_LATENCY_MS = 1000;
+
 function clamp01(value: number): number {
   if (Number.isNaN(value)) return 0;
   return Math.max(0, Math.min(1, value));
@@ -206,7 +208,7 @@ export class RpcScorerV2 {
       if (typeof stats?.misbehaviorRate === "number") rawMisbehaviorByRpc.set(rpcUrl, clamp01(stats.misbehaviorRate));
     }
 
-    const baselineLatency = medianPositive([...rawLatencyQByRpc.values()]) ?? 1000;
+    const baselineLatency = medianPositive([...rawLatencyQByRpc.values()]) ?? DEFAULT_BASELINE_LATENCY_MS;
     const baselineError = median([...rawErrorByRpc.values()]) ?? 0;
     const baselineThrottle = median([...rawThrottleByRpc.values()]) ?? 0;
     const baselineHeadLag = median([...rawHeadLagByRpc.values()]) ?? 0;
