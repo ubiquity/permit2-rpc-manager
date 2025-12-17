@@ -30,16 +30,102 @@
         var maxStreamRowsRaw = Number.parseInt(qs.get("maxRows") || "240", 10);
         var maxStreamRows = Number.isFinite(maxStreamRowsRaw) && maxStreamRowsRaw > 0 ? maxStreamRowsRaw : 240;
 
-        var minOpacityRaw = Number.parseFloat(qs.get("minOpacity") || "0.12");
-        var minOpacity = Number.isFinite(minOpacityRaw) ? Math.min(1, Math.max(0, minOpacityRaw)) : 0.12;
+        var minOpacityRaw = Number.parseFloat(qs.get("minOpacity") || "0");
+        var minOpacity = Number.isFinite(minOpacityRaw) ? Math.min(1, Math.max(0, minOpacityRaw)) : 0;
 
-        var showEmptyRaw = (qs.get("showEmpty") || "").toLowerCase();
-        var showEmpty = showEmptyRaw === "1" || showEmptyRaw === "true";
+	        var showEmptyRaw = (qs.get("showEmpty") || "").toLowerCase();
+	        var showEmpty = showEmptyRaw === "1" || showEmptyRaw === "true";
 
-        function pulseLogo() {
-          if (!logo) return;
-          logo.classList.remove("pulse");
-          void logo.offsetWidth;
+	        var streamTextRaw = (qs.get("streamText") || qs.get("stream-text") || "1").toLowerCase();
+	        var streamText = streamTextRaw === "1" || streamTextRaw === "true";
+
+	        var activeStream = null;
+
+	        function streamTextInto(el, fullText) {
+	          if (!el) return;
+
+	          var text = typeof fullText === "string" ? fullText : String(fullText);
+	          if (!streamText || !text) {
+	            if (activeStream) {
+	              try {
+	                activeStream.cancel();
+	              } catch {}
+	              activeStream = null;
+	            }
+	            el.textContent = text;
+	            return;
+	          }
+
+	          if (activeStream) {
+	            try {
+	              activeStream.finish();
+	            } catch {}
+	            activeStream = null;
+	          }
+
+		          var cancelled = false;
+		          var cursor = 0;
+		          var length = text.length;
+		          var targetFrames = 120;
+		          var chunkSize = Math.max(1, Math.ceil(length / targetFrames));
+		          var maxChunkSize = Math.min(60, Math.max(8, Math.ceil(length / 200)));
+		          if (chunkSize > maxChunkSize) chunkSize = maxChunkSize;
+		          var cursorGlyph = "\u2588";
+
+		          cursor = Math.min(length, chunkSize);
+		          if (cursor >= length) {
+		            el.textContent = text;
+		            return;
+		          }
+		          el.textContent = text.slice(0, cursor) + cursorGlyph;
+
+	          var lastPaintMs = 0;
+	          var minFrameMs = 24;
+
+	          var handle = {
+	            finish: function () {
+	              if (cancelled) return;
+	              cancelled = true;
+	              el.textContent = text;
+	            },
+	            cancel: function () {
+	              cancelled = true;
+	            },
+	          };
+
+	          activeStream = handle;
+
+	          requestAnimationFrame(function tick(now) {
+	            if (cancelled) return;
+	            if (now - lastPaintMs < minFrameMs) {
+	              requestAnimationFrame(tick);
+	              return;
+	            }
+	            lastPaintMs = now;
+
+	            if (cursor >= length) {
+	              cancelled = true;
+	              if (activeStream === handle) activeStream = null;
+	              return;
+	            }
+
+		            cursor = Math.min(length, cursor + chunkSize);
+		            if (cursor >= length) {
+		              el.textContent = text;
+		              cancelled = true;
+		              if (activeStream === handle) activeStream = null;
+		              return;
+		            }
+		            el.textContent = text.slice(0, cursor) + cursorGlyph;
+
+		            requestAnimationFrame(tick);
+		          });
+		        }
+
+	        function pulseLogo() {
+	          if (!logo) return;
+	          logo.classList.remove("pulse");
+	          void logo.offsetWidth;
           logo.classList.add("pulse");
         }
 
@@ -503,8 +589,6 @@
 				          var count = rows.length;
 				          if (count <= 0) return;
 
-				          var opacities = [];
-
 				          var maxNonLatestOpacity = 2 / 3;
 
 				          if (minOpacity >= maxNonLatestOpacity) {
@@ -512,24 +596,19 @@
 				              var t = count === 1 ? 1 : i / (count - 1);
 				              var opacity = minOpacity + (1 - minOpacity) * t;
 				              rows[i].style.opacity = String(opacity);
-				              opacities.push(opacity);
 				            }
-				            console.log(opacities);
 				            return;
 				          }
 
 				          for (var i = 0; i < count; i++) {
 				            if (i === count - 1) {
 				              rows[i].style.opacity = "1";
-				              opacities.push(1);
 				              continue;
 				            }
 				            var t = count === 1 ? 1 : i / (count - 1);
 				            var opacity = minOpacity + (maxNonLatestOpacity - minOpacity) * t;
 				            rows[i].style.opacity = String(opacity);
-				            opacities.push(opacity);
 				          }
-				          console.log(opacities);
 				        }
 
 		        function trimStream() {
@@ -542,12 +621,12 @@
 		          }
 		        }
 
-	        function appendStreamRow(text) {
-	          if (!elStream) return;
+		        function appendStreamRow(text) {
+		          if (!elStream) return;
 
-	          if (elStreamPlaceholder) {
-	            try {
-	              elStreamPlaceholder.remove();
+		          if (elStreamPlaceholder) {
+		            try {
+		              elStreamPlaceholder.remove();
 	            } catch {}
 	            elStreamPlaceholder = null;
 	          }
@@ -556,21 +635,24 @@
 	          var firstTops = new Map();
 	          for (var i = 0; i < existing.length; i++) {
 	            firstTops.set(existing[i], existing[i].getBoundingClientRect().top);
-	          }
+		          }
 
-	          var row = document.createElement("span");
-	          row.className = "stream-row mono";
-	          row.textContent = text;
-	          row.style.opacity = "0";
-	          row.style.transform = "translateY(12px)";
-	          row.style.transition = "none";
-	          elStream.appendChild(row);
+		          var row = document.createElement("span");
+		          row.className = "stream-row mono";
+		          row.textContent = "";
+		          row.style.opacity = "0";
+		          row.style.transform = "translateY(12px)";
+		          row.style.transition = "none";
+		          row.dataset.createdAt = Date.now();
+		          elStream.appendChild(row);
 
-	          trimStream();
+		          trimStream();
+		          row.style.opacity = "1";
+		          streamTextInto(row, text);
 
-	          var remaining = Array.from(elStream.children);
-	          for (var i = 0; i < remaining.length; i++) {
-	            var el = remaining[i];
+		          var remaining = Array.from(elStream.children);
+		          for (var i = 0; i < remaining.length; i++) {
+		            var el = remaining[i];
 	            if (el === row) continue;
 	            var first = firstTops.get(el);
 	            if (first === undefined) continue;
@@ -591,11 +673,25 @@
 	              el.style.transform = "";
 	            }
 
-	            row.style.transition = "";
-	            row.style.transform = "";
-	            updateStreamOpacities();
-	          });
-	        }
+		            row.style.transition = "";
+		            row.style.transform = "";
+		            updateStreamOpacities();
+		          });
+
+		          // Schedule fade out and removal after 15 seconds
+		          setTimeout(function() {
+		            if (row.parentNode) {
+		              row.style.transition = "opacity 2s ease-out";
+		              row.style.opacity = "0";
+		              setTimeout(function() {
+		                if (row.parentNode) {
+		                  row.remove();
+		                  updateStreamOpacities();
+		                }
+		              }, 2000); // Wait for fade animation to complete
+		            }
+		          }, 15000);
+		        }
 
         function setJson(eventObj) {
           var samples = eventObj && eventObj.data ? eventObj.data.samples : undefined;
@@ -681,6 +777,8 @@
               await sleep(intervalMs);
               var perSecond = windowPending / (intervalMs / 1000);
               var poolStats = pool.stats();
+              var hasSamples = samples.length > 0;
+
               var eventObj = {
                 type: "pending_sample",
                 ts: new Date().toISOString(),
@@ -695,7 +793,16 @@
                   lookups: poolStats,
                 },
               };
-              setJson(eventObj);
+
+              if (hasSamples) {
+                setJson(eventObj);
+              } else {
+                // Generate heartbeat dots when no samples were collected this interval
+                var dotsLength = Math.floor(Math.random() * 100) + 400; // Random length between 400-500 chars
+                var dots = '·'.repeat(dotsLength);
+                appendStreamRow(dots);
+              }
+
               pulseLogo();
               windowPending = 0;
               windowSampled = 0;
@@ -748,6 +855,8 @@
 
             var perSecondHttp = windowCount / (intervalMs / 1000);
             var poolStatsHttp = poolHttp.stats();
+            var hasSamplesHttp = samplesHttp.length > 0;
+
             var eventObjHttp = {
               type: "pending_sample",
               ts: new Date().toISOString(),
@@ -763,7 +872,16 @@
                 pollMode: polled.mode,
               },
             };
-            setJson(eventObjHttp);
+
+            if (hasSamplesHttp) {
+              setJson(eventObjHttp);
+            } else {
+              // Generate heartbeat dots when no samples were collected this interval
+              var dotsLengthHttp = Math.floor(Math.random() * 100) + 400; // Random length between 400-500 chars
+              var dotsHttp = '.'.repeat(dotsLengthHttp);
+              appendStreamRow(dotsHttp);
+            }
+
             pulseLogo();
             sampleNullsHttp = 0;
             sampleErrorsHttp = 0;

@@ -57,23 +57,26 @@ body {
 }
 
 .center {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-  /* z-index: 1; */
+    filter: drop-shadow(0px 0px 6.125vw black);
+    position: fixed;
+    /* left: 50%; */
+    /* top: 50%; */
+    /* transform: translate(-50%, -50%); */
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    /* z-index: 1; */
+    top: 16px;
+    left: 16px;
 }
 
 .logo {
   display: block;
-  width: min(52vmin, 420px);
-  height: auto;
+  width: auto;
+  height: 36px;
   /* opacity: 1; */
   filter: drop-shadow(0 22px 55px rgba(15, 23, 42, 0.18));
-  animation: float 7s ease-in-out infinite;
+  /* animation: float 7s ease-in-out infinite; */
   /* backdrop-filter: blur(12px); */
 }
 
@@ -90,7 +93,7 @@ body {
 }
 
 .logo.pulse {
-  animation: float 7s ease-in-out infinite, pulse 900ms ease-out 1;
+  /* animation: float 7s ease-in-out infinite, pulse 900ms ease-out 1; */
 }
 
 @keyframes pulse {
@@ -115,6 +118,8 @@ body {
     "Liberation Mono",
     "Courier New",
     monospace;
+  text-rendering: geometricPrecision;
+  font-weight: 100;
 }
 
 .stream {
@@ -134,8 +139,8 @@ body {
 
 .stream-placeholder,
 .stream-row {
-  /* flex: 0 0 auto; */
-  /* width: 100%; */
+  flex: 0 0 auto;
+  width: 100%;
   /* max-width: 100vw; */
   /* white-space: pre; */
   /* overflow: hidden; */
@@ -151,14 +156,43 @@ body {
 
 .stream-placeholder {
   opacity: 0.65;
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  text-align: center;
+  /* transform: translate(-50%, -50%); */
 }
 
 .stream-row {
   transition: transform 240ms ease, opacity 240ms ease;
   will-change: transform, opacity;
+  /* display: inline-block; */
+  /* width: 12.5vw; */
+  vertical-align: middle;
+  /* height: 12.5vw; */
+  /* overflow: hidden; */
+  /* backdrop-filter: blur(4px); */
+  /* background-color: #000; */
+  /* display: flex; */
+}
+
+.stream-row.fade-out {
+  opacity: 0 !important;
+  transition: opacity 2s ease-out !important;
 }
 
 #stream{
   user-select:none;
   height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  display: table-cell;
+  vertical-align: middle;
 }
+
+
+#logo path{fill:#fff}
+.center::after{content: "EVM RPC | Mainnet";color: #fff;position: absolute;white-space: pre;left: 100%;padding: 12px;font-family: monospace;}
