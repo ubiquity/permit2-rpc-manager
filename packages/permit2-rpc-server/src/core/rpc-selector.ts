@@ -49,13 +49,23 @@ export class RpcSelector {
    * @returns A promise that resolves to a sorted array of usable RPC URLs.
    */
   async getRankedRpcList(chainId: number): Promise<string[]> {
+    const rpcUrls = this.dataSource.getRpcUrls(chainId);
+    if (rpcUrls.length === 0) {
+      this.log("warn", `No RPC URLs found for chain ${chainId} in data source.`);
+      return [];
+    }
+
+    const allowedUrls = new Set(rpcUrls);
+
     let latencyMap = await this.cacheManager.getLatencyMap(chainId);
     // Use const as this variable is not reassigned before the next block
     const fastestCachedRpc = await this.cacheManager.getFastestRpc(chainId);
+    const fastestIsAllowed = fastestCachedRpc ? allowedUrls.has(fastestCachedRpc) : false;
 
     // If cache is invalid (no map or fastest RPC doesn't match map status), re-test
     if (
       !latencyMap || !fastestCachedRpc || !latencyMap[fastestCachedRpc] ||
+      !fastestIsAllowed ||
       !ACCEPTABLE_STATUSES.includes(latencyMap[fastestCachedRpc].status)
     ) {
       if (fastestCachedRpc && latencyMap) {
@@ -73,12 +83,6 @@ export class RpcSelector {
         this.log("debug", `Latency test already in progress for chain ${chainId}, awaiting result...`);
         latencyMap = await testPromise; // Wait for the ongoing test
       } else {
-        const rpcUrls = this.dataSource.getRpcUrls(chainId);
-        if (rpcUrls.length === 0) {
-          this.log("warn", `No RPC URLs found for chain ${chainId} in data source.`);
-          return []; // No URLs to test
-        }
-
         // Create the promise, store it, run the test, then remove it
         testPromise = this.latencyTester.testRpcUrls(chainId, rpcUrls);
         this.ongoingLatencyTests.set(chainId, testPromise);
@@ -116,7 +120,7 @@ export class RpcSelector {
     }
 
     // Filter and sort the results from the (potentially updated) latency map
-    const rankedList = this._rankResults(latencyMap);
+    const rankedList = this._rankResults(latencyMap, allowedUrls);
     this.log("debug", `Ranked RPC list for chain ${chainId}:`, rankedList);
     return rankedList;
   }
@@ -151,12 +155,16 @@ export class RpcSelector {
    * Helper to filter and rank RPC results based on status and latency.
    * Also considers invalidation metadata from adaptive pool management.
    */
-  private _rankResults(latencyMap: Record<string, LatencyTestResult> | null): string[] {
+  private _rankResults(latencyMap: Record<string, LatencyTestResult> | null, allowedUrls: Set<string>): string[] {
     if (!latencyMap) return [];
 
     // Filter results: exclude eliminated RPCs, include acceptable statuses
     const validResults = Object.values(latencyMap).filter((result) => {
       if (!result || !ACCEPTABLE_STATUSES.includes(result.status)) {
+        return false;
+      }
+
+      if (!allowedUrls.has(result.url)) {
         return false;
       }
 
