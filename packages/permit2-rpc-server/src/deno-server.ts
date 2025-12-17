@@ -264,13 +264,24 @@ async function connectFirstWebSocket(urls: string[], timeoutMs: number): Promise
 
 const STATIC_ASSET_ROOT = new URL("../static/", import.meta.url);
 const staticTextAssetCache = new Map<string, string>();
+const CACHE_STATIC_ASSETS = (() => {
+  try {
+    return Deno.env.get("DENO_DEPLOY") === "1";
+  } catch {
+    return false;
+  }
+})();
 
 async function readStaticTextAsset(fileName: string): Promise<string> {
-  const cached = staticTextAssetCache.get(fileName);
-  if (cached !== undefined) return cached;
+  if (CACHE_STATIC_ASSETS) {
+    const cached = staticTextAssetCache.get(fileName);
+    if (cached !== undefined) return cached;
+  }
 
   const text = await Deno.readTextFile(new URL(fileName, STATIC_ASSET_ROOT));
-  staticTextAssetCache.set(fileName, text);
+  if (CACHE_STATIC_ASSETS) {
+    staticTextAssetCache.set(fileName, text);
+  }
   return text;
 }
 
@@ -497,6 +508,46 @@ const handler = async (request: Request): Promise<Response> => {
       });
     } catch (error) {
       console.error("Failed to read static asset logo.svg:", error);
+      return new Response("Not Found", {
+        status: isNotFoundError(error) ? 404 : 500,
+        headers: corsHeaders,
+      });
+    }
+  }
+
+  // Serve app.css at GET /app.css
+  if ((request.method === "GET" || request.method === "HEAD") && new URL(request.url).pathname === "/app.css") {
+    try {
+      const css = await readStaticTextAsset("app.css");
+      return new Response(css, {
+        status: 200,
+        headers: {
+          "content-type": "text/css; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to read static asset app.css:", error);
+      return new Response("Not Found", {
+        status: isNotFoundError(error) ? 404 : 500,
+        headers: corsHeaders,
+      });
+    }
+  }
+
+  // Serve app.js at GET /app.js
+  if ((request.method === "GET" || request.method === "HEAD") && new URL(request.url).pathname === "/app.js") {
+    try {
+      const js = await readStaticTextAsset("app.js");
+      return new Response(js, {
+        status: 200,
+        headers: {
+          "content-type": "text/javascript; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to read static asset app.js:", error);
       return new Response("Not Found", {
         status: isNotFoundError(error) ? 404 : 500,
         headers: corsHeaders,
