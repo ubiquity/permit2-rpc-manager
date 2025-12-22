@@ -7,24 +7,28 @@ type RpcEndpointResult = {
 };
 
 // Utility function to handle timeouts
-async function withTimeout<T>(promise: Promise<T>, ms: number, operation: string): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort(`Operation '${operation}' timed out after ${ms}ms`);
-  }, ms);
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  operation: string,
+  onTimeout?: () => void,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      try {
+        onTimeout?.();
+      } catch {
+        // ignore cleanup failures
+      }
+      reject(new Error(`Operation '${operation}' timed out after ${ms}ms`));
+    }, ms);
+  });
 
   try {
-    const result = await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        controller.signal.addEventListener("abort", () => {
-          reject(new Error(controller.signal.reason));
-        });
-      }),
-    ]);
-    return result;
+    return await Promise.race([promise, timeoutPromise]);
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
 }
 
@@ -41,14 +45,17 @@ async function testRpcEndpoint(url: string): Promise<boolean> {
       console.log(`  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - Starting test`);
 
       // Stage 1: Fetch
+      const controller = new AbortController();
       const response = await withTimeout(
         fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(RPC_REQUESTS.getCode),
+          signal: controller.signal,
         }),
         stages.fetch,
-        "fetch"
+        "fetch",
+        () => controller.abort(),
       );
 
       if (!response.ok) {
@@ -133,10 +140,20 @@ function normalizeWsMessageData(data: unknown): string | null {
   return null;
 }
 
-function openWs(url: string): Promise<WebSocket> {
+function openWs(url: string, timeoutMs: number): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
+    const timer = setTimeout(() => {
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+      reject(new Error("WebSocket connection timed out"));
+    }, timeoutMs);
+
     const cleanup = () => {
+      clearTimeout(timer);
       ws.onopen = null;
       ws.onerror = null;
       ws.onclose = null;
@@ -150,7 +167,7 @@ function openWs(url: string): Promise<WebSocket> {
     ws.onerror = () => {
       cleanup();
       try {
-        ws.close();
+      ws.close();
       } catch {
         // ignore
       }
@@ -261,7 +278,7 @@ async function testWsRpcEndpoint(url: string, options: WsEndpointTestOptions = {
     try {
       console.log(`  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - Starting WS test`);
 
-      ws = await withTimeout(openWs(url), stages.connect, "ws connect");
+      ws = await openWs(url, stages.connect);
       const data = await withTimeout(wsJsonRpc(ws, RPC_REQUESTS.getCode), stages.request, "ws json-rpc");
 
       if (data?.error) {
