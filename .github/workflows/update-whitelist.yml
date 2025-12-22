@@ -81,11 +81,44 @@ jobs:
           bash ../../scripts/generate-chainlist-file.sh
           bun generate-json.js
 
-      - name: Update and test chain ${{ matrix.chain }}
+      - name: Update whitelist for chain ${{ matrix.chain }}
         run: |
-          # Update whitelist for this chain
           UPDATE_CHAIN=${{ matrix.chain }} bun run scripts/update-whitelist.mjs
-          # Test the updated whitelist for this chain
+
+      - name: Validate whitelist for chain ${{ matrix.chain }}
+        env:
+          UPDATE_CHAIN: ${{ matrix.chain }}
+        run: |
+          node - <<'NODE'
+          const fs = require("fs");
+          const chain = process.env.UPDATE_CHAIN?.trim();
+          if (!chain) {
+            console.error("UPDATE_CHAIN is missing for validation.");
+            process.exit(1);
+          }
+          const data = JSON.parse(
+            fs.readFileSync("packages/permit2-rpc-server/rpc-whitelist.json", "utf8")
+          );
+          const rpcs = data?.rpcs?.[chain] ?? [];
+          const wss = data?.wss?.[chain] ?? [];
+          const rpcsOk = Array.isArray(rpcs) && rpcs.length > 0;
+          const wssOk = Array.isArray(wss) && wss.length > 0;
+          if (!rpcsOk || !wssOk) {
+            console.error(
+              `Whitelist validation failed for chain ${chain}: ` +
+                `rpcs=${Array.isArray(rpcs) ? rpcs.length : "missing"}, ` +
+                `wss=${Array.isArray(wss) ? wss.length : "missing"}`
+            );
+            process.exit(1);
+          }
+          console.log(
+            `Whitelist validation passed for chain ${chain}: ` +
+              `${rpcs.length} HTTP RPCs, ${wss.length} WS RPCs`
+          );
+          NODE
+
+      - name: Test whitelist for chain ${{ matrix.chain }}
+        run: |
           TEST_CHAIN=${{ matrix.chain }} bun run scripts/test-whitelist.mjs
 
       - name: Upload partial whitelist
@@ -98,7 +131,7 @@ jobs:
   finalize:
     needs: [update-and-test]
     runs-on: ubuntu-latest
-    if: always() && !contains(needs.*.result, 'failure')
+    if: always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     permissions:
       contents: write # For git push
       actions: write # For repository dispatch
