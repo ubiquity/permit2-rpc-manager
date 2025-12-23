@@ -16,8 +16,8 @@ const mockRpcData = {
       "https://gnosis.drpc.org",
       "https://bad-rpc-2.example.com", // Will fail
       "https://gnosis-rpc.publicnode.com",
-    ]
-  }
+    ],
+  },
 };
 
 async function testAdaptivePoolManagement() {

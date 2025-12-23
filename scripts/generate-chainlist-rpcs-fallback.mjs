@@ -51,9 +51,7 @@ async function main() {
     .sort((a, b) => a.chainId - b.chainId);
 
   await fs.writeFile(outPath, JSON.stringify(chains, null, 2));
-  console.log(
-    `Generated fallback chainlist RPC data (${chains.length} chains) at ${path.relative(repoRoot, outPath)}.`,
-  );
+  console.log(`Generated fallback chainlist RPC data (${chains.length} chains) at ${path.relative(repoRoot, outPath)}.`);
   console.log("Source: lib/chainlist/constants/extraRpcs.js (no network).");
 }
 
@@ -61,4 +59,3 @@ main().catch((error) => {
   console.error("Fallback chainlist generation failed:", error);
   process.exit(1);
 });
-

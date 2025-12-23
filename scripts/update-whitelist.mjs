@@ -55,9 +55,7 @@ async function updateWhitelist() {
 
       const validHttpUrls = await testRpcs(httpUrls);
       const requirePendingTxEvent = chain.chainId === 1 && (process.env.WS_REQUIRE_PENDING_TX_EVENT ?? "1") !== "0";
-      const validWsUrls = wsUrlsToTest.length > 0
-        ? await testWsRpcs(wsUrlsToTest, { requirePendingTxEvent })
-        : [];
+      const validWsUrls = wsUrlsToTest.length > 0 ? await testWsRpcs(wsUrlsToTest, { requirePendingTxEvent }) : [];
 
       if (validHttpUrls.length > 0) {
         console.log(`Found ${validHttpUrls.length} valid HTTP RPCs for chain ${chain.chainId}`);
@@ -78,9 +76,7 @@ async function updateWhitelist() {
 
     await fs.writeFile(ourWhitelistPath, JSON.stringify(newWhitelist, null, 2));
     console.log(
-      process.env.UPDATE_CHAIN
-        ? `Whitelist updated for chain ${process.env.UPDATE_CHAIN}.`
-        : "Whitelist updated successfully with critical chains only."
+      process.env.UPDATE_CHAIN ? `Whitelist updated for chain ${process.env.UPDATE_CHAIN}.` : "Whitelist updated successfully with critical chains only."
     );
   } catch (error) {
     console.error("Error updating whitelist:", error);

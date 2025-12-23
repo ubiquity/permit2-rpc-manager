@@ -7,12 +7,7 @@ type RpcEndpointResult = {
 };
 
 // Utility function to handle timeouts
-async function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  operation: string,
-  onTimeout?: () => void,
-): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms: number, operation: string, onTimeout?: () => void): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -55,7 +50,7 @@ async function testRpcEndpoint(url: string): Promise<boolean> {
         }),
         stages.fetch,
         "fetch",
-        () => controller.abort(),
+        () => controller.abort()
       );
 
       if (!response.ok) {
@@ -167,7 +162,7 @@ function openWs(url: string, timeoutMs: number): Promise<WebSocket> {
     ws.onerror = () => {
       cleanup();
       try {
-      ws.close();
+        ws.close();
       } catch {
         // ignore
       }
@@ -282,11 +277,7 @@ async function testWsRpcEndpoint(url: string, options: WsEndpointTestOptions = {
       const data = await withTimeout(wsJsonRpc(ws, RPC_REQUESTS.getCode), stages.request, "ws json-rpc");
 
       if (data?.error) {
-        console.log(
-          `  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - WS RPC returned error: ${
-            data.error.message || JSON.stringify(data.error)
-          }`,
-        );
+        console.log(`  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - WS RPC returned error: ${data.error.message || JSON.stringify(data.error)}`);
         continue;
       }
 
@@ -308,7 +299,7 @@ async function testWsRpcEndpoint(url: string, options: WsEndpointTestOptions = {
           return true;
         })(),
         stages.validate,
-        "bytecode validation",
+        "bytecode validation"
       );
 
       if (options.requirePendingTxEvent) {
@@ -321,22 +312,14 @@ async function testWsRpcEndpoint(url: string, options: WsEndpointTestOptions = {
         const subscribeResponse = await withTimeout(wsJsonRpc(ws, subscribeBody), stages.request, "ws subscribe");
         const subscriptionId = subscribeResponse?.result;
         if (typeof subscriptionId !== "string") {
-          console.log(
-            `  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - newPendingTransactions subscribe failed`,
-          );
+          console.log(`  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - newPendingTransactions subscribe failed`);
           continue;
         }
 
         try {
-          await withTimeout(
-            waitForSubscriptionNotification(ws, subscriptionId),
-            stages.pendingEvent,
-            "ws pending tx event",
-          );
+          await withTimeout(waitForSubscriptionNotification(ws, subscriptionId), stages.pendingEvent, "ws pending tx event");
         } catch (error) {
-          console.log(
-            `  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - No pending tx events received (${(error as Error).message})`,
-          );
+          console.log(`  Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${url} - No pending tx events received (${(error as Error).message})`);
           continue;
         } finally {
           try {
@@ -389,7 +372,7 @@ export async function testWsRpcs(urls: string[], options: WsEndpointTestOptions 
           console.log(`✗ Invalid (WS): ${url}`);
         }
         return { url, valid };
-      }),
+      })
     );
     results.push(...batchResults);
   }

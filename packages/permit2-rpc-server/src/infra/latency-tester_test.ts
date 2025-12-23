@@ -29,7 +29,7 @@ Deno.test("LatencyTester: eth_chainId mismatch returns wrong_chain_id", async ()
         new Response(JSON.stringify(makeJsonRpcResponse(body.id, result)), {
           status: 200,
           headers: { "Content-Type": "application/json" },
-        }),
+        })
       );
     }) as typeof fetch;
 

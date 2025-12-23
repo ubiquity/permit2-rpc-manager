@@ -76,14 +76,14 @@ function parseFloatEnv(name: string): number | undefined {
 function parseCsvEnv(name: string): string[] | undefined {
   const raw = Deno.env.get(name);
   if (raw === undefined) return undefined;
-  const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  const parts = raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
   return parts.length > 0 ? parts : undefined;
 }
 
-function buildPermit2RpcManagerOptionsFromEnv(
-  initialRpcData: Permit2RpcManagerOptions["initialRpcData"],
-  disableCache: boolean,
-): Permit2RpcManagerOptions {
+function buildPermit2RpcManagerOptionsFromEnv(initialRpcData: Permit2RpcManagerOptions["initialRpcData"], disableCache: boolean): Permit2RpcManagerOptions {
   const scoringV2: NonNullable<Permit2RpcManagerOptions["scoringV2"]> = {};
   const scoringV2Enabled = parseBoolEnv("RPC_SCORING_V2_ENABLED");
   if (scoringV2Enabled !== undefined) scoringV2.enabled = scoringV2Enabled;
@@ -172,9 +172,7 @@ const wsCacheManager = new CacheManager({
   disableCache: shouldDisableCache,
 });
 const wsLatencyTesterTimeoutMsRaw = Number.parseInt(Deno.env.get("WS_LATENCY_TIMEOUT_MS") ?? "5000", 10);
-const wsLatencyTesterTimeoutMs = Number.isFinite(wsLatencyTesterTimeoutMsRaw) && wsLatencyTesterTimeoutMsRaw > 0
-  ? wsLatencyTesterTimeoutMsRaw
-  : 5000;
+const wsLatencyTesterTimeoutMs = Number.isFinite(wsLatencyTesterTimeoutMsRaw) && wsLatencyTesterTimeoutMsRaw > 0 ? wsLatencyTesterTimeoutMsRaw : 5000;
 const wsLatencyTester = new WsLatencyTester(wsLatencyTesterTimeoutMs, wsLogger);
 const wsSelector = new RpcSelector(wsDataSource, wsCacheManager, wsLatencyTester, wsLogger);
 
@@ -345,7 +343,10 @@ const handler = async (request: Request): Promise<Response> => {
       if (typeof data === "string") send(data);
       else if (data instanceof ArrayBuffer) send(data);
       else if (data instanceof Blob) {
-        data.arrayBuffer().then((buf) => send(buf)).catch(() => undefined);
+        data
+          .arrayBuffer()
+          .then((buf) => send(buf))
+          .catch(() => undefined);
       }
     };
 
@@ -364,9 +365,7 @@ const handler = async (request: Request): Promise<Response> => {
             queuedToUpstream.push(payload);
           } else if (!clientClosed) {
             clientClosed = true;
-            console.warn(
-              `WebSocket upstream queue overflow (limit: ${MAX_QUEUE}) for chainId ${chainId}. Closing client connection.`,
-            );
+            console.warn(`WebSocket upstream queue overflow (limit: ${MAX_QUEUE}) for chainId ${chainId}. Closing client connection.`);
             try {
               socket.close(4000, "Upstream queue overflow");
             } catch {
@@ -384,7 +383,10 @@ const handler = async (request: Request): Promise<Response> => {
       if (typeof data === "string") sendOrQueue(data);
       else if (data instanceof ArrayBuffer) sendOrQueue(data);
       else if (data instanceof Blob) {
-        data.arrayBuffer().then((buf) => sendOrQueue(buf)).catch(() => undefined);
+        data
+          .arrayBuffer()
+          .then((buf) => sendOrQueue(buf))
+          .catch(() => undefined);
       }
     };
 
@@ -587,7 +589,7 @@ const handler = async (request: Request): Promise<Response> => {
             "content-type": "application/json; charset=utf-8",
             ...corsHeaders,
           },
-        },
+        }
       );
     }
   }
@@ -688,11 +690,7 @@ const handler = async (request: Request): Promise<Response> => {
 
     // Validate all requests in the batch first
     if (!requestBody.every(isValidJsonRpcRequest)) {
-      const errorResponse = createJsonRpcError(
-        null,
-        -32600,
-        "Invalid Request: Batch contains invalid JSON-RPC object(s).",
-      );
+      const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Batch contains invalid JSON-RPC object(s).");
       return new Response(JSON.stringify(errorResponse), {
         status: 200, // JSON-RPC compliance: invalid requests return HTTP 200
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -717,7 +715,7 @@ const handler = async (request: Request): Promise<Response> => {
         }
         return acc;
       },
-      {} as Record<string, Multicall3Request[][]>,
+      {} as Record<string, Multicall3Request[][]>
     );
 
     const multicallPromises: Promise<JsonRpcResponse[]>[] = [];
@@ -738,15 +736,10 @@ const handler = async (request: Request): Promise<Response> => {
           return { jsonrpc: "2.0", id: req.id, result } as JsonRpcResponse;
         } catch (e) {
           const error = e instanceof Error ? e : new Error(String(e));
-          console.error(
-            `Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`,
-            error,
-          );
+          console.error(`Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`, error);
 
           // Extract error details consistently
-          const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
-            ? error.code
-            : -32603;
+          const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number" ? error.code : -32603;
           const data = "data" in error ? error.data : undefined;
 
           return {
@@ -759,7 +752,7 @@ const handler = async (request: Request): Promise<Response> => {
             },
           } as JsonRpcResponse;
         }
-      }),
+      })
     );
 
     return new Response(JSON.stringify([...multicallResponses, ...otherResponses]), {
@@ -784,10 +777,7 @@ const handler = async (request: Request): Promise<Response> => {
       });
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
-      console.error(
-        `Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`,
-        error,
-      );
+      console.error(`Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`, error);
 
       // Pass through HTTP status if available, otherwise default to 200 for JSON-RPC compliance
       // Contract reverts and JSON-RPC errors should return HTTP 200 per JSON-RPC spec

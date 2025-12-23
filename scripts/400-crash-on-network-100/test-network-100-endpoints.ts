@@ -22,11 +22,11 @@ const TEST_PAYLOAD = {
   params: [
     {
       to: "0x000000000022d473030f116ddee9f6b43ac78ba3",
-      data: "0x4fe02b440000000000000000000000009051eda96db419c967189f4ac303a290f332768000d5491aa895b1b0b1bbb4e5aca9e06ee4ad36cf15fc51d8bd20720710b11dfa"
+      data: "0x4fe02b440000000000000000000000009051eda96db419c967189f4ac303a290f332768000d5491aa895b1b0b1bbb4e5aca9e06ee4ad36cf15fc51d8bd20720710b11dfa",
     },
-    "latest"
+    "latest",
   ],
-  id: 1
+  id: 1,
 };
 
 async function testEndpoint(url: string): Promise<TestResult> {
@@ -106,10 +106,10 @@ async function main() {
   }
 
   // Analyze results
-  const successful = results.filter(r => r.status === "success");
-  const http400Errors = results.filter(r => r.httpStatus === 400);
-  const otherHttpErrors = results.filter(r => r.status === "error" && r.httpStatus && r.httpStatus !== 400);
-  const networkErrors = results.filter(r => r.status === "error" && !r.httpStatus);
+  const successful = results.filter((r) => r.status === "success");
+  const http400Errors = results.filter((r) => r.httpStatus === 400);
+  const otherHttpErrors = results.filter((r) => r.status === "error" && r.httpStatus && r.httpStatus !== 400);
+  const networkErrors = results.filter((r) => r.status === "error" && !r.httpStatus);
 
   console.log("\n=====================================");
   console.log("RESULTS SUMMARY");
@@ -124,7 +124,7 @@ async function main() {
   if (http400Errors.length > 0) {
     console.log("\n🔴 ENDPOINTS RETURNING HTTP 400:");
     console.log("=====================================");
-    http400Errors.forEach(result => {
+    http400Errors.forEach((result) => {
       console.log(`\n${result.url}`);
       console.log(`  Response time: ${result.responseTime}ms`);
       console.log(`  Error: ${result.error}`);
@@ -135,7 +135,7 @@ async function main() {
   if (successful.length > 0) {
     console.log("\n✅ SUCCESSFUL ENDPOINTS:");
     console.log("=====================================");
-    successful.forEach(result => {
+    successful.forEach((result) => {
       console.log(`\n${result.url}`);
       console.log(`  Response time: ${result.responseTime}ms`);
       console.log(`  Result: ${JSON.stringify(result.result).substring(0, 100)}...`);
@@ -146,7 +146,7 @@ async function main() {
   if (otherHttpErrors.length > 0) {
     console.log("\n⚠️  OTHER HTTP ERRORS:");
     console.log("=====================================");
-    otherHttpErrors.forEach(result => {
+    otherHttpErrors.forEach((result) => {
       console.log(`\n${result.url}`);
       console.log(`  HTTP Status: ${result.httpStatus}`);
       console.log(`  Response time: ${result.responseTime}ms`);
@@ -157,7 +157,7 @@ async function main() {
   if (networkErrors.length > 0) {
     console.log("\n🌐 NETWORK/TIMEOUT ERRORS:");
     console.log("=====================================");
-    networkErrors.forEach(result => {
+    networkErrors.forEach((result) => {
       console.log(`\n${result.url}`);
       console.log(`  Response time: ${result.responseTime}ms`);
       console.log(`  Error: ${result.error}`);
@@ -166,24 +166,31 @@ async function main() {
 
   // Export results to JSON for further analysis
   const outputFile = "network-100-test-results.json";
-  await Bun.write(outputFile, JSON.stringify({
-    timestamp: new Date().toISOString(),
-    payload: TEST_PAYLOAD,
-    summary: {
-      total: results.length,
-      successful: successful.length,
-      http400: http400Errors.length,
-      otherHttpErrors: otherHttpErrors.length,
-      networkErrors: networkErrors.length
-    },
-    results: results.sort((a, b) => {
-      // Sort by status (success first), then by response time
-      if (a.status !== b.status) {
-        return a.status === "success" ? -1 : 1;
-      }
-      return a.responseTime - b.responseTime;
-    })
-  }, null, 2));
+  await Bun.write(
+    outputFile,
+    JSON.stringify(
+      {
+        timestamp: new Date().toISOString(),
+        payload: TEST_PAYLOAD,
+        summary: {
+          total: results.length,
+          successful: successful.length,
+          http400: http400Errors.length,
+          otherHttpErrors: otherHttpErrors.length,
+          networkErrors: networkErrors.length,
+        },
+        results: results.sort((a, b) => {
+          // Sort by status (success first), then by response time
+          if (a.status !== b.status) {
+            return a.status === "success" ? -1 : 1;
+          }
+          return a.responseTime - b.responseTime;
+        }),
+      },
+      null,
+      2
+    )
+  );
 
   console.log(`\n📄 Detailed results saved to: ${outputFile}`);
 }

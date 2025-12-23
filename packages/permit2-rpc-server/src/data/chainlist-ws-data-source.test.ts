@@ -71,4 +71,3 @@ Deno.test("ChainlistWsDataSource: can force include derived WS URLs", () => {
 
   assertEquals(urls, ["wss://eth.drpc.org", "wss://ethereum-rpc.publicnode.com"]);
 });
-

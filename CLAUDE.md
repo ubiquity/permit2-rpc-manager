@@ -11,6 +11,7 @@ This is a monorepo for the Permit2 RPC ecosystem that provides an intelligent, C
 ### Development
 
 **Server package (Deno):**
+
 ```bash
 cd packages/permit2-rpc-server
 deno task start        # Run the server locally
@@ -21,6 +22,7 @@ deno task test         # Run tests
 ```
 
 **Client package:**
+
 ```bash
 cd packages/permit2-rpc-client
 bun run build          # Build the client SDK
@@ -30,6 +32,7 @@ bun run format         # Format code
 ```
 
 ### Root-level maintenance
+
 ```bash
 bun run whitelist:update  # Update server's RPC whitelist from chainlist
 bun run whitelist:test    # Test all RPC endpoints in whitelist
@@ -44,25 +47,30 @@ bun run deploy:manual     # Manually deploy to Deno Deploy
 ### Core Components
 
 **Permit2RpcManager** (`packages/permit2-rpc-server/src/core/permit2-rpc-manager.ts`)
+
 - Central orchestrator for all RPC requests
 - Manages RPC health tracking with exponential backoff
 - Handles error classification and retry logic
 - Routes requests through RpcSelector
 
 **RpcSelector** (`packages/permit2-rpc-server/src/core/rpc-selector.ts`)
+
 - Selects optimal RPC endpoint based on latency tests
 - Maintains ranked list of usable RPCs per chain
 
 **LatencyTester** (`packages/permit2-rpc-server/src/infra/latency-tester.ts`)
+
 - Tests RPC endpoints for responsiveness
 - Validates endpoints support required methods (eth_syncing, eth_getCode)
 - Checks for Permit2 contract presence
 
 **CacheManager** (`packages/permit2-rpc-server/src/infra/cache-manager.ts`)
+
 - Handles caching of RPC test results and responses
 - Uses Deno KV for persistent storage in production
 
 **ChainlistDataSource** (`packages/permit2-rpc-server/src/data/chainlist-data-source.ts`)
+
 - Loads and manages RPC whitelist data from `rpc-whitelist.json`
 - Provides RPC URLs for each supported chain
 
@@ -78,6 +86,7 @@ bun run deploy:manual     # Manually deploy to Deno Deploy
 ### Error Handling
 
 The system classifies errors into behaviors:
+
 - `RETRY_WITH_BACKOFF`: Rate limits, timeouts (exponential backoff)
 - `RETRY_DIFFERENT_RPC`: Provider-specific issues (try another RPC)
 - `DO_NOT_RETRY`: Client errors like invalid params
@@ -86,6 +95,7 @@ The system classifies errors into behaviors:
 ### MCP Integration
 
 The server implements Model Context Protocol (MCP) compliance:
+
 - Exposes Ethereum JSON-RPC methods as MCP tools
 - Handles both standard JSON-RPC and MCP-formatted requests
 - Located in `packages/permit2-rpc-server/src/deno-server.ts`

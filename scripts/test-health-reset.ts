@@ -18,18 +18,14 @@ async function testHealthResetDirectly() {
     maxBackoffMs: 1000,
     initialRpcData: {
       rpcs: {
-        "1": [
-          "https://ethereum.publicnode.com",
-          "https://eth.llamarpc.com",
-          "https://cloudflare-eth.com"
-        ]
-      }
-    }
+        "1": ["https://ethereum.publicnode.com", "https://eth.llamarpc.com", "https://cloudflare-eth.com"],
+      },
+    },
   });
 
   try {
     console.log("📡 Phase 1: Normal request (should succeed)");
-    
+
     // First, test that normal requests work
     try {
       const result = await manager.send(1, "eth_blockNumber", []);
@@ -41,15 +37,15 @@ async function testHealthResetDirectly() {
     }
 
     console.log("\n📡 Phase 2: Simulating RPC health failures");
-    
+
     // Access the private method to simulate health failures
     // We'll simulate the scenario by directly manipulating the health map
     const healthMap = (manager as any).rpcHealthStates as Map<string, any>;
-    
+
     // Mark all RPCs as unhealthy by simulating consecutive failures
     const chains = ["1"];
     const rpcs = ["https://ethereum.publicnode.com", "https://eth.llamarpc.com", "https://cloudflare-eth.com"];
-    
+
     for (const rpc of rpcs) {
       // The key is just the RPC URL, not chainId:rpcUrl
       healthMap.set(rpc, {
@@ -63,7 +59,7 @@ async function testHealthResetDirectly() {
     }
 
     console.log("\n📡 Phase 3: Testing emergency fallback");
-    
+
     // Now make a request that should trigger the emergency fallback
     try {
       const result = await manager.send(1, "eth_blockNumber", []);
@@ -72,7 +68,7 @@ async function testHealthResetDirectly() {
     } catch (error) {
       console.log("❌ Emergency fallback failed:", (error as Error).message);
       console.log("🔍 FAILED: Health reset mechanism needs adjustment");
-      
+
       // Let's check the health states after the attempt
       console.log("\nHealth states after fallback attempt:");
       for (const rpc of rpcs) {
@@ -86,7 +82,6 @@ async function testHealthResetDirectly() {
     console.log("\n" + "=".repeat(60));
     console.log("📊 DIRECT TEST COMPLETED");
     console.log("=".repeat(60));
-
   } catch (error) {
     console.error("❌ Test failed with unexpected error:", error);
   }
