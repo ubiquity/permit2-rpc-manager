@@ -21,7 +21,7 @@ const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 
 async function makeRpcRequest(url: string, method: string, params: any[] = []): Promise<any> {
   const startTime = Date.now();
-  
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -37,13 +37,13 @@ async function makeRpcRequest(url: string, method: string, params: any[] = []): 
   });
 
   const responseTime = Date.now() - startTime;
-  
+
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
   const data = await response.json();
-  
+
   if (data.error) {
     throw new Error(`RPC Error: ${data.error.message || JSON.stringify(data.error)}`);
   }
@@ -80,9 +80,7 @@ async function performHealthCheck(endpoint: string, chainId: number): Promise<He
     responseTimes.push(codeResponse.responseTime);
 
     // Calculate average response time
-    metrics.responseTime = Math.round(
-      responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
-    );
+    metrics.responseTime = Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length);
 
     // Determine status based on response time and Permit2 presence
     if (metrics.responseTime > 5000) {
@@ -90,7 +88,6 @@ async function performHealthCheck(endpoint: string, chainId: number): Promise<He
     } else if (!metrics.permit2Present) {
       metrics.status = "degraded";
     }
-
   } catch (error) {
     metrics.status = "unhealthy";
     metrics.error = error instanceof Error ? error.message : String(error);
@@ -122,7 +119,7 @@ async function monitorHealth() {
   const runCheck = async () => {
     totalChecks++;
     const metrics = await performHealthCheck(endpoint, chainId);
-    
+
     // Update statistics
     if (metrics.status === "healthy") {
       healthyChecks++;
@@ -130,21 +127,21 @@ async function monitorHealth() {
     } else if (metrics.status === "unhealthy") {
       consecutiveFailures++;
     }
-    
+
     if (metrics.responseTime > 0) {
       totalResponseTime += metrics.responseTime;
     }
 
     // Format output
-    const statusEmoji = metrics.status === "healthy" ? "✅" : 
-                        metrics.status === "degraded" ? "⚠️" : "❌";
-    
-    const logEntry = `[${metrics.timestamp}] ${statusEmoji} ${metrics.status.toUpperCase()} | ` +
-                     `Response: ${metrics.responseTime}ms | ` +
-                     `Block: ${metrics.blockNumber || "N/A"} | ` +
-                     `Gas: ${metrics.gasPrice?.toFixed(6) || "N/A"} Gwei` +
-                     (metrics.error ? ` | Error: ${metrics.error}` : "");
-    
+    const statusEmoji = metrics.status === "healthy" ? "✅" : metrics.status === "degraded" ? "⚠️" : "❌";
+
+    const logEntry =
+      `[${metrics.timestamp}] ${statusEmoji} ${metrics.status.toUpperCase()} | ` +
+      `Response: ${metrics.responseTime}ms | ` +
+      `Block: ${metrics.blockNumber || "N/A"} | ` +
+      `Gas: ${metrics.gasPrice?.toFixed(6) || "N/A"} Gwei` +
+      (metrics.error ? ` | Error: ${metrics.error}` : "");
+
     console.log(logEntry);
 
     // Log to file if specified
@@ -160,7 +157,7 @@ async function monitorHealth() {
 
     // Print statistics every 10 checks
     if (totalChecks % 10 === 0) {
-      const uptime = (healthyChecks / totalChecks * 100).toFixed(1);
+      const uptime = ((healthyChecks / totalChecks) * 100).toFixed(1);
       const avgResponseTime = Math.round(totalResponseTime / totalChecks);
       console.log("─".repeat(60));
       console.log(`📊 Statistics after ${totalChecks} checks:`);
@@ -182,7 +179,7 @@ async function monitorHealth() {
     console.log("📊 Final Statistics:");
     console.log(`   Total checks: ${totalChecks}`);
     console.log(`   Healthy checks: ${healthyChecks}`);
-    console.log(`   Uptime: ${(healthyChecks / totalChecks * 100).toFixed(1)}%`);
+    console.log(`   Uptime: ${((healthyChecks / totalChecks) * 100).toFixed(1)}%`);
     console.log(`   Average response time: ${Math.round(totalResponseTime / totalChecks)}ms`);
     console.log("─".repeat(60));
     console.log("👋 Monitoring stopped");
@@ -192,7 +189,7 @@ async function monitorHealth() {
 
 // Run if executed directly
 if (import.meta.main) {
-  monitorHealth().catch(error => {
+  monitorHealth().catch((error) => {
     console.error("Fatal error:", error);
     process.exit(1);
   });

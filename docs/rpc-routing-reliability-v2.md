@@ -135,7 +135,7 @@ Different RPC vendors vary in method support (e.g., tracing, debug methods, fina
 
 #### Requirements
 
-- Treat `-32601 METHOD_NOT_FOUND` as a *provider capability issue*, not a client error.
+- Treat `-32601 METHOD_NOT_FOUND` as a _provider capability issue_, not a client error.
 - Dynamically learn and cache “RPC X does not support method Y” and avoid using it for that method for a TTL.
 - Ensure this behavior is per `chainId` + `rpcUrl` + `method`.
 
@@ -641,4 +641,3 @@ WS uses `RpcSelector` + `WsLatencyTester` and invalidates endpoints on connect f
 - Deno Deploy isolates are ephemeral; in-memory scoring helps per-instance but isn’t globally consistent. Persist only what materially helps correctness (capabilities, health backoff) and keep the rest in memory.
 - Hedging increases upstream call volume; default to **off** or very conservative limits unless we accept higher cost.
 - Consensus is expensive; keep it off by default and scope it to a small method allowlist.
-

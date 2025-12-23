@@ -23,15 +23,7 @@ interface JsonRpcResponse {
 type EthSyncingResult = false | Record<string, unknown>; // Use Record<string, unknown> instead of {}
 
 // Restore 'wrong_bytecode' status
-type LatencyTestStatus =
-  | "ok"
-  | "syncing"
-  | "wrong_bytecode"
-  | "wrong_chain_id"
-  | "timeout"
-  | "http_error"
-  | "rpc_error"
-  | "network_error";
+type LatencyTestStatus = "ok" | "syncing" | "wrong_bytecode" | "wrong_chain_id" | "timeout" | "http_error" | "rpc_error" | "network_error";
 
 export interface LatencyTestResult {
   url: string;
@@ -68,7 +60,7 @@ export class LatencyTester {
   private async _makeRpcCall(
     url: string,
     method: string,
-    params: unknown[], // Changed any[] to unknown[]
+    params: unknown[] // Changed any[] to unknown[]
   ): Promise<JsonRpcResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -112,10 +104,7 @@ export class LatencyTester {
     let status: LatencyTestStatus = "network_error"; // Default to network error
 
     try {
-      const calls = [
-        this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]),
-        this._makeRpcCall(url, "eth_syncing", []),
-      ];
+      const calls = [this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]), this._makeRpcCall(url, "eth_syncing", [])];
 
       if (this.validateChainId) {
         calls.push(this._makeRpcCall(url, "eth_chainId", []));
@@ -137,9 +126,7 @@ export class LatencyTester {
         }
       }
       // Log expected "Failed to fetch" (likely CORS) at debug level, others at warn
-      const logLevel = status === "network_error" && err instanceof TypeError && err.message === "Failed to fetch"
-        ? "debug"
-        : "warn";
+      const logLevel = status === "network_error" && err instanceof TypeError && err.message === "Failed to fetch" ? "debug" : "warn";
       this.log(logLevel, `Latency test failed for ${url}: ${status} - ${err.message}`);
       return { url, latency: Infinity, status, error: err.message };
     }
@@ -242,10 +229,7 @@ export class LatencyTester {
    */
   async testRpcUrls(chainId: number, urls: string[]): Promise<Record<string, LatencyTestResult>> {
     if (!urls || urls.length === 0) return {};
-    this.log(
-      "info",
-      `Starting latency tests for chain ${chainId} across ${urls.length} RPC URLs (incl. chainId, sync & bytecode check)...`,
-    );
+    this.log("info", `Starting latency tests for chain ${chainId} across ${urls.length} RPC URLs (incl. chainId, sync & bytecode check)...`);
 
     const results = await Promise.allSettled(urls.map((url) => this.testSingleRpc(chainId, url)));
     const resultMap: Record<string, LatencyTestResult> = {};

@@ -18,7 +18,7 @@ export const multicall3Addresses = deployments.reduce(
     acc[deployment.chainId] = deployment.address ? deployment.address : "0xcA11bde05977b3631167028862bE2a173976CA11";
     return acc;
   },
-  {} as Record<number, string>,
+  {} as Record<number, string>
 );
 
 const senderSensitiveSelectors = new Set([
@@ -40,13 +40,7 @@ export function getMulticall3Address(chainId: number): string | null {
 }
 
 export const isMulticall3Request = (chainId: number, req: JsonRpcRequest): req is Multicall3Request => {
-  if (
-    !req.params ||
-    !Array.isArray(req.params) ||
-    req.params.length !== 2 ||
-    typeof req.params[0] !== "object" ||
-    req.params[0] === null
-  ) {
+  if (!req.params || !Array.isArray(req.params) || req.params.length !== 2 || typeof req.params[0] !== "object" || req.params[0] === null) {
     return false;
   }
 

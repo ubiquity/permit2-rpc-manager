@@ -4,13 +4,12 @@ body {
   margin: 0;
   overflow: hidden;
 
-background-color: #000;
+  background-color: #000;
 
   /* background:
     radial-gradient(circle at 20% 20%, rgba(0, 255, 191, 0.25), transparent 45%),
     radial-gradient(circle at 80% 35%, rgba(0, 191, 255, 0.18), transparent 50%),
     linear-gradient(135deg, #ffffff, #f6fbff); */
-
 }
 
 body {
@@ -32,12 +31,7 @@ body {
   position: absolute;
   inset: -40%;
   z-index: 0;
-  background: conic-gradient(
-    from 180deg at 50% 50%,
-    rgba(0, 255, 191, 0.25),
-    rgba(0, 191, 255, 0.22),
-    rgba(0, 255, 191, 0.18)
-  );
+  background: conic-gradient(from 180deg at 50% 50%, rgba(0, 255, 191, 0.25), rgba(0, 191, 255, 0.22), rgba(0, 255, 191, 0.18));
   filter: blur(80px);
   opacity: 0.55;
   animation: drift 18s ease-in-out infinite;
@@ -57,17 +51,17 @@ body {
 }
 
 .center {
-    filter: drop-shadow(0px 0px 6.125vw black);
-    position: fixed;
-    /* left: 50%; */
-    /* top: 50%; */
-    /* transform: translate(-50%, -50%); */
-    display: grid;
-    place-items: center;
-    pointer-events: none;
-    /* z-index: 1; */
-    top: 16px;
-    left: 16px;
+  filter: drop-shadow(0px 0px 6.125vw black);
+  position: fixed;
+  /* left: 50%; */
+  /* top: 50%; */
+  /* transform: translate(-50%, -50%); */
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  /* z-index: 1; */
+  top: 16px;
+  left: 16px;
 }
 
 .logo {
@@ -109,15 +103,7 @@ body {
 }
 
 .mono {
-  font-family:
-    ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Monaco,
-    Consolas,
-    "Liberation Mono",
-    "Courier New",
-    monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   text-rendering: geometricPrecision;
   font-weight: 100;
 }
@@ -164,7 +150,9 @@ body {
 }
 
 .stream-row {
-  transition: transform 240ms ease, opacity 240ms ease;
+  transition:
+    transform 240ms ease,
+    opacity 240ms ease;
   will-change: transform, opacity;
   /* display: inline-block; */
   /* width: 12.5vw; */
@@ -181,8 +169,8 @@ body {
   transition: opacity 2s ease-out !important;
 }
 
-#stream{
-  user-select:none;
+#stream {
+  user-select: none;
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
@@ -193,6 +181,15 @@ body {
   vertical-align: middle;
 }
 
-
-#logo path{fill:#fff}
-.center::after{content: "EVM RPC | Mainnet";color: #fff;position: absolute;white-space: pre;left: 100%;padding: 12px;font-family: monospace;}
+#logo path {
+  fill: #fff;
+}
+.center::after {
+  content: "EVM RPC | Mainnet";
+  color: #fff;
+  position: absolute;
+  white-space: pre;
+  left: 100%;
+  padding: 12px;
+  font-family: monospace;
+}

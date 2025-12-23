@@ -18,11 +18,7 @@ class MemoryCacheManager extends CacheManager {
     return this.store.get(chainId)?.latencyMap ?? null;
   }
 
-  override async updateChainCache(
-    chainId: number,
-    latencyMap: Record<string, LatencyTestResult>,
-    fastestRpc: string | null,
-  ): Promise<void> {
+  override async updateChainCache(chainId: number, latencyMap: Record<string, LatencyTestResult>, fastestRpc: string | null): Promise<void> {
     this.store.set(chainId, { fastestRpc, latencyMap });
   }
 }

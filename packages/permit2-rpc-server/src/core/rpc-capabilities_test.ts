@@ -16,10 +16,7 @@ Deno.test("RpcMethodCapabilities: unknown by default and filterSupported is no-o
   const caps = new RpcMethodCapabilities({ now: clock.now });
 
   assertEquals(caps.get(1, "https://a.example", "eth_getBalance"), "unknown");
-  assertEquals(
-    caps.filterSupported(1, "eth_getBalance", ["https://a.example", "https://b.example"]),
-    ["https://a.example", "https://b.example"],
-  );
+  assertEquals(caps.filterSupported(1, "eth_getBalance", ["https://a.example", "https://b.example"]), ["https://a.example", "https://b.example"]);
 });
 
 Deno.test("RpcMethodCapabilities: markUnsupported excludes only that (chainId,rpcUrl,method) tuple", () => {
@@ -32,14 +29,8 @@ Deno.test("RpcMethodCapabilities: markUnsupported excludes only that (chainId,rp
   assertEquals(caps.get(1, "https://a.example", "eth_getBalance"), "unknown");
   assertEquals(caps.get(10, "https://a.example", "debug_traceCall"), "unknown");
 
-  assertEquals(
-    caps.filterSupported(1, "debug_traceCall", ["https://a.example", "https://b.example"]),
-    ["https://b.example"],
-  );
-  assertEquals(
-    caps.filterSupported(1, "eth_getBalance", ["https://a.example", "https://b.example"]),
-    ["https://a.example", "https://b.example"],
-  );
+  assertEquals(caps.filterSupported(1, "debug_traceCall", ["https://a.example", "https://b.example"]), ["https://b.example"]);
+  assertEquals(caps.filterSupported(1, "eth_getBalance", ["https://a.example", "https://b.example"]), ["https://a.example", "https://b.example"]);
 });
 
 Deno.test("RpcMethodCapabilities: TTL expiry returns to unknown and stops filtering", () => {
@@ -51,10 +42,7 @@ Deno.test("RpcMethodCapabilities: TTL expiry returns to unknown and stops filter
 
   clock.advance(1_001);
   assertEquals(caps.get(1, "https://a.example", "debug_traceCall"), "unknown");
-  assertEquals(
-    caps.filterSupported(1, "debug_traceCall", ["https://a.example", "https://b.example"]),
-    ["https://a.example", "https://b.example"],
-  );
+  assertEquals(caps.filterSupported(1, "debug_traceCall", ["https://a.example", "https://b.example"]), ["https://a.example", "https://b.example"]);
 });
 
 Deno.test("RpcMethodCapabilities: repeated unsupported escalates TTL within strike window", () => {

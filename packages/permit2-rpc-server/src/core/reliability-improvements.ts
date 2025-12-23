@@ -10,10 +10,7 @@ export class RequestDeduplicator {
   /**
    * Deduplicates identical concurrent requests
    */
-  deduplicate<T>(
-    key: string,
-    requestFn: () => Promise<T>,
-  ): Promise<T> {
+  deduplicate<T>(key: string, requestFn: () => Promise<T>): Promise<T> {
     // Check if identical request is already in progress
     const pending = this.pendingRequests.get(key) as Promise<T> | undefined;
     if (pending) {
@@ -110,10 +107,7 @@ export class SmartBatcher {
   /**
    * Split large batches into smaller chunks
    */
-  async processBatch<T>(
-    items: Array<{ method: string; params: unknown[] }>,
-    processor: (batch: typeof items) => Promise<T[]>,
-  ): Promise<T[]> {
+  async processBatch<T>(items: Array<{ method: string; params: unknown[] }>, processor: (batch: typeof items) => Promise<T[]>): Promise<T[]> {
     const results: T[] = [];
 
     // Process in chunks

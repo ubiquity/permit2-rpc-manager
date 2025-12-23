@@ -24,7 +24,7 @@ const chainNames: Record<number, string> = {
   42220: "Celo",
   43114: "Avalanche",
   81457: "Blast",
-  7777777: "Zora"
+  7777777: "Zora",
 };
 
 interface RpcHealth {
@@ -54,27 +54,27 @@ interface ChainStatus {
 
 async function getRpcHealthData(): Promise<Map<number, ChainStatus>> {
   const chainStatuses = new Map<number, ChainStatus>();
-  
+
   // Get cache state with latency data
   const cacheResult = await kv.get(["permit2RpcManagerCache"]);
-  const cache = cacheResult.value as any || {};
-  
+  const cache = (cacheResult.value as any) || {};
+
   // Get all failure tracking data
   const failureData = new Map<string, any>();
   const failureIter = kv.list({ prefix: ["rpc_failures"] });
-  
+
   for await (const entry of failureIter) {
     const chainId = entry.key[1] as number;
     const url = entry.key[2] as string;
     const key = `${chainId}:${url}`;
     failureData.set(key, entry.value);
   }
-  
+
   // Process each chain
   for (const [chainIdStr, chainData] of Object.entries(cache)) {
     const chainId = parseInt(chainIdStr);
     const chainName = chainNames[chainId] || `Chain ${chainId}`;
-    
+
     const status: ChainStatus = {
       chainId,
       chainName,
@@ -84,37 +84,37 @@ async function getRpcHealthData(): Promise<Map<number, ChainStatus>> {
       failedRpcs: 0,
       eliminatedRpcs: 0,
       fastestRpc: chainData.fastestRpc,
-      rpcs: []
+      rpcs: [],
     };
-    
+
     if (chainData.latencyMap) {
       for (const [url, result] of Object.entries(chainData.latencyMap)) {
         const r = result as any;
         const failureKey = `${chainId}:${url}`;
         const failure = failureData.get(failureKey);
-        
+
         const rpcHealth: RpcHealth = {
           url,
           status: r.status || "unknown",
-          latency: r.latency
+          latency: r.latency,
         };
-        
+
         // Add failure data if exists
         if (failure) {
           rpcHealth.consecutiveFailures = failure.consecutiveFailures;
           rpcHealth.lastFailureTime = failure.lastFailureTime;
           rpcHealth.lastSuccessTime = failure.lastSuccessTime;
           rpcHealth.failureReasons = failure.failureReasons;
-          
+
           if (failure.status === "eliminated") {
             rpcHealth.eliminated = true;
             rpcHealth.nextRetryAt = failure.nextRetryAt;
           }
         }
-        
+
         // Categorize RPC health
         status.totalRpcs++;
-        
+
         if (rpcHealth.eliminated || r._healthStatus === "eliminated") {
           status.eliminatedRpcs++;
           rpcHealth.status = "eliminated";
@@ -128,28 +128,28 @@ async function getRpcHealthData(): Promise<Map<number, ChainStatus>> {
         } else {
           status.failedRpcs++;
         }
-        
+
         status.rpcs.push(rpcHealth);
       }
-      
+
       // Sort RPCs by status and latency
       status.rpcs.sort((a, b) => {
         // Priority: healthy -> degraded -> failed -> eliminated
         const statusPriority: Record<string, number> = {
-          "ok": 0,
-          "syncing": 1,
-          "wrong_bytecode": 1,
-          "error": 2,
-          "timeout": 2,
-          "eliminated": 3,
-          "unknown": 4
+          ok: 0,
+          syncing: 1,
+          wrong_bytecode: 1,
+          error: 2,
+          timeout: 2,
+          eliminated: 3,
+          unknown: 4,
         };
-        
+
         const aPriority = statusPriority[a.status] ?? 4;
         const bPriority = statusPriority[b.status] ?? 4;
-        
+
         if (aPriority !== bPriority) return aPriority - bPriority;
-        
+
         // Within same status, sort by latency
         if (a.latency && b.latency) return a.latency - b.latency;
         if (a.latency) return -1;
@@ -157,24 +157,24 @@ async function getRpcHealthData(): Promise<Map<number, ChainStatus>> {
         return 0;
       });
     }
-    
+
     chainStatuses.set(chainId, status);
   }
-  
+
   return chainStatuses;
 }
 
 function formatStatus(status: string): string {
   const statusEmojis: Record<string, string> = {
-    "ok": "✅",
-    "syncing": "🔄",
-    "wrong_bytecode": "⚠️",
-    "error": "❌",
-    "timeout": "⏱️",
-    "eliminated": "🚫",
-    "unknown": "❓"
+    ok: "✅",
+    syncing: "🔄",
+    wrong_bytecode: "⚠️",
+    error: "❌",
+    timeout: "⏱️",
+    eliminated: "🚫",
+    unknown: "❓",
   };
-  
+
   return `${statusEmojis[status] || "❓"} ${status}`;
 }
 
@@ -204,54 +204,57 @@ async function displayDashboard() {
   console.log("═".repeat(80));
   console.log(`📅 ${new Date().toISOString()}`);
   console.log("─".repeat(80));
-  
+
   const chainStatuses = await getRpcHealthData();
-  
+
   // Overall statistics
-  let totalHealthy = 0, totalDegraded = 0, totalFailed = 0, totalEliminated = 0;
-  
+  let totalHealthy = 0,
+    totalDegraded = 0,
+    totalFailed = 0,
+    totalEliminated = 0;
+
   for (const status of chainStatuses.values()) {
     totalHealthy += status.healthyRpcs;
     totalDegraded += status.degradedRpcs;
     totalFailed += status.failedRpcs;
     totalEliminated += status.eliminatedRpcs;
   }
-  
+
   console.log("\n📊 OVERALL STATISTICS");
   console.log(`  ✅ Healthy: ${totalHealthy}`);
   console.log(`  ⚠️  Degraded: ${totalDegraded}`);
   console.log(`  ❌ Failed: ${totalFailed}`);
   console.log(`  🚫 Eliminated: ${totalEliminated}`);
   console.log("─".repeat(80));
-  
+
   // Display each chain
   for (const [chainId, status] of [...chainStatuses.entries()].sort((a, b) => a[0] - b[0])) {
     console.log(`\n🔗 ${status.chainName} (Chain ${chainId})`);
-    console.log(`   Total RPCs: ${status.totalRpcs} | ✅ ${status.healthyRpcs} | ⚠️  ${status.degradedRpcs} | ❌ ${status.failedRpcs} | 🚫 ${status.eliminatedRpcs}`);
-    
+    console.log(
+      `   Total RPCs: ${status.totalRpcs} | ✅ ${status.healthyRpcs} | ⚠️  ${status.degradedRpcs} | ❌ ${status.failedRpcs} | 🚫 ${status.eliminatedRpcs}`
+    );
+
     if (status.fastestRpc) {
       console.log(`   🏆 Fastest: ${status.fastestRpc} (${formatLatency(status.fastestLatency)})`);
     }
-    
+
     const showDetailed = Deno.args.includes("--detailed") || Deno.args.includes("-d");
-    
+
     if (showDetailed) {
       console.log("   " + "─".repeat(75));
-      
+
       // Show top healthy RPCs
-      const healthyRpcs = status.rpcs.filter(r => r.status === "ok").slice(0, 3);
+      const healthyRpcs = status.rpcs.filter((r) => r.status === "ok").slice(0, 3);
       if (healthyRpcs.length > 0) {
         console.log("   Top Healthy RPCs:");
         for (const rpc of healthyRpcs) {
           console.log(`     ${formatStatus(rpc.status)} ${rpc.url.padEnd(50)} ${formatLatency(rpc.latency)}`);
         }
       }
-      
+
       // Show problematic RPCs
-      const problematicRpcs = status.rpcs.filter(r => 
-        r.status === "error" || r.status === "timeout" || r.eliminated
-      ).slice(0, 3);
-      
+      const problematicRpcs = status.rpcs.filter((r) => r.status === "error" || r.status === "timeout" || r.eliminated).slice(0, 3);
+
       if (problematicRpcs.length > 0) {
         console.log("   Problematic RPCs:");
         for (const rpc of problematicRpcs) {
@@ -271,7 +274,7 @@ async function displayDashboard() {
       }
     }
   }
-  
+
   console.log("\n" + "═".repeat(80));
   console.log("💡 Use --detailed or -d flag to see individual RPC details");
   console.log("═".repeat(80));
@@ -279,12 +282,12 @@ async function displayDashboard() {
 
 async function watchDashboard() {
   const interval = parseInt(Deno.env.get("REFRESH_INTERVAL") || "30000");
-  
+
   while (true) {
     await displayDashboard();
-    
+
     if (Deno.args.includes("--watch") || Deno.args.includes("-w")) {
-      await new Promise(resolve => setTimeout(resolve, interval));
+      await new Promise((resolve) => setTimeout(resolve, interval));
     } else {
       break;
     }
@@ -294,9 +297,9 @@ async function watchDashboard() {
 // Handle graceful shutdown
 if (Deno.args.includes("--watch") || Deno.args.includes("-w")) {
   console.log("Starting dashboard in watch mode. Press Ctrl+C to exit.");
-  
+
   const abortController = new AbortController();
-  
+
   Deno.addSignalListener("SIGINT", () => {
     console.log("\n👋 Stopping dashboard...");
     abortController.abort();

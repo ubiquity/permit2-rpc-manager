@@ -21,11 +21,11 @@ const TEST_PAYLOAD = {
   params: [
     {
       to: "0x000000000022d473030f116ddee9f6b43ac78ba3",
-      data: "0x4fe02b440000000000000000000000009051eda96db419c967189f4ac303a290f332768000d5491aa895b1b0b1bbb4e5aca9e06ee4ad36cf15fc51d8bd20720710b11dfa"
+      data: "0x4fe02b440000000000000000000000009051eda96db419c967189f4ac303a290f332768000d5491aa895b1b0b1bbb4e5aca9e06ee4ad36cf15fc51d8bd20720710b11dfa",
     },
-    "latest"
+    "latest",
   ],
-  id: 44  // Using the same ID from the error
+  id: 44, // Using the same ID from the error
 };
 
 async function testServerEndpoint(url: string): Promise<TestResult> {
@@ -95,11 +95,7 @@ async function testBatchRequest(url: string): Promise<TestResult> {
   const startTime = Date.now();
 
   // Test with a batch of requests
-  const batchPayload = [
-    TEST_PAYLOAD,
-    { ...TEST_PAYLOAD, id: 45 },
-    { ...TEST_PAYLOAD, id: 46 }
-  ];
+  const batchPayload = [TEST_PAYLOAD, { ...TEST_PAYLOAD, id: 45 }, { ...TEST_PAYLOAD, id: 46 }];
 
   try {
     const response = await fetch(url, {
@@ -164,14 +160,14 @@ async function testBatchRequest(url: string): Promise<TestResult> {
 
 async function main() {
   const endpoints = [
-    "https://rpc.ubq.fi/100",           // Production server
-    "http://localhost:8000/100"         // Local server (if running)
+    "https://rpc.ubq.fi/100", // Production server
+    "http://localhost:8000/100", // Local server (if running)
   ];
 
   console.log("Testing permit2-rpc-manager server endpoints...");
   console.log(`Payload: eth_call to Permit2 contract`);
   const firstParam = TEST_PAYLOAD.params[0];
-  if (typeof firstParam === 'object' && 'to' in firstParam && 'data' in firstParam) {
+  if (typeof firstParam === "object" && "to" in firstParam && "data" in firstParam) {
     console.log(`To: ${firstParam.to}`);
     console.log(`Data: ${firstParam.data.substring(0, 10)}...`);
   }

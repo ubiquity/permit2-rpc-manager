@@ -163,9 +163,11 @@ export class RpcMetricsRegistry implements RpcMetricsProvider {
 
       const headLagKey = headKey(chainId, rpcUrl);
       const headRecord = this.headLagMetrics.get(headLagKey);
-      const headSorted = headRecord?.lagSamples.toArray().filter((v) =>
-        Number.isFinite(v) && v >= 0
-      ).sort((a, b) => a - b) ?? [];
+      const headSorted =
+        headRecord?.lagSamples
+          .toArray()
+          .filter((v) => Number.isFinite(v) && v >= 0)
+          .sort((a, b) => a - b) ?? [];
       const headLag = median(headSorted);
 
       const errorRate = requestsTotal > 0 ? errors / requestsTotal : undefined;

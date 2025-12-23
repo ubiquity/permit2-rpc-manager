@@ -206,11 +206,7 @@
       "https://blast-public.nodies.app",
       "https://blast.api.pocket.network"
     ],
-    "7777777": [
-      "https://rpc.zora.energy",
-      "https://zora.drpc.org",
-      "https://api-zora-mainnet.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
-    ]
+    "7777777": ["https://rpc.zora.energy", "https://zora.drpc.org", "https://api-zora-mainnet.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"]
   },
   "wss": {
     "1": [
@@ -259,17 +255,8 @@
       "wss://arbitrum.drpc.org",
       "wss://arbitrum.gateway.tenderly.co"
     ],
-    "42220": [
-      "wss://celo.drpc.org",
-      "wss://forno.celo.org/ws",
-      "wss://api-celo-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
-    ],
-    "43114": [
-      "wss://avalanche-c-chain-rpc.publicnode.com",
-      "wss://0xrpc.io/avax",
-      "wss://avalanche.drpc.org",
-      "wss://avalanche-mainnet.gateway.tenderly.co"
-    ],
+    "42220": ["wss://celo.drpc.org", "wss://forno.celo.org/ws", "wss://api-celo-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"],
+    "43114": ["wss://avalanche-c-chain-rpc.publicnode.com", "wss://0xrpc.io/avax", "wss://avalanche.drpc.org", "wss://avalanche-mainnet.gateway.tenderly.co"],
     "81457": [
       "wss://blast-rpc.publicnode.com",
       "wss://blast.drpc.org",
@@ -277,9 +264,6 @@
       "wss://blast.gateway.tenderly.co",
       "wss://api-blast-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
-    "7777777": [
-      "wss://zora.drpc.org",
-      "wss://rpc.zora.energy"
-    ]
+    "7777777": ["wss://zora.drpc.org", "wss://rpc.zora.energy"]
   }
 }

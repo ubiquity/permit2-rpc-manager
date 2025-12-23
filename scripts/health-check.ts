@@ -29,7 +29,7 @@ const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 
 async function makeRpcRequest(url: string, method: string, params: any[] = []): Promise<any> {
   const startTime = Date.now();
-  
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -44,13 +44,13 @@ async function makeRpcRequest(url: string, method: string, params: any[] = []): 
   });
 
   const responseTime = Date.now() - startTime;
-  
+
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
   const data = await response.json();
-  
+
   if (data.error) {
     throw new Error(`RPC Error: ${data.error.message || JSON.stringify(data.error)}`);
   }
@@ -105,12 +105,10 @@ async function checkHealth(endpoint: string, chainId: number): Promise<HealthChe
     console.log(`  ${hasCode ? "✅" : "⚠️"} Permit2 contract: ${hasCode ? "present" : "not found"}`);
 
     // Calculate average response time
-    result.checks.responseTime = Math.round(
-      responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
-    );
+    result.checks.responseTime = Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length);
 
     // Determine overall status
-    const passedChecks = Object.values(result.checks).filter(v => v === true).length;
+    const passedChecks = Object.values(result.checks).filter((v) => v === true).length;
     if (passedChecks === 4) {
       result.status = "healthy";
     } else if (passedChecks >= 2) {
@@ -118,7 +116,6 @@ async function checkHealth(endpoint: string, chainId: number): Promise<HealthChe
     } else {
       result.status = "unhealthy";
     }
-
   } catch (error) {
     result.status = "unhealthy";
     result.details.error = error instanceof Error ? error.message : String(error);
@@ -146,11 +143,11 @@ async function runHealthCheck() {
   console.log("📊 Results:");
   console.log(`  Status: ${getStatusEmoji(result.status)} ${result.status.toUpperCase()}`);
   console.log(`  Response Time: ${result.checks.responseTime}ms`);
-  
+
   if (result.details.blockNumber) {
     console.log(`  Latest Block: ${parseInt(result.details.blockNumber, 16)}`);
   }
-  
+
   if (result.details.gasPrice) {
     console.log(`  Gas Price: ${parseInt(result.details.gasPrice, 16) / 1e9} Gwei`);
   }
@@ -167,16 +164,20 @@ async function runHealthCheck() {
 
 function getStatusEmoji(status: string): string {
   switch (status) {
-    case "healthy": return "✅";
-    case "degraded": return "⚠️";
-    case "unhealthy": return "❌";
-    default: return "❓";
+    case "healthy":
+      return "✅";
+    case "degraded":
+      return "⚠️";
+    case "unhealthy":
+      return "❌";
+    default:
+      return "❓";
   }
 }
 
 // Run if executed directly
 if (import.meta.main) {
-  runHealthCheck().catch(error => {
+  runHealthCheck().catch((error) => {
     console.error("Fatal error:", error);
     process.exit(1);
   });

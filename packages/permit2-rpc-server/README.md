@@ -32,12 +32,14 @@ For E2E testing or debugging, you can force the proxy to try specific upstream R
 Overrides must match whitelisted RPC URLs for the chain.
 
 Headers:
+
 - `X-UBQ-RPC-CANDIDATES`: Comma-separated list of upstream RPC URLs to try first.
 - `X-UBQ-RPC-URL`: Single upstream RPC URL (convenience for one candidate).
 - `X-UBQ-RPC-FALLBACK`: Boolean flag (`1`, `true`, `yes`, `on`) to allow fallback
   to the normal ranked list after trying the overrides.
 
 Behavior:
+
 - If overrides are provided but none match the whitelist and fallback is disabled,
   the server returns JSON-RPC error `-32602` (invalid params).
 - When fallback is enabled, the proxy tries overrides in order, then continues with

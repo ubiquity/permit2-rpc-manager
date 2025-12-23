@@ -209,9 +209,7 @@ async function readJsonFile(path: string | URL): Promise<unknown> {
 function extractCallFromPreparedRequest(prepared: Record<string, unknown>): PermitCall | null {
   const to = typeof prepared.to === "string" ? prepared.to : undefined;
   const data = typeof prepared.data === "string" ? prepared.data : undefined;
-  const from = typeof prepared.from === "string"
-    ? prepared.from
-    : (typeof prepared.account === "string" ? prepared.account : undefined);
+  const from = typeof prepared.from === "string" ? prepared.from : typeof prepared.account === "string" ? prepared.account : undefined;
   const value = typeof prepared.value === "string" ? prepared.value : undefined;
   if (!to || !data) return null;
   return { to, data, from, value };
@@ -221,7 +219,7 @@ function normalizePermits(
   raw: unknown,
   defaultChainId?: number,
   defaultBlockTag?: string | number,
-  defaultMethods: string[] = ["eth_call"],
+  defaultMethods: string[] = ["eth_call"]
 ): NormalizedPermit[] {
   const file = raw as PermitFile;
   const permits = Array.isArray(raw) ? raw : file.permits;
@@ -242,9 +240,7 @@ function normalizePermits(
     }
 
     const blockTag = permit.blockTag ?? blockFallback;
-    const rawMethods = Array.isArray(permit.methods) && permit.methods.length > 0
-      ? permit.methods
-      : defaultMethods;
+    const rawMethods = Array.isArray(permit.methods) && permit.methods.length > 0 ? permit.methods : defaultMethods;
     const methods = Array.from(new Set(rawMethods.map((method) => String(method).toLowerCase())));
     for (const method of methods) {
       if (method !== "eth_call" && method !== "eth_estimateGas") {
@@ -312,7 +308,7 @@ async function rpcRequest(
   method: string,
   params: unknown[],
   timeoutMs: number,
-  id: number,
+  id: number
 ): Promise<{ httpStatus: number; json?: Record<string, unknown>; text?: string; latencyMs: number; parseError?: string }> {
   const started = performance.now();
   const controller = new AbortController();
@@ -332,7 +328,7 @@ async function rpcRequest(
         signal: controller.signal,
       }),
       timeoutMs,
-      `${method} (${rpcUrl})`,
+      `${method} (${rpcUrl})`
     );
 
     const latencyMs = Math.round(performance.now() - started);
@@ -353,19 +349,11 @@ async function rpcRequest(
   }
 }
 
-async function runRequests(
-  rpcUrl: string,
-  permit: NormalizedPermit,
-  methods: string[],
-  timeoutMs: number,
-  nextId: () => number,
-): Promise<CallResult[]> {
+async function runRequests(rpcUrl: string, permit: NormalizedPermit, methods: string[], timeoutMs: number, nextId: () => number): Promise<CallResult[]> {
   const results: CallResult[] = [];
 
   for (const method of methods) {
-    const params = method === "eth_call" || method === "eth_estimateGas"
-      ? [permit.call, permit.blockTag]
-      : [permit.call];
+    const params = method === "eth_call" || method === "eth_estimateGas" ? [permit.call, permit.blockTag] : [permit.call];
     let response: {
       httpStatus: number;
       json?: Record<string, unknown>;
@@ -428,10 +416,7 @@ async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, maxInflight
     }
   };
 
-  const workers = Array.from(
-    { length: Math.min(maxInflight, tasks.length) },
-    () => worker(),
-  );
+  const workers = Array.from({ length: Math.min(maxInflight, tasks.length) }, () => worker());
   await Promise.all(workers);
   return results;
 }
@@ -508,9 +493,7 @@ async function main(): Promise<void> {
   }
 
   const permitsRaw = await readJsonFile(args.permitsPath);
-  const methods = args.method === "both"
-    ? ["eth_call", "eth_estimateGas"]
-    : [args.method === "call" ? "eth_call" : "eth_estimateGas"];
+  const methods = args.method === "both" ? ["eth_call", "eth_estimateGas"] : [args.method === "call" ? "eth_call" : "eth_estimateGas"];
   const permits = normalizePermits(permitsRaw, args.chainId, args.blockTag, methods);
 
   const chainIds = dedupe(permits.map((permit) => String(permit.chainId)));
@@ -526,14 +509,11 @@ async function main(): Promise<void> {
       console.error("Multiple chainIds detected. Use --chain with a single chain, or pass explicit --rpc values.");
       Deno.exit(1);
     }
-    const whitelistPath = args.whitelistPath ??
-      new URL("../../rpc-whitelist.json", import.meta.url);
+    const whitelistPath = args.whitelistPath ?? new URL("../../rpc-whitelist.json", import.meta.url);
     const whitelistRaw = await readJsonFile(whitelistPath);
     const whitelist = whitelistRaw as { rpcs?: Record<string, string[]> };
     const chainId = args.chainId ?? permits[0].chainId;
-    rpcUrls = (whitelist.rpcs?.[String(chainId)] ?? []).filter(
-      (url) => typeof url === "string" && /^https?:\/\//.test(url) && !url.includes("${"),
-    );
+    rpcUrls = (whitelist.rpcs?.[String(chainId)] ?? []).filter((url) => typeof url === "string" && /^https?:\/\//.test(url) && !url.includes("${"));
   }
 
   rpcUrls = dedupe(rpcUrls);

@@ -35,7 +35,7 @@ export class HedgedRequester {
   async execute<T>(
     candidates: string[],
     requestFn: (rpcUrl: string, signal: AbortSignal) => Promise<T>,
-    policy: { maxHedges: number; delayMs: number },
+    policy: { maxHedges: number; delayMs: number }
   ): Promise<T> {
     const urls = candidates.filter((c) => typeof c === "string" && c.length > 0);
     if (urls.length === 0) {
@@ -95,9 +95,7 @@ export class HedgedRequester {
       const canStartMore = nextIndex < urls.length && inFlight.size < concurrencyLimit;
 
       const delayMs = canStartMore ? Math.max(0, nextHedgeAt - this.now()) : Number.POSITIVE_INFINITY;
-      const delayPromise: Promise<DelayRaceResult> | null = canStartMore
-        ? sleep(delayMs).then(() => ({ type: "delay" as const }))
-        : null;
+      const delayPromise: Promise<DelayRaceResult> | null = canStartMore ? sleep(delayMs).then(() => ({ type: "delay" as const })) : null;
 
       const raced = await Promise.race<RaceResult<T>>([
         ...[...inFlight.entries()].map(async ([index, promise]): Promise<AttemptRaceResult<T>> => {
