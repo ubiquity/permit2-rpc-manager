@@ -595,6 +595,8 @@ export class Permit2RpcManager {
 
     // Filter available RPCs using both health state and circuit breaker
     const availableRpcs = allRpcs.filter((rpc) => this.isRpcAvailable(rpc) && this.circuitBreaker.canRequest(rpc));
+    const availableRpcSet = new Set(availableRpcs);
+    const healthyOverrides = overrideCandidates.filter((rpc) => availableRpcSet.has(rpc));
 
     if (this.headSampling.enabled) {
       try {
@@ -626,11 +628,13 @@ export class Permit2RpcManager {
 
     // Use scoring to rank available RPCs by performance
     let rankedRpcs = rankCandidates(getCandidates(availableRpcs));
-    const hasOverride = overrideCandidates.length > 0;
-    const overrideSet = new Set(overrideCandidates);
+    const hasOverride = healthyOverrides.length > 0;
+    const overrideSet = new Set(healthyOverrides);
 
     if (overrideRequested && !hasOverride) {
-      const message = "No override RPCs matched the configured whitelist.";
+      const message = overrideCandidates.length > 0
+        ? "Override RPCs are currently unavailable (health checks or circuit breaker)."
+        : "No override RPCs matched the configured whitelist.";
       if (!allowFallback) {
         throw new JsonRpcError(JSON_RPC_ERROR_CODES.INVALID_PARAMS, message, {
           chainId,
@@ -700,12 +704,12 @@ export class Permit2RpcManager {
     if (hasOverride) {
       const fallbackPool = allowFallback ? availableRpcs.filter((rpc) => !overrideSet.has(rpc)) : [];
       const rankedFallback = fallbackPool.length > 0 ? rankCandidates(getCandidates(fallbackPool)) : [];
-      orderedRpcs = [...overrideCandidates, ...rankedFallback];
+      orderedRpcs = [...healthyOverrides, ...rankedFallback];
       this._log(
         "info",
         `[SEND] Using override RPCs for chain ${chainId}. ` +
-          `Overrides=${overrideCandidates.length}, allowFallback=${allowFallback}, fallbackCount=${rankedFallback.length}.`,
-        { overrides: overrideCandidates, fallback: rankedFallback },
+          `Overrides=${healthyOverrides.length}, allowFallback=${allowFallback}, fallbackCount=${rankedFallback.length}.`,
+        { overrides: healthyOverrides, fallback: rankedFallback },
       );
     } else {
       // Round-robin selection from ranked RPCs

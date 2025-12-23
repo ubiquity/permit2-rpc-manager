@@ -164,7 +164,7 @@ function printHelp(): void {
   console.log(`Permit claim E2E tester
 
 Usage:
-  deno run --allow-net --allow-read src/cli/permit-claim-e2e.ts --permits <file> [options]
+  deno run --allow-net --allow-read --allow-write src/cli/permit-claim-e2e.ts --permits <file> [options]
 
 Options:
   --permits <file>      JSON file containing permits (required)
@@ -363,7 +363,7 @@ async function runRequests(
   const results: CallResult[] = [];
 
   for (const method of methods) {
-    const params = method === "eth_call"
+    const params = method === "eth_call" || method === "eth_estimateGas"
       ? [permit.call, permit.blockTag]
       : [permit.call];
     let response: {
