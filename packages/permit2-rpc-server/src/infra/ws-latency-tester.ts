@@ -21,11 +21,7 @@ interface JsonRpcResponse {
   error?: JsonRpcError;
 }
 
-type LoggerFn = (
-  level: "debug" | "info" | "warn" | "error",
-  message: string,
-  ...optionalParams: unknown[]
-) => void;
+type LoggerFn = (level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]) => void;
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
@@ -170,10 +166,7 @@ export class WsLatencyTester {
       ws = await openWs(url, this.timeoutMs);
       const client = new WsJsonRpcClient(ws, this.timeoutMs, this.log);
 
-      const [getCodeResponse, syncingResponse] = await Promise.all([
-        client.call("eth_getCode", [PERMIT2_ADDRESS, "latest"]),
-        client.call("eth_syncing", []),
-      ]);
+      const [getCodeResponse, syncingResponse] = await Promise.all([client.call("eth_getCode", [PERMIT2_ADDRESS, "latest"]), client.call("eth_syncing", [])]);
 
       const latency = Date.now() - startTime;
 

@@ -26,12 +26,7 @@ export class RpcSelector {
   private log: LoggerFn;
   private ongoingLatencyTests = new Map<number, Promise<Record<string, LatencyTestResult>>>();
 
-  constructor(
-    dataSource: RpcDataSourceLike,
-    cacheManager: CacheManager,
-    latencyTester: LatencyTesterLike,
-    logger?: LoggerFn,
-  ) {
+  constructor(dataSource: RpcDataSourceLike, cacheManager: CacheManager, latencyTester: LatencyTesterLike, logger?: LoggerFn) {
     this.dataSource = dataSource;
     this.cacheManager = cacheManager;
     this.latencyTester = latencyTester;
@@ -64,15 +59,14 @@ export class RpcSelector {
 
     // If cache is invalid (no map or fastest RPC doesn't match map status), re-test
     if (
-      !latencyMap || !fastestCachedRpc || !latencyMap[fastestCachedRpc] ||
+      !latencyMap ||
+      !fastestCachedRpc ||
+      !latencyMap[fastestCachedRpc] ||
       !fastestIsAllowed ||
       !ACCEPTABLE_STATUSES.includes(latencyMap[fastestCachedRpc].status)
     ) {
       if (fastestCachedRpc && latencyMap) {
-        this.log(
-          "info",
-          `Cached fastest RPC ${fastestCachedRpc} for chain ${chainId} is no longer valid or missing in map. Re-testing.`,
-        );
+        this.log("info", `Cached fastest RPC ${fastestCachedRpc} for chain ${chainId} is no longer valid or missing in map. Re-testing.`);
       } else {
         this.log("info", `No valid cache for chain ${chainId}. Performing latency tests...`);
       }
@@ -94,17 +88,9 @@ export class RpcSelector {
           const newFastest = this._findFastestInMap(latencyMap);
           await this.cacheManager.updateChainCache(chainId, latencyMap, newFastest?.url ?? null);
           if (newFastest) {
-            this.log(
-              "info",
-              `Selected fastest RPC for chain ${chainId}: ${newFastest.url} (${newFastest.latency}ms, status: ${newFastest.status})`,
-            );
+            this.log("info", `Selected fastest RPC for chain ${chainId}: ${newFastest.url} (${newFastest.latency}ms, status: ${newFastest.status})`);
           } else {
-            this.log(
-              "warn",
-              `No responsive RPCs found meeting criteria (${
-                ACCEPTABLE_STATUSES.join(" > ")
-              }) for chain ${chainId} after testing.`,
-            );
+            this.log("warn", `No responsive RPCs found meeting criteria (${ACCEPTABLE_STATUSES.join(" > ")}) for chain ${chainId} after testing.`);
           }
         } catch (error) {
           this.log("error", `Latency test failed for chain ${chainId}`, error);

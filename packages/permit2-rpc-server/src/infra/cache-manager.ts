@@ -153,11 +153,7 @@ export class CacheManager {
     return null;
   }
 
-  async updateChainCache(
-    chainId: number,
-    latencyMap: Record<string, LatencyTestResult>,
-    fastestRpc: string | null,
-  ): Promise<void> {
+  async updateChainCache(chainId: number, latencyMap: Record<string, LatencyTestResult>, fastestRpc: string | null): Promise<void> {
     if (this.disabled) {
       this.log("debug", `CacheManager: Caching disabled, skipping cache update for chainId ${chainId}`);
       return; // Do nothing if disabled
@@ -210,7 +206,7 @@ export class CacheManager {
       _invalidated: true,
       _healthStatus: healthStatus,
       _invalidatedAt: Date.now(),
-      _nextRetryAt: Date.now() + (60 * 60 * 1000), // 1 hour for eliminated RPCs
+      _nextRetryAt: Date.now() + 60 * 60 * 1000, // 1 hour for eliminated RPCs
     };
 
     chainCache.latencyMap[rpcUrl] = invalidatedResult as LatencyTestResult & {

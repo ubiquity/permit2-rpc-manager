@@ -9,12 +9,14 @@ After reviewing the `feat/mcp` branch, I've identified the minimal set of change
 ## Current State vs. Target State
 
 ### Current State (feat/mcp2)
+
 - Standard JSON-RPC proxy at `https://rpc.ubq.fi/{chainId}`
 - Handles Ethereum JSON-RPC methods via POST requests
 - Uses `Permit2RpcManager` for RPC endpoint management
 - CORS-enabled for browser access
 
 ### Target State
+
 - **Dual-mode operation**: Both JSON-RPC and MCP protocols
 - **MCP endpoints**:
   - Root path `/` for chain-agnostic MCP requests
@@ -28,13 +30,7 @@ After reviewing the `feat/mcp` branch, I've identified the minimal set of change
 Add MCP SDK imports to `deno-server.ts`:
 
 ```typescript
-import {
-  CallToolRequest,
-  CallToolResult,
-  ListToolsRequest,
-  ListToolsResult,
-  Tool
-} from "npm:@modelcontextprotocol/sdk@1.0.4/types.js";
+import { CallToolRequest, CallToolResult, ListToolsRequest, ListToolsResult, Tool } from "npm:@modelcontextprotocol/sdk@1.0.4/types.js";
 ```
 
 ### 2. MCP Tool Definitions
@@ -52,15 +48,15 @@ const getEthereumTools = (): Tool[] => {
         properties: {
           address: {
             type: "string",
-            description: "20-byte address to check for balance"
+            description: "20-byte address to check for balance",
           },
           blockNumber: {
             type: "string",
-            description: "Block number or 'latest', 'earliest', 'pending'"
+            description: "Block number or 'latest', 'earliest', 'pending'",
           },
           chainId: {
             type: "number",
-            description: "Chain ID (default: 1 for Ethereum mainnet)"
+            description: "Chain ID (default: 1 for Ethereum mainnet)",
           },
         },
         required: ["address", "blockNumber"],
@@ -85,9 +81,7 @@ function buildRpcParams(method: string, args: any): unknown[] {
     case "eth_call":
       return [args.transaction, args.blockNumber];
     case "eth_estimateGas":
-      return args.blockNumber
-        ? [args.transaction, args.blockNumber]
-        : [args.transaction];
+      return args.blockNumber ? [args.transaction, args.blockNumber] : [args.transaction];
     case "eth_blockNumber":
     case "eth_gasPrice":
     case "eth_chainId":
@@ -109,11 +103,9 @@ const handler = async (request: Request): Promise<Response> => {
   const isMcpRequest = (body: unknown): boolean => {
     if (typeof body === "object" && body !== null && "method" in body) {
       const method = (body as any).method;
-      return typeof method === "string" && (
-        method === "initialize" ||
-        method.startsWith("tools/") ||
-        method.startsWith("resources/") ||
-        method.startsWith("prompts/")
+      return (
+        typeof method === "string" &&
+        (method === "initialize" || method.startsWith("tools/") || method.startsWith("resources/") || method.startsWith("prompts/"))
       );
     }
     return false;
@@ -157,23 +149,28 @@ const handler = async (request: Request): Promise<Response> => {
         const result = await manager.send(chainId, toolName, params);
 
         mcpResponse = {
-          content: [{
-            type: "text",
-            text: JSON.stringify(result, null, 2),
-          }],
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
         };
         break;
     }
 
     // Return MCP response
-    return new Response(JSON.stringify({
-      jsonrpc: "2.0",
-      id: mcpRequest.id,
-      result: mcpResponse
-    }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: mcpRequest.id,
+        result: mcpResponse,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 
   // ... continue with existing JSON-RPC handling ...
@@ -183,6 +180,7 @@ const handler = async (request: Request): Promise<Response> => {
 ## Complete List of Ethereum Methods to Support
 
 ### Core Methods (7)
+
 - `eth_getBalance` - Get account balance
 - `eth_getCode` - Get contract code
 - `eth_getTransactionCount` - Get nonce
@@ -192,6 +190,7 @@ const handler = async (request: Request): Promise<Response> => {
 - `eth_blockNumber` - Get latest block number
 
 ### Transaction Methods (6)
+
 - `eth_sendRawTransaction` - Submit signed transaction
 - `eth_getTransactionByHash` - Get transaction details
 - `eth_getTransactionReceipt` - Get transaction receipt
@@ -200,6 +199,7 @@ const handler = async (request: Request): Promise<Response> => {
 - `eth_getBlockTransactionCountByHash` - Count transactions in block
 
 ### Block Methods (8)
+
 - `eth_getBlockByHash` - Get block by hash
 - `eth_getBlockByNumber` - Get block by number
 - `eth_getBlockTransactionCountByNumber` - Count transactions
@@ -209,6 +209,7 @@ const handler = async (request: Request): Promise<Response> => {
 - `eth_getUncleByBlockNumberAndIndex` - Get uncle details
 
 ### Network Info Methods (7)
+
 - `eth_protocolVersion` - Protocol version
 - `eth_syncing` - Sync status
 - `eth_coinbase` - Coinbase address
@@ -221,6 +222,7 @@ const handler = async (request: Request): Promise<Response> => {
 ## Implementation Size Analysis
 
 ### Lines of Code Breakdown
+
 - **Tool definitions**: ~400 lines (28 methods × ~14 lines each)
 - **MCP handler logic**: ~120 lines
 - **Parameter mapping**: ~50 lines
@@ -232,6 +234,7 @@ const handler = async (request: Request): Promise<Response> => {
 The following components from `feat/mcp` are **not required** for minimal MCP compliance:
 
 1. **Separate MCP server files** (6 files, ~3000 lines):
+
    - `mcp-server.ts`
    - `mcp-simple-server.ts`
    - `mcp-http-server.ts`
@@ -240,6 +243,7 @@ The following components from `feat/mcp` are **not required** for minimal MCP co
    - `mcp-bridge.sh` scripts
 
 2. **Complex features**:
+
    - Session management
    - Server-sent events streaming
    - Stdio transport layers
@@ -255,6 +259,7 @@ The following components from `feat/mcp` are **not required** for minimal MCP co
 ### 1. MCP Protocol Testing
 
 Test MCP initialization:
+
 ```bash
 curl -X POST https://rpc.ubq.fi/ \
   -H "Content-Type: application/json" \
@@ -267,6 +272,7 @@ curl -X POST https://rpc.ubq.fi/ \
 ```
 
 Expected response:
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -285,6 +291,7 @@ Expected response:
 ### 2. Tool Discovery Testing
 
 List available tools:
+
 ```bash
 curl -X POST https://rpc.ubq.fi/ \
   -H "Content-Type: application/json" \
@@ -299,6 +306,7 @@ curl -X POST https://rpc.ubq.fi/ \
 ### 3. Tool Execution Testing
 
 Execute an Ethereum method via MCP:
+
 ```bash
 curl -X POST https://rpc.ubq.fi/ \
   -H "Content-Type: application/json" \
@@ -318,6 +326,7 @@ curl -X POST https://rpc.ubq.fi/ \
 ### 4. Claude Desktop Integration
 
 Configure in Claude Desktop settings:
+
 ```json
 {
   "mcpServers": {
@@ -332,21 +341,25 @@ Configure in Claude Desktop settings:
 ## Benefits of This Approach
 
 ### 1. **Minimal Disruption**
+
 - All changes contained in `deno-server.ts`
 - No new files or dependencies beyond MCP SDK
 - Existing JSON-RPC functionality unchanged
 
 ### 2. **Reuses Existing Infrastructure**
+
 - Leverages `Permit2RpcManager` for RPC execution
 - Uses existing CORS configuration
 - Maintains current error handling
 
 ### 3. **Easy to Deploy**
+
 - Single file modification
 - No configuration changes needed
 - Backward compatible with existing clients
 
 ### 4. **LLM-Ready**
+
 - Natural language interaction with Ethereum
 - Structured tool discovery
 - Type-safe parameter validation
@@ -362,12 +375,12 @@ Total estimated effort: **4-6 hours**
 
 ## Risks and Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Breaking existing JSON-RPC | High | Careful request detection, extensive testing |
-| MCP protocol changes | Medium | Pin SDK version, monitor updates |
-| Performance impact | Low | Minimal overhead, reuses existing code |
-| Security concerns | Medium | Validate all inputs, maintain CORS policies |
+| Risk                       | Impact | Mitigation                                   |
+| -------------------------- | ------ | -------------------------------------------- |
+| Breaking existing JSON-RPC | High   | Careful request detection, extensive testing |
+| MCP protocol changes       | Medium | Pin SDK version, monitor updates             |
+| Performance impact         | Low    | Minimal overhead, reuses existing code       |
+| Security concerns          | Medium | Validate all inputs, maintain CORS policies  |
 
 ## Conclusion
 
@@ -379,7 +392,7 @@ The minimal MCP implementation requires adding approximately 650 lines to the ex
 - ✅ Enables LLM integration
 - ✅ Minimizes complexity and risk
 
-The implementation is straightforward, focused, and delivers exactly what's needed to fulfill the requirement: *"Extend `https://rpc.ubq.fi/{networkId}` to be fully MCP compliant"* without the overhead of the full `feat/mcp` branch implementation.
+The implementation is straightforward, focused, and delivers exactly what's needed to fulfill the requirement: _"Extend `https://rpc.ubq.fi/{networkId}` to be fully MCP compliant"_ without the overhead of the full `feat/mcp` branch implementation.
 
 ## Next Steps
 

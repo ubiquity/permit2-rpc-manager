@@ -18,15 +18,7 @@ Deno.test("isWriteMethod: known write methods", () => {
 });
 
 Deno.test("isWriteMethod: known safe reads", () => {
-  const readMethods = [
-    "eth_call",
-    "eth_chainId",
-    "eth_getBalance",
-    "eth_getLogs",
-    "eth_blockNumber",
-    "net_version",
-    "web3_clientVersion",
-  ];
+  const readMethods = ["eth_call", "eth_chainId", "eth_getBalance", "eth_getLogs", "eth_blockNumber", "net_version", "web3_clientVersion"];
 
   for (const method of readMethods) {
     assertEquals(isWriteMethod(method), false, `expected ${method} to be read`);
@@ -34,14 +26,7 @@ Deno.test("isWriteMethod: known safe reads", () => {
 });
 
 Deno.test("isWriteMethod: filter methods are treated as write (unsafe to hedge)", () => {
-  const unsafe = [
-    "eth_newFilter",
-    "eth_newBlockFilter",
-    "eth_newPendingTransactionFilter",
-    "eth_uninstallFilter",
-    "eth_getFilterChanges",
-    "eth_getFilterLogs",
-  ];
+  const unsafe = ["eth_newFilter", "eth_newBlockFilter", "eth_newPendingTransactionFilter", "eth_uninstallFilter", "eth_getFilterChanges", "eth_getFilterLogs"];
 
   for (const method of unsafe) {
     assertEquals(isWriteMethod(method), true, `expected ${method} to be unsafe`);

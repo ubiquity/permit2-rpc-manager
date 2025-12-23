@@ -24,10 +24,7 @@ Deno.test("Emergency fallback does not bypass circuit breaker", async () => {
   }) as typeof fetch;
 
   try {
-    await assert.rejects(
-      manager.send(chainId, "eth_blockNumber"),
-      /circuit breaker open/i,
-    );
+    await assert.rejects(manager.send(chainId, "eth_blockNumber"), /circuit breaker open/i);
     assert.equal(calls.length, 0);
   } finally {
     globalThis.fetch = originalFetch;

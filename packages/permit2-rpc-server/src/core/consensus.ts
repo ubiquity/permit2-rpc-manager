@@ -52,20 +52,12 @@ function isNonEmpty(value: unknown): boolean {
 export class ConsensusExecutor {
   constructor(private readonly metrics: RpcMetricsRegistry) {}
 
-  async execute<T>(
-    chainId: number,
-    method: string,
-    candidates: string[],
-    requestFn: (rpcUrl: string) => Promise<T>,
-    config: ConsensusConfig,
-  ): Promise<T> {
+  async execute<T>(chainId: number, method: string, candidates: string[], requestFn: (rpcUrl: string) => Promise<T>, config: ConsensusConfig): Promise<T> {
     const participantCount = Math.min(Math.max(1, config.participants), candidates.length);
     const quorum = Math.min(Math.max(1, config.agreementThreshold), participantCount);
     const selected = candidates.slice(0, participantCount);
 
-    const results = await Promise.allSettled(
-      selected.map(async (rpcUrl) => ({ rpcUrl, value: await requestFn(rpcUrl) })),
-    );
+    const results = await Promise.allSettled(selected.map(async (rpcUrl) => ({ rpcUrl, value: await requestFn(rpcUrl) })));
 
     const successes: Array<{ rpcUrl: string; value: T; key: string }> = [];
     let lastError: unknown;
@@ -80,9 +72,7 @@ export class ConsensusExecutor {
     }
 
     if (successes.length === 0) {
-      throw lastError instanceof Error
-        ? lastError
-        : new Error(String(lastError ?? "Consensus: all participants failed"));
+      throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "Consensus: all participants failed"));
     }
 
     const buckets = new Map<string, Array<{ rpcUrl: string; value: T }>>();

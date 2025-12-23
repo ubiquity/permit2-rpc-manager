@@ -17,6 +17,7 @@ This report documents the observed failures, E2E results across upstreams, and t
 - Errors include MetaMask `Method not supported` for `eth_signTransaction` (not supported by some providers) and `Internal JSON-RPC error` for send/estimate.
 
 Representative call details:
+
 - Permit2 contract: `0xd635918A75356D133d5840eE5c9ED070302C9C60`
 - Function: `permitTransferFrom` / `batchPermitTransferFrom`
 - Sender: beneficiary address (0x4007CE2083c7F3E18097aeB3A39bb8eC149a341d)
@@ -29,6 +30,7 @@ Tooling used: `scripts/permit2-test-upstream-rpcs.ts` with `--execute` and exist
 Goal: broadcast one permit claim per upstream provider, on chain 100.
 
 Summary of upstream results (from latest run):
+
 - Success:
   - https://rpc.gnosischain.com
   - https://gnosis-public.nodies.app
@@ -50,6 +52,7 @@ These results show the Permit2 claim path itself is valid and succeeds on multip
 ### Request Shape Sensitivity
 
 Permit2 `permitTransferFrom` and `batchPermitTransferFrom` are sender-sensitive. Any proxy optimization that changes `msg.sender` or the call envelope can make the same data revert. Examples:
+
 - Aggregating via Multicall3 changes `msg.sender` to the multicall contract.
 - Including `from`, `value`, or state overrides in `eth_call` changes behavior across providers.
 
@@ -64,12 +67,15 @@ This matches observed behavior: production began working again without deploy wh
 ## Root Cause Analysis
 
 Most probable root cause:
+
 - Upstream-specific failures (HTTP 429/500/502 or -32603) combined with no failover for -32603 cause user-visible claim failures.
 
 Likely contributing factor:
+
 - Sender-sensitive Permit2 calls were eligible for multicall aggregation. If aggregated, the call semantics change and can revert or return provider-specific internal errors.
 
 Why production "self-fixed" without deploy:
+
 - Upstream scoring/health changed, and the selector moved to a working provider. This masks the underlying issue but does not resolve it.
 
 ## Changes Implemented in permit2-rpc-manager (branch feat/select-upstream-rpc)
@@ -87,19 +93,22 @@ These changes are intended to make the issue debuggable and to avoid multicall c
 
 ## Recommendations
 
-1) Update error classification for -32603:
+1. Update error classification for -32603:
+
    - Treat -32603 as `RETRY_DIFFERENT_RPC` for `eth_call` and `eth_estimateGas`, or
    - Use conditional retry for Permit2 selectors only, to avoid retrying real client errors.
 
-2) Improve request safety:
+2. Improve request safety:
+
    - Keep the multicall exclusions for Permit2 selectors.
    - Only aggregate `eth_call` requests with strict `to` + `data` keys.
 
-3) Add E2E coverage:
+3. Add E2E coverage:
+
    - Run one real claim per upstream provider using the local proxy and override headers.
    - Record tx hash in the database immediately after broadcast to prevent reuse.
 
-4) Observability:
+4. Observability:
    - Log the selected upstream per request, and surface it in error responses for debugging.
 
 ## Open Questions
@@ -111,8 +120,8 @@ These changes are intended to make the issue debuggable and to avoid multicall c
 ## Appendix: Example UI Error (Excerpt)
 
 ContractFunctionExecutionError:
+
 - function: `permitTransferFrom` / `batchPermitTransferFrom`
 - reason: "Internal JSON-RPC error"
 - chain: 100
 - sender: 0x4007CE2083c7F3E18097aeB3A39bb8eC149a341d
-

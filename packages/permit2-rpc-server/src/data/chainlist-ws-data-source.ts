@@ -2,11 +2,7 @@
 // Adjust path to point two levels up from src/data/
 import fallbackWhitelistJson from "../../rpc-whitelist.json" with { type: "json" };
 
-type LoggerFn = (
-  level: "debug" | "info" | "warn" | "error",
-  message: string,
-  ...optionalParams: unknown[]
-) => void;
+type LoggerFn = (level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]) => void;
 
 export type RpcWhitelist = {
   rpcs?: Record<string, string[]>;
@@ -41,18 +37,12 @@ export class ChainlistWsDataSource {
   private candidateLimit: number | null;
   private deriveFromHttp: DeriveWsMode;
 
-  constructor(
-    logger?: LoggerFn,
-    initialData?: RpcWhitelist,
-    options: { candidateLimit?: number } = {},
-  ) {
+  constructor(logger?: LoggerFn, initialData?: RpcWhitelist, options: { candidateLimit?: number } = {}) {
     this.log = logger || (() => {});
     const limit = options.candidateLimit;
     this.candidateLimit = Number.isFinite(limit) && (limit ?? 0) > 0 ? limit! : null;
     const deriveModeRaw = Deno.env.get("WS_DERIVE_FROM_HTTP")?.trim().toLowerCase();
-    this.deriveFromHttp = deriveModeRaw === "always" || deriveModeRaw === "never"
-      ? (deriveModeRaw as DeriveWsMode)
-      : "if_missing";
+    this.deriveFromHttp = deriveModeRaw === "always" || deriveModeRaw === "never" ? (deriveModeRaw as DeriveWsMode) : "if_missing";
     const sourceData = initialData || fallbackJsonData;
     this.loadData(sourceData);
   }
@@ -66,36 +56,33 @@ export class ChainlistWsDataSource {
       const ws = jsonData.ws || {};
       const rpcs = jsonData.rpcs || {};
 
-      const chainIds = new Set<string>([
-        ...Object.keys(wss),
-        ...Object.keys(ws),
-        ...Object.keys(rpcs),
-      ]);
+      const chainIds = new Set<string>([...Object.keys(wss), ...Object.keys(ws), ...Object.keys(rpcs)]);
 
-      this.whitelistData = Array.from(chainIds).map((chainIdStr) => {
-        const explicit = [...(wss[chainIdStr] ?? []), ...(ws[chainIdStr] ?? [])]
-          .filter((u): u is string => typeof u === "string")
-          .map((u) => normalizeWsUrl(u))
-          .filter((u): u is string => typeof u === "string");
-
-        const includeDerived = this.deriveFromHttp === "always" ||
-          (this.deriveFromHttp === "if_missing" && explicit.length === 0);
-        const derived = includeDerived
-          ? (rpcs[chainIdStr] ?? [])
+      this.whitelistData = Array.from(chainIds)
+        .map((chainIdStr) => {
+          const explicit = [...(wss[chainIdStr] ?? []), ...(ws[chainIdStr] ?? [])]
             .filter((u): u is string => typeof u === "string")
-            .map((u) => deriveWsUrl(u))
-            .filter((u): u is string => typeof u === "string")
-          : [];
+            .map((u) => normalizeWsUrl(u))
+            .filter((u): u is string => typeof u === "string");
 
-        return {
-          chainId: Number.parseInt(chainIdStr, 10),
-          rpcUrls: (() => {
-            const urls = [...new Set([...explicit, ...derived])];
-            if (this.candidateLimit) return urls.slice(0, this.candidateLimit);
-            return urls;
-          })(),
-        };
-      }).filter((entry) => Number.isFinite(entry.chainId) && entry.chainId > 0);
+          const includeDerived = this.deriveFromHttp === "always" || (this.deriveFromHttp === "if_missing" && explicit.length === 0);
+          const derived = includeDerived
+            ? (rpcs[chainIdStr] ?? [])
+                .filter((u): u is string => typeof u === "string")
+                .map((u) => deriveWsUrl(u))
+                .filter((u): u is string => typeof u === "string")
+            : [];
+
+          return {
+            chainId: Number.parseInt(chainIdStr, 10),
+            rpcUrls: (() => {
+              const urls = [...new Set([...explicit, ...derived])];
+              if (this.candidateLimit) return urls.slice(0, this.candidateLimit);
+              return urls;
+            })(),
+          };
+        })
+        .filter((entry) => Number.isFinite(entry.chainId) && entry.chainId > 0);
 
       this.initialized = true;
       this.log("info", `Successfully initialized WS whitelist data for ${this.whitelistData.length} chains.`);

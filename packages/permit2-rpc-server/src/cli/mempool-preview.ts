@@ -100,12 +100,8 @@ const PRESET_ALIASES: Record<string, string> = {
 const PRESETS: PresetInfo[] = [
   {
     name: "pending-counts",
-    description:
-      "Aggregated pending-tx throughput (tx/s) from newPendingTransactions (WS subscribe or HTTP filter polling).",
-    notes: [
-      "Streams 1 event per interval with count + tx/s.",
-      "Portable: hashes-only; no per-tx lookups required.",
-    ],
+    description: "Aggregated pending-tx throughput (tx/s) from newPendingTransactions (WS subscribe or HTTP filter polling).",
+    notes: ["Streams 1 event per interval with count + tx/s.", "Portable: hashes-only; no per-tx lookups required."],
     exampleEvent: {
       type: "pending_counts",
       ts: "2025-01-01T00:00:00.000Z",
@@ -126,19 +122,14 @@ const PRESETS: PresetInfo[] = [
         intervalMs: 1000,
         pendingCount: 1234,
         pendingPerSecond: 1234,
-        samples: [
-          { hash: "0x…", from: "0x…", to: "0x…", valueEth: "0.01", maxFeeGwei: "42.0", dataBytes: 68 },
-        ],
+        samples: [{ hash: "0x…", from: "0x…", to: "0x…", valueEth: "0.01", maxFeeGwei: "42.0", dataBytes: 68 }],
       },
     },
   },
   {
     name: "pending-raw",
     description: "Raw pending events (WS subscription notifications; HTTP filter hashes).",
-    notes: [
-      "Streams every pending event; can be extremely noisy on mainnet.",
-      "Use --max-events to stop quickly.",
-    ],
+    notes: ["Streams every pending event; can be extremely noisy on mainnet.", "Use --max-events to stop quickly."],
     exampleEvent: {
       type: "pending_raw",
       ts: "2025-01-01T00:00:00.000Z",
@@ -375,31 +366,35 @@ function parseCliArgs(argv: string[]): CliArgs {
 }
 
 function isJsonRpcSuccessResponse(value: unknown): value is JsonRpcSuccessResponse {
-  return typeof value === "object" && value !== null && (value as any).jsonrpc === "2.0" &&
-    typeof (value as any).id === "number" &&
-    "result" in (value as any);
+  return typeof value === "object" && value !== null && (value as any).jsonrpc === "2.0" && typeof (value as any).id === "number" && "result" in (value as any);
 }
 
 function isJsonRpcErrorResponse(value: unknown): value is JsonRpcErrorResponse {
-  return typeof value === "object" && value !== null && (value as any).jsonrpc === "2.0" &&
-    typeof (value as any).id === "number" &&
-    "error" in (value as any);
+  return typeof value === "object" && value !== null && (value as any).jsonrpc === "2.0" && typeof (value as any).id === "number" && "error" in (value as any);
 }
 
 function isSubscriptionNotification(value: unknown): value is JsonRpcSubscriptionNotification {
-  return typeof value === "object" && value !== null && (value as any).jsonrpc === "2.0" &&
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as any).jsonrpc === "2.0" &&
     (value as any).method === "eth_subscription" &&
-    typeof (value as any).params?.subscription === "string" && "result" in (value as any).params;
+    typeof (value as any).params?.subscription === "string" &&
+    "result" in (value as any).params
+  );
 }
 
 class JsonRpcWsClient {
   private readonly socket: WebSocket;
   private nextId = 1;
-  private readonly pending = new Map<JsonRpcId, {
-    resolve: (value: unknown) => void;
-    reject: (error: Error) => void;
-    timeout: ReturnType<typeof setTimeout>;
-  }>();
+  private readonly pending = new Map<
+    JsonRpcId,
+    {
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      timeout: ReturnType<typeof setTimeout>;
+    }
+  >();
   private readonly subscriptions = new Map<string, (result: unknown) => void>();
 
   private constructor(socket: WebSocket) {
@@ -440,11 +435,7 @@ class JsonRpcWsClient {
     }
   }
 
-  async call(
-    method: string,
-    params: unknown[] = [],
-    { timeoutMs = 15_000 }: { timeoutMs?: number } = {},
-  ): Promise<unknown> {
+  async call(method: string, params: unknown[] = [], { timeoutMs = 15_000 }: { timeoutMs?: number } = {}): Promise<unknown> {
     const id = this.nextId++;
     const request = { jsonrpc: "2.0", id, method, params };
     const payload = JSON.stringify(request);
@@ -526,11 +517,7 @@ class JsonRpcHttpClient {
     // no-op
   }
 
-  async call(
-    method: string,
-    params: unknown[] = [],
-    { timeoutMs = 15_000 }: { timeoutMs?: number } = {},
-  ): Promise<unknown> {
+  async call(method: string, params: unknown[] = [], { timeoutMs = 15_000 }: { timeoutMs?: number } = {}): Promise<unknown> {
     const id = this.nextId++;
     const payload = JSON.stringify({ jsonrpc: "2.0", id, method, params });
 
@@ -635,14 +622,17 @@ function summarizeTx(tx: RpcTransaction): TxSummary {
 
 type PreviewEvent = { type: string; ts: string; data: unknown };
 
-function createEmitter(
-  {
-    format,
-    maxEvents,
-    quiet,
-    onStop,
-  }: { format: OutputFormat; maxEvents: number; quiet: boolean; onStop: () => void },
-): (event: PreviewEvent) => boolean {
+function createEmitter({
+  format,
+  maxEvents,
+  quiet,
+  onStop,
+}: {
+  format: OutputFormat;
+  maxEvents: number;
+  quiet: boolean;
+  onStop: () => void;
+}): (event: PreviewEvent) => boolean {
   let emitted = 0;
 
   const emitJsonl = (event: PreviewEvent) => console.log(JSON.stringify(event));
@@ -650,30 +640,18 @@ function createEmitter(
   const emitPretty = (event: PreviewEvent) => {
     if (event.type === "pending_counts") {
       const data = event.data as any;
-      const txps = typeof data.pendingPerSecond === "number"
-        ? data.pendingPerSecond.toFixed(0)
-        : String(data.pendingPerSecond);
+      const txps = typeof data.pendingPerSecond === "number" ? data.pendingPerSecond.toFixed(0) : String(data.pendingPerSecond);
       console.log(`[${event.ts}] pending: ${data.pendingCount} (${txps}/s) totalSeen=${data.totalSeen}`);
       return;
     }
     if (event.type === "pending_sample") {
       const data = event.data as any;
-      const txps = typeof data.pendingPerSecond === "number"
-        ? data.pendingPerSecond.toFixed(0)
-        : String(data.pendingPerSecond);
-      console.log(
-        `[${event.ts}] pending: ${data.pendingCount} (${txps}/s) samples=${
-          Array.isArray(data.samples) ? data.samples.length : 0
-        }`,
-      );
+      const txps = typeof data.pendingPerSecond === "number" ? data.pendingPerSecond.toFixed(0) : String(data.pendingPerSecond);
+      console.log(`[${event.ts}] pending: ${data.pendingCount} (${txps}/s) samples=${Array.isArray(data.samples) ? data.samples.length : 0}`);
       if (Array.isArray(data.samples)) {
         for (const sample of data.samples) {
           const to = sample.to ? `${sample.to}` : "<contract-create>";
-          const fee = sample.maxFeeGwei
-            ? `${sample.maxFeeGwei} gwei`
-            : sample.gasPriceGwei
-            ? `${sample.gasPriceGwei} gwei`
-            : "?";
+          const fee = sample.maxFeeGwei ? `${sample.maxFeeGwei} gwei` : sample.gasPriceGwei ? `${sample.gasPriceGwei} gwei` : "?";
           const value = sample.valueEth ? `${sample.valueEth} ETH` : "?";
           console.log(`  ${sample.hash ?? "?"}  to=${to}  value=${value}  fee≈${fee}`);
         }
@@ -763,7 +741,7 @@ async function emitMeta(client: JsonRpcCaller, emit: (event: PreviewEvent) => bo
 async function runPendingCounts(
   client: JsonRpcWsClient,
   emit: (event: PreviewEvent) => boolean,
-  { intervalMs, withBody }: { intervalMs: number; withBody: boolean },
+  { intervalMs, withBody }: { intervalMs: number; withBody: boolean }
 ): Promise<void> {
   let windowCount = 0;
   let totalSeen = 0;
@@ -798,11 +776,7 @@ async function runPendingCounts(
   }
 }
 
-async function runPendingRaw(
-  client: JsonRpcWsClient,
-  emit: (event: PreviewEvent) => boolean,
-  { withBody }: { withBody: boolean },
-): Promise<void> {
+async function runPendingRaw(client: JsonRpcWsClient, emit: (event: PreviewEvent) => boolean, { withBody }: { withBody: boolean }): Promise<void> {
   const subscribeParams = withBody ? ["newPendingTransactions", true] : ["newPendingTransactions"];
   try {
     await client.subscribe(subscribeParams, (result) => {
@@ -828,11 +802,7 @@ async function runNewHeads(client: JsonRpcWsClient, emit: (event: PreviewEvent) 
   while (true) await sleep(60_000);
 }
 
-async function runTxpoolStatus(
-  client: JsonRpcCaller,
-  emit: (event: PreviewEvent) => boolean,
-  { intervalMs }: { intervalMs: number },
-): Promise<void> {
+async function runTxpoolStatus(client: JsonRpcCaller, emit: (event: PreviewEvent) => boolean, { intervalMs }: { intervalMs: number }): Promise<void> {
   while (true) {
     const ts = new Date().toISOString();
     let result: unknown;
@@ -856,7 +826,7 @@ async function runPendingSample(
     maxSamplesPerInterval,
     maxInflight,
     withBody,
-  }: { intervalMs: number; sampleRate: number; maxSamplesPerInterval: number; maxInflight: number; withBody: boolean },
+  }: { intervalMs: number; sampleRate: number; maxSamplesPerInterval: number; maxInflight: number; withBody: boolean }
 ): Promise<void> {
   let windowPending = 0;
   let windowSampled = 0;
@@ -940,7 +910,7 @@ async function runPendingSample(
 async function runCombo(
   client: JsonRpcWsClient,
   emit: (event: PreviewEvent) => boolean,
-  { intervalMs, withBody }: { intervalMs: number; withBody: boolean },
+  { intervalMs, withBody }: { intervalMs: number; withBody: boolean }
 ): Promise<void> {
   let windowPending = 0;
   let totalSeen = 0;
@@ -1004,8 +974,7 @@ function isMethodUnavailableError(error: unknown): boolean {
   if (parsed?.code === -32601) return true;
   if (parsed?.code === -32600 && /not allowed/i.test(parsed.message)) return true;
   const message = (parsed?.message ?? (error instanceof Error ? error.message : "")).toLowerCase();
-  return message.includes("does not exist") || message.includes("not available") || message.includes("not allowed") ||
-    message.includes("not supported");
+  return message.includes("does not exist") || message.includes("not available") || message.includes("not allowed") || message.includes("not supported");
 }
 
 async function createPendingTxFilter(client: JsonRpcCaller): Promise<string> {
@@ -1099,7 +1068,7 @@ class HttpPendingTxPoller {
     private readonly options: {
       quiet: boolean;
       setActiveFilterId: (filterId: string | undefined) => void;
-    },
+    }
   ) {}
 
   getMode(): PendingPollMode {
@@ -1173,11 +1142,7 @@ class HttpPendingTxPoller {
       this.consecutiveFilterFailures++;
       const shouldFallback = isMethodUnavailableError(error) || this.consecutiveFilterFailures >= 3;
       if (!this.options.quiet) {
-        console.error(
-          `Filter polling error (${this.consecutiveFilterFailures}): ${errorSummary(error)}${
-            shouldFallback ? " (falling back)" : ""
-          }`,
-        );
+        console.error(`Filter polling error (${this.consecutiveFilterFailures}): ${errorSummary(error)}${shouldFallback ? " (falling back)" : ""}`);
       }
 
       this.filterId = undefined;
@@ -1195,9 +1160,7 @@ class HttpPendingTxPoller {
     try {
       const info = await getPendingBlockInfo(this.client);
       const current = new Set(info.hashes);
-      const newHashes = this.prevPendingHashes
-        ? info.hashes.filter((hash) => !this.prevPendingHashes?.has(hash))
-        : info.hashes;
+      const newHashes = this.prevPendingHashes ? info.hashes.filter((hash) => !this.prevPendingHashes?.has(hash)) : info.hashes;
       this.prevPendingHashes = current;
       return newHashes;
     } catch (error) {
@@ -1230,11 +1193,7 @@ class HttpPendingTxPoller {
 async function runPendingCountsHttp(
   client: JsonRpcCaller,
   emit: (event: PreviewEvent) => boolean,
-  {
-    intervalMs,
-    quiet,
-    setActiveFilterId,
-  }: { intervalMs: number; quiet: boolean; setActiveFilterId: (filterId: string | undefined) => void },
+  { intervalMs, quiet, setActiveFilterId }: { intervalMs: number; quiet: boolean; setActiveFilterId: (filterId: string | undefined) => void }
 ): Promise<void> {
   let totalSeen = 0;
   const poller = new HttpPendingTxPoller(client, { quiet, setActiveFilterId });
@@ -1257,11 +1216,7 @@ async function runPendingCountsHttp(
 async function runPendingRawHttp(
   client: JsonRpcCaller,
   emit: (event: PreviewEvent) => boolean,
-  {
-    intervalMs,
-    quiet,
-    setActiveFilterId,
-  }: { intervalMs: number; quiet: boolean; setActiveFilterId: (filterId: string | undefined) => void },
+  { intervalMs, quiet, setActiveFilterId }: { intervalMs: number; quiet: boolean; setActiveFilterId: (filterId: string | undefined) => void }
 ): Promise<void> {
   const poller = new HttpPendingTxPoller(client, { quiet, setActiveFilterId });
 
@@ -1292,7 +1247,7 @@ async function runPendingSampleHttp(
     maxInflight: number;
     quiet: boolean;
     setActiveFilterId: (filterId: string | undefined) => void;
-  },
+  }
 ): Promise<void> {
   let totalSeen = 0;
   let sampleNulls = 0;
@@ -1355,11 +1310,7 @@ async function runPendingSampleHttp(
   }
 }
 
-async function runNewHeadsHttp(
-  client: JsonRpcCaller,
-  emit: (event: PreviewEvent) => boolean,
-  { intervalMs }: { intervalMs: number },
-): Promise<void> {
+async function runNewHeadsHttp(client: JsonRpcCaller, emit: (event: PreviewEvent) => boolean, { intervalMs }: { intervalMs: number }): Promise<void> {
   let lastNumber: string | undefined = undefined;
 
   while (true) {
@@ -1386,11 +1337,7 @@ async function runNewHeadsHttp(
 async function runComboHttp(
   client: JsonRpcCaller,
   emit: (event: PreviewEvent) => boolean,
-  {
-    intervalMs,
-    quiet,
-    setActiveFilterId,
-  }: { intervalMs: number; quiet: boolean; setActiveFilterId: (filterId: string | undefined) => void },
+  { intervalMs, quiet, setActiveFilterId }: { intervalMs: number; quiet: boolean; setActiveFilterId: (filterId: string | undefined) => void }
 ): Promise<void> {
   let totalSeen = 0;
   let lastHead: unknown = undefined;
@@ -1504,18 +1451,14 @@ async function main(): Promise<void> {
   }
 
   let wsClient: JsonRpcWsClient | undefined = undefined;
-  const callClient: JsonRpcCaller = useHttp
-    ? new JsonRpcHttpClient(resolvedRpcUrl)
-    : (wsClient = await JsonRpcWsClient.connect(resolvedWsUrl));
+  const callClient: JsonRpcCaller = useHttp ? new JsonRpcHttpClient(resolvedRpcUrl) : (wsClient = await JsonRpcWsClient.connect(resolvedWsUrl));
   let activeFilterId: string | undefined = undefined;
 
   if (!cliArgs.quiet) {
     const redacted = redactUrl(useHttp ? resolvedRpcUrl : resolvedWsUrl);
     console.error(`Connecting to ${redacted} ...`);
     if (useHttp) {
-      console.error(
-        "Transport: HTTP polling (auto: eth_newPendingTransactionFilter + eth_getFilterChanges; fallback: eth_getBlockByNumber pending)",
-      );
+      console.error("Transport: HTTP polling (auto: eth_newPendingTransactionFilter + eth_getFilterChanges; fallback: eth_getBlockByNumber pending)");
     }
   }
 

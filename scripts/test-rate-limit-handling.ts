@@ -15,27 +15,33 @@ const mockServer = Deno.serve({ port: 8545 }, (req) => {
   localStorage.setItem("requestCount", String(requestCount + 1));
 
   if (requestCount < 3) {
-    return new Response(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      result: "0x1234"
-    }), {
-      headers: { "Content-Type": "application/json" }
-    });
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: "0x1234",
+      }),
+      {
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 
   // Return Tenderly-style quota error
-  return new Response(JSON.stringify({
-    jsonrpc: "2.0",
-    id: 1,
-    error: {
-      code: -32004,
-      message: "You've reached the quota limit for your current plan."
+  return new Response(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32004,
+        message: "You've reached the quota limit for your current plan.",
+      },
+    }),
+    {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
     }
-  }), {
-    status: 403,
-    headers: { "Content-Type": "application/json" }
-  });
+  );
 });
 
 // Test the manager
@@ -46,13 +52,9 @@ async function testRateLimitHandling() {
     maxBackoffMs: 3000, // 3 seconds max backoff for testing
     initialRpcData: {
       rpcs: {
-        "1": [
-          "http://localhost:8545",
-          "https://rpc.ankr.com/eth",
-          "https://cloudflare-eth.com"
-        ]
-      }
-    }
+        "1": ["http://localhost:8545", "https://rpc.ankr.com/eth", "https://cloudflare-eth.com"],
+      },
+    },
   });
 
   console.log("\n=== Testing Rate Limit Handling ===\n");
@@ -68,11 +70,11 @@ async function testRateLimitHandling() {
     }
 
     // Small delay between requests
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
   console.log("\n=== Waiting for cooldown to expire... ===\n");
-  await new Promise(resolve => setTimeout(resolve, 3000));
+  await new Promise((resolve) => setTimeout(resolve, 3000));
 
   // Try again after cooldown
   try {

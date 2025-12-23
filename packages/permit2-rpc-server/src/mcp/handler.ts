@@ -22,11 +22,8 @@ function parseChainIdOverride(value: unknown): number | undefined {
 export function isMcpRequest(body: unknown): boolean {
   if (typeof body === "object" && body !== null && "method" in body) {
     const method = (body as any).method;
-    return typeof method === "string" && (
-      method === "initialize" ||
-      method.startsWith("tools/") ||
-      method.startsWith("resources/") ||
-      method.startsWith("prompts/")
+    return (
+      typeof method === "string" && (method === "initialize" || method.startsWith("tools/") || method.startsWith("resources/") || method.startsWith("prompts/"))
     );
   }
   return false;
@@ -79,10 +76,12 @@ export async function handleMcpRequest(options: {
         const result = await options.manager.send(chainId, toolName, params);
 
         mcpResponse = {
-          content: [{
-            type: "text",
-            text: JSON.stringify(result, null, 2),
-          }],
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
         };
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
@@ -115,6 +114,6 @@ export async function handleMcpRequest(options: {
     {
       status: 200,
       headers: { ...options.corsHeaders, "Content-Type": "application/json" },
-    },
+    }
   );
 }
