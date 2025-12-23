@@ -26,6 +26,23 @@ The service exposes the following endpoint:
 - The request body should be a standard JSON-RPC 2.0 request object or an array of request objects (for batching).
 - The response will be a JSON-RPC 2.0 response object or an array of response objects.
 
+## Upstream Overrides (HTTP)
+
+For E2E testing or debugging, you can force the proxy to try specific upstream RPCs first via headers.
+Overrides must match whitelisted RPC URLs for the chain.
+
+Headers:
+- `X-UBQ-RPC-CANDIDATES`: Comma-separated list of upstream RPC URLs to try first.
+- `X-UBQ-RPC-URL`: Single upstream RPC URL (convenience for one candidate).
+- `X-UBQ-RPC-FALLBACK`: Boolean flag (`1`, `true`, `yes`, `on`) to allow fallback
+  to the normal ranked list after trying the overrides.
+
+Behavior:
+- If overrides are provided but none match the whitelist and fallback is disabled,
+  the server returns JSON-RPC error `-32602` (invalid params).
+- When fallback is enabled, the proxy tries overrides in order, then continues with
+  the default ranked pool.
+
 ## WebSocket (ws/wss)
 
 The server also accepts JSON-RPC over WebSocket at:
@@ -80,6 +97,7 @@ Use Deno tasks defined in `deno.jsonc`:
 - `deno task fmt`: Format the code.
 - `deno task test`: Run tests (requires tests to be added/adapted).
 - `deno task mempool:preview`: Preview candidate mempool stream payloads (defaults to `ws://127.0.0.1:8000/1`; use `--rpc http://...` for HTTP polling with pending-block fallback).
+- `deno task permit:claim-e2e`: Run permit claim read-path E2E checks across RPCs from a permit JSON file.
 
 Example:
 

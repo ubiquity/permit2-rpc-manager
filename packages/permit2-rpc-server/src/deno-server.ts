@@ -38,6 +38,31 @@ function createJsonRpcError(id: number | string | null, code: number, message: s
   };
 }
 
+const RPC_OVERRIDE_HEADER = "x-ubq-rpc-candidates";
+const RPC_OVERRIDE_SINGLE_HEADER = "x-ubq-rpc-url";
+const RPC_OVERRIDE_FALLBACK_HEADER = "x-ubq-rpc-fallback";
+
+const parseBoolHeader = (value: string | null): boolean => {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return ["1", "true", "yes", "y", "on"].includes(normalized);
+};
+
+const parseRpcOverrideOptions = (headers: Headers): { rpcOverrides: string[]; allowFallback: boolean } | null => {
+  const candidatesRaw = headers.get(RPC_OVERRIDE_HEADER);
+  const singleRaw = headers.get(RPC_OVERRIDE_SINGLE_HEADER);
+  const allowFallback = parseBoolHeader(headers.get(RPC_OVERRIDE_FALLBACK_HEADER));
+  const candidates = [
+    ...(candidatesRaw ? candidatesRaw.split(",") : []),
+    ...(singleRaw ? [singleRaw] : []),
+  ]
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  if (candidates.length === 0) return null;
+  return { rpcOverrides: candidates, allowFallback };
+};
+
 const PORT = parseInt(Deno.env.get("PORT") ?? "8000");
 
 console.log("Initializing Permit2 RPC Manager Proxy...");
@@ -78,6 +103,16 @@ function parseCsvEnv(name: string): string[] | undefined {
   if (raw === undefined) return undefined;
   const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
   return parts.length > 0 ? parts : undefined;
+}
+
+function parseLogLevelEnv(name: string): Permit2RpcManagerOptions["logLevel"] | undefined {
+  const raw = Deno.env.get(name);
+  if (!raw) return undefined;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "debug" || normalized === "info" || normalized === "warn" || normalized === "error" || normalized === "none") {
+    return normalized as Permit2RpcManagerOptions["logLevel"];
+  }
+  return undefined;
 }
 
 function buildPermit2RpcManagerOptionsFromEnv(
@@ -140,11 +175,14 @@ function buildPermit2RpcManagerOptionsFromEnv(
   const consensusPreferNonEmpty = parseBoolEnv("RPC_CONSENSUS_PREFER_NON_EMPTY");
   if (consensusPreferNonEmpty !== undefined) consensus.preferNonEmpty = consensusPreferNonEmpty;
 
+  const logLevel = parseLogLevelEnv("RPC_LOG_LEVEL") ?? parseLogLevelEnv("LOG_LEVEL");
+
   return {
     initialRpcData,
     disableCache,
     validateChainId: parseBoolEnv("RPC_VALIDATE_CHAIN_ID"),
     capabilityTtlMs: parseIntEnv("RPC_CAPABILITY_TTL_MS"),
+    logLevel,
     scoringV2: Object.keys(scoringV2).length > 0 ? scoringV2 : undefined,
     hedge: Object.keys(hedge).length > 0 ? hedge : undefined,
     headSampling: Object.keys(headSampling).length > 0 ? headSampling : undefined,
@@ -301,7 +339,8 @@ const handler = async (request: Request): Promise<Response> => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*", // Allow requests from any origin
     "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization", // Adjust as needed
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, X-UBQ-RPC-CANDIDATES, X-UBQ-RPC-URL, X-UBQ-RPC-FALLBACK",
   };
 
   // WebSocket JSON-RPC proxy (ws/wss). Connect clients to our server, proxy to an upstream WS RPC.
@@ -674,6 +713,14 @@ const handler = async (request: Request): Promise<Response> => {
     });
   }
 
+  const overrideOptions = parseRpcOverrideOptions(request.headers);
+  if (overrideOptions) {
+    console.log(
+      `Received RPC override headers for chain ${chainId}: ` +
+        `${overrideOptions.rpcOverrides.join(", ")} (allowFallback=${overrideOptions.allowFallback})`,
+    );
+  }
+
   // --- Handle Batch Request ---
   if (Array.isArray(requestBody)) {
     console.log(`Received batch request for chain ${chainId} with ${requestBody.length} calls.`);
@@ -723,7 +770,7 @@ const handler = async (request: Request): Promise<Response> => {
     const multicallPromises: Promise<JsonRpcResponse[]>[] = [];
     for (const [blockTag, batches] of Object.entries(multiCallRequestsByBlockTag)) {
       for (const batch of batches) {
-        multicallPromises.push(manager.multicall3(chainId, batch, blockTag));
+        multicallPromises.push(manager.multicall3(chainId, batch, blockTag, overrideOptions ?? undefined));
       }
     }
     const multicallResponses = (await Promise.all(multicallPromises)).flat();
@@ -734,7 +781,7 @@ const handler = async (request: Request): Promise<Response> => {
         try {
           // Ensure params is always an array for manager.send()
           const params = Array.isArray(req.params) ? req.params : [];
-          const result = await manager.send(chainId, req.method, params);
+          const result = await manager.send(chainId, req.method, params, overrideOptions ?? undefined);
           return { jsonrpc: "2.0", id: req.id, result } as JsonRpcResponse;
         } catch (e) {
           const error = e instanceof Error ? e : new Error(String(e));
@@ -772,7 +819,7 @@ const handler = async (request: Request): Promise<Response> => {
     try {
       // Ensure params is always an array for manager.send()
       const params = Array.isArray(requestBody.params) ? requestBody.params : [];
-      const result = await manager.send(chainId, requestBody.method, params);
+      const result = await manager.send(chainId, requestBody.method, params, overrideOptions ?? undefined);
       const rpcResponse: JsonRpcResponse = {
         jsonrpc: "2.0",
         id: requestBody.id,

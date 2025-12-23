@@ -21,23 +21,55 @@ export const multicall3Addresses = deployments.reduce(
   {} as Record<number, string>,
 );
 
+const senderSensitiveSelectors = new Set([
+  "0x30f28b7a", // permitTransferFrom(((address,uint256),uint256,uint256),(address,uint256),address,bytes)
+  "0x6700a7c5", // batchPermitTransferFrom(((address,uint256),uint256,uint256)[],(address,uint256)[],address[],bytes[])
+  "0x32d88955", // permitWitnessTransferFrom(((address,uint256),uint256,uint256),(address,uint256),address,bytes,bytes32)
+  "0xbba8c6d5", // batchPermitWitnessTransferFrom(((address,uint256),uint256,uint256)[],(address,uint256)[],address[],bytes[],bytes32)
+]);
+
+const isSenderSensitiveCall = (data: string): boolean => {
+  if (!data.startsWith("0x") || data.length < 10) {
+    return false;
+  }
+  return senderSensitiveSelectors.has(data.slice(0, 10).toLowerCase());
+};
+
 export function getMulticall3Address(chainId: number): string | null {
   return multicall3Addresses[chainId] || null;
 }
 
 export const isMulticall3Request = (chainId: number, req: JsonRpcRequest): req is Multicall3Request => {
+  if (
+    !req.params ||
+    !Array.isArray(req.params) ||
+    req.params.length !== 2 ||
+    typeof req.params[0] !== "object" ||
+    req.params[0] === null
+  ) {
+    return false;
+  }
+
+  const call = req.params[0] as Record<string, unknown>;
+  const allowedKeys = new Set(["to", "data"]);
+  for (const key of Object.keys(call)) {
+    if (!allowedKeys.has(key)) {
+      return false;
+    }
+  }
+
+  if ("data" in call && typeof call.data === "string" && isSenderSensitiveCall(call.data)) {
+    return false;
+  }
+
   return (
     req.id !== null &&
     chainId in multicall3Addresses &&
     req.method === "eth_call" &&
-    req.params &&
-    Array.isArray(req.params) &&
-    req.params.length >= 2 &&
-    typeof req.params[0] === "object" &&
-    "to" in req.params[0] &&
-    typeof req.params[0].to === "string" &&
-    "data" in req.params[0] &&
-    typeof req.params[0].data === "string" &&
+    "to" in call &&
+    typeof call.to === "string" &&
+    "data" in call &&
+    typeof call.data === "string" &&
     (typeof req.params[1] === "string" || typeof req.params[1] === "number")
   );
 };
