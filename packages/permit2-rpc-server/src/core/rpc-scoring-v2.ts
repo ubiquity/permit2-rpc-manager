@@ -154,7 +154,11 @@ export class RpcScorerV2 {
     return this.rankWithDetails(chainId, method, candidates).ranked;
   }
 
-  rankWithDetails(chainId: number, method: string, candidates: string[]): {
+  rankWithDetails(
+    chainId: number,
+    method: string,
+    candidates: string[],
+  ): {
     ranked: string[];
     details: Map<string, RpcScoreDetails>;
   } {

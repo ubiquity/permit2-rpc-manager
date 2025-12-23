@@ -10,10 +10,7 @@ export class RequestDeduplicator {
   /**
    * Deduplicates identical concurrent requests
    */
-  deduplicate<T>(
-    key: string,
-    requestFn: () => Promise<T>,
-  ): Promise<T> {
+  deduplicate<T>(key: string, requestFn: () => Promise<T>): Promise<T> {
     // Check if identical request is already in progress
     const pending = this.pendingRequests.get(key) as Promise<T> | undefined;
     if (pending) {

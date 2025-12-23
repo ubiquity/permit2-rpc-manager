@@ -21,11 +21,7 @@ interface JsonRpcResponse {
   error?: JsonRpcError;
 }
 
-type LoggerFn = (
-  level: "debug" | "info" | "warn" | "error",
-  message: string,
-  ...optionalParams: unknown[]
-) => void;
+type LoggerFn = (level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]) => void;
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";

@@ -10,20 +10,21 @@ class MemoryCacheManager extends CacheManager {
     super({ disableCache: true });
   }
 
-  override async getFastestRpc(chainId: number): Promise<string | null> {
-    return this.store.get(chainId)?.fastestRpc ?? null;
+  override getFastestRpc(chainId: number): Promise<string | null> {
+    return Promise.resolve(this.store.get(chainId)?.fastestRpc ?? null);
   }
 
-  override async getLatencyMap(chainId: number): Promise<Record<string, LatencyTestResult> | null> {
-    return this.store.get(chainId)?.latencyMap ?? null;
+  override getLatencyMap(chainId: number): Promise<Record<string, LatencyTestResult> | null> {
+    return Promise.resolve(this.store.get(chainId)?.latencyMap ?? null);
   }
 
-  override async updateChainCache(
+  override updateChainCache(
     chainId: number,
     latencyMap: Record<string, LatencyTestResult>,
     fastestRpc: string | null,
   ): Promise<void> {
     this.store.set(chainId, { fastestRpc, latencyMap });
+    return Promise.resolve();
   }
 }
 

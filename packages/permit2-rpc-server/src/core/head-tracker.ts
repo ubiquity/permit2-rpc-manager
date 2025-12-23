@@ -1,10 +1,6 @@
 import type { RpcMetricsRegistry } from "./rpc-metrics.ts";
 
-type LoggerFn = (
-  level: "debug" | "info" | "warn" | "error",
-  message: string,
-  ...optionalParams: unknown[]
-) => void;
+type LoggerFn = (level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]) => void;
 
 export interface HeadSamplingOptions {
   now?: () => number;
@@ -121,7 +117,7 @@ export class HeadTracker {
         throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
 
-      const json = await response.json() as { result?: unknown; error?: { code?: number; message?: string } };
+      const json = (await response.json()) as { result?: unknown; error?: { code?: number; message?: string } };
       if (json?.error) {
         throw new Error(`RPC error ${json.error.code ?? "unknown"}: ${json.error.message ?? "unknown"}`);
       }

@@ -3,6 +3,7 @@
 ## Summary
 
 An HTTP 400 error was reported for network 100 (Gnosis) with the following error:
+
 ```
 gcp-us-west2
 Error processing single request (id: 44, method: eth_call) for chain 100: Error: HTTP error 400 Bad Request
@@ -11,12 +12,15 @@ Error processing single request (id: 44, method: eth_call) for chain 100: Error:
 ## Investigation Results
 
 ### 1. Direct RPC Testing
+
 Tested all 12 network 100 RPC endpoints with the exact payload that caused the error:
+
 - **11/12 endpoints succeeded** (HTTP 200)
 - **0 endpoints returned HTTP 400**
 - **1 endpoint failed** with HTTP 500 (gnosis.drpc.org)
 
 ### 2. Server Testing
+
 - Production server (https://rpc.ubq.fi/100) successfully processed the same request
 - No HTTP 400 errors reproduced
 
@@ -31,6 +35,7 @@ The HTTP 400 error was NOT from any current network 100 RPC endpoint. Possible c
 ## Actions Taken
 
 1. **Enhanced Error Handling** (permit2-rpc-manager.ts):
+
    - Added HTTP 400 to retryable errors list
    - Improved error logging to include the failing RPC URL
    - Added more detailed error information in logs
@@ -52,6 +57,7 @@ The HTTP 400 error was NOT from any current network 100 RPC endpoint. Possible c
 Full test results saved to: `network-100-test-results.json`
 
 ### Working RPCs (sorted by latency):
+
 1. gnosis-rpc.publicnode.com - 422ms
 2. endpoints.omniatech.io - 490ms
 3. rpc.ap-southeast-1.gateway.fm - 532ms
@@ -65,4 +71,5 @@ Full test results saved to: `network-100-test-results.json`
 11. rpc.gnosis.gateway.fm - 1243ms
 
 ### Failed RPC:
+
 - gnosis.drpc.org - HTTP 500 (not 400)

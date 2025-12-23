@@ -7,17 +7,17 @@
 async function testHealthEndpoint(baseUrl: string) {
   console.log(`🔍 Testing health endpoint at: ${baseUrl}/health`);
   console.log("─".repeat(60));
-  
+
   try {
     const response = await fetch(`${baseUrl}/health`);
-    
+
     if (!response.ok) {
       console.error(`❌ HTTP Error: ${response.status} ${response.statusText}`);
       return;
     }
-    
+
     const data = await response.json();
-    
+
     // Display summary
     if (data.summary) {
       console.log("📊 Summary:");
@@ -28,7 +28,7 @@ async function testHealthEndpoint(baseUrl: string) {
       console.log(`  Failed: ${data.summary.failedRpcs}`);
       console.log(`  Eliminated: ${data.summary.eliminatedRpcs}`);
     }
-    
+
     // Display system info
     if (data.system) {
       console.log("\n⚙️  System Info:");
@@ -36,12 +36,12 @@ async function testHealthEndpoint(baseUrl: string) {
       console.log(`  Log Level: ${data.system.logLevel}`);
       console.log(`  Max Consecutive Failures: ${data.system.maxConsecutiveFailures}`);
     }
-    
+
     // Display a few chains as examples
     if (data.chains) {
       console.log("\n🔗 Sample Chains:");
       const sampleChains = [1, 100, 8453]; // Ethereum, Gnosis, Base
-      
+
       for (const chainId of sampleChains) {
         const chain = data.chains[chainId];
         if (chain) {
@@ -58,9 +58,8 @@ async function testHealthEndpoint(baseUrl: string) {
         }
       }
     }
-    
+
     console.log("\n✅ Health endpoint is working!");
-    
   } catch (error) {
     console.error("❌ Error:", error instanceof Error ? error.message : String(error));
   }

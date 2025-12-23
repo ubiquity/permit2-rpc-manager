@@ -61,10 +61,7 @@ Deno.test("METHOD_NOT_FOUND retries another RPC and caches capability", async ()
     const result1 = await manager.send<string>(chainId, method, params);
     assert.equal(result1, "ok-1");
 
-    assert.equal(
-      (manager as any).rpcMethodCapabilities.get(chainId, rpc1, method),
-      "unsupported",
-    );
+    assert.equal((manager as any).rpcMethodCapabilities.get(chainId, rpc1, method), "unsupported");
 
     // Force a deterministic start index; without capability filtering this would try rpc1 first again.
     (manager as any).rpcIndexMap.set(chainId, 0);

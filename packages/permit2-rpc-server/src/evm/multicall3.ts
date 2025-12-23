@@ -41,10 +41,7 @@ export function getMulticall3Address(chainId: number): string | null {
 
 export const isMulticall3Request = (chainId: number, req: JsonRpcRequest): req is Multicall3Request => {
   if (
-    !req.params ||
-    !Array.isArray(req.params) ||
-    req.params.length !== 2 ||
-    typeof req.params[0] !== "object" ||
+    !req.params || !Array.isArray(req.params) || req.params.length !== 2 || typeof req.params[0] !== "object" ||
     req.params[0] === null
   ) {
     return false;

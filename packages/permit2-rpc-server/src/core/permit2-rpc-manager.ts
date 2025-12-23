@@ -452,10 +452,7 @@ export class Permit2RpcManager {
    * Calculate backoff time for an RPC based on its failure count
    */
   private calculateBackoffMs(consecutiveFailures: number): number {
-    const backoff = Math.min(
-      this.backoffBaseMs * Math.pow(2, consecutiveFailures - 1),
-      this.maxBackoffMs,
-    );
+    const backoff = Math.min(this.backoffBaseMs * Math.pow(2, consecutiveFailures - 1), this.maxBackoffMs);
     return backoff;
   }
 
@@ -505,11 +502,7 @@ export class Permit2RpcManager {
   /**
    * Record a failed RPC call
    */
-  private async recordFailure(
-    chainId: number,
-    rpcUrl: string,
-    classification: ErrorClassification,
-  ): Promise<void> {
+  private async recordFailure(chainId: number, rpcUrl: string, classification: ErrorClassification): Promise<void> {
     const state = this.getHealthState(rpcUrl);
 
     state.consecutiveFailures++;
@@ -536,7 +529,11 @@ export class Permit2RpcManager {
       this._log(
         "warn",
         `[HEALTH] RPC ${rpcUrl} marked unhealthy after ${state.consecutiveFailures} failures. ` +
-          `Reasons: ${Array.from(state.failureReasons.entries()).map(([r, c]) => `${r}:${c}`).join(", ")}`,
+          `Reasons: ${
+            Array.from(state.failureReasons.entries())
+              .map(([r, c]) => `${r}:${c}`)
+              .join(", ")
+          }`,
       );
     }
 
@@ -727,11 +724,9 @@ export class Permit2RpcManager {
     }
 
     if (orderedRpcs.length === 0) {
-      throw new JsonRpcError(
-        JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
-        `No RPC endpoints available for chain ${chainId}.`,
-        { chainId },
-      );
+      throw new JsonRpcError(JSON_RPC_ERROR_CODES.INTERNAL_ERROR, `No RPC endpoints available for chain ${chainId}.`, {
+        chainId,
+      });
     }
 
     let lastError: Error | null = null;
@@ -740,8 +735,7 @@ export class Permit2RpcManager {
     const normalizedMethod = method.trim().toLowerCase();
 
     const consensusEnabled = this.consensus.enabled && !isWriteMethod(method) &&
-      this.consensus.methods.includes(normalizedMethod) &&
-      orderedRpcs.length > 1;
+      this.consensus.methods.includes(normalizedMethod) && orderedRpcs.length > 1;
 
     if (consensusEnabled) {
       try {
@@ -1129,18 +1123,13 @@ export class Permit2RpcManager {
   /**
    * Handle batch requests with smart batching
    */
-  sendBatch<T = unknown>(
-    chainId: number,
-    requests: Array<{ method: string; params?: unknown[] }>,
-  ): Promise<T[]> {
+  sendBatch<T = unknown>(chainId: number, requests: Array<{ method: string; params?: unknown[] }>): Promise<T[]> {
     // Use smart batcher to split large batches and avoid overwhelming RPCs
     return this.smartBatcher.processBatch(
       requests.map((req) => ({ method: req.method, params: req.params || [] })),
       async (batch) => {
         // Process each chunk with some parallelism but not all at once
-        const results = await Promise.all(
-          batch.map((req) => this.send<T>(chainId, req.method, req.params)),
-        );
+        const results = await Promise.all(batch.map((req) => this.send<T>(chainId, req.method, req.params)));
         return results;
       },
     );
@@ -1390,10 +1379,13 @@ export class Permit2RpcManager {
       const resultHex = await this.send<string>(
         chainId,
         "eth_call",
-        [{
-          to: getMulticall3Address(chainId),
-          data: calldata,
-        }, blockTag],
+        [
+          {
+            to: getMulticall3Address(chainId),
+            data: calldata,
+          },
+          blockTag,
+        ],
         options,
       );
 

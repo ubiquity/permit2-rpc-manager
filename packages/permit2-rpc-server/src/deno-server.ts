@@ -52,10 +52,7 @@ const parseRpcOverrideOptions = (headers: Headers): { rpcOverrides: string[]; al
   const candidatesRaw = headers.get(RPC_OVERRIDE_HEADER);
   const singleRaw = headers.get(RPC_OVERRIDE_SINGLE_HEADER);
   const allowFallback = parseBoolHeader(headers.get(RPC_OVERRIDE_FALLBACK_HEADER));
-  const candidates = [
-    ...(candidatesRaw ? candidatesRaw.split(",") : []),
-    ...(singleRaw ? [singleRaw] : []),
-  ]
+  const candidates = [...(candidatesRaw ? candidatesRaw.split(",") : []), ...(singleRaw ? [singleRaw] : [])]
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
 
@@ -101,7 +98,10 @@ function parseFloatEnv(name: string): number | undefined {
 function parseCsvEnv(name: string): string[] | undefined {
   const raw = Deno.env.get(name);
   if (raw === undefined) return undefined;
-  const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  const parts = raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
   return parts.length > 0 ? parts : undefined;
 }
 
@@ -109,7 +109,10 @@ function parseLogLevelEnv(name: string): Permit2RpcManagerOptions["logLevel"] | 
   const raw = Deno.env.get(name);
   if (!raw) return undefined;
   const normalized = raw.trim().toLowerCase();
-  if (normalized === "debug" || normalized === "info" || normalized === "warn" || normalized === "error" || normalized === "none") {
+  if (
+    normalized === "debug" || normalized === "info" || normalized === "warn" || normalized === "error" ||
+    normalized === "none"
+  ) {
     return normalized as Permit2RpcManagerOptions["logLevel"];
   }
   return undefined;
@@ -384,7 +387,10 @@ const handler = async (request: Request): Promise<Response> => {
       if (typeof data === "string") send(data);
       else if (data instanceof ArrayBuffer) send(data);
       else if (data instanceof Blob) {
-        data.arrayBuffer().then((buf) => send(buf)).catch(() => undefined);
+        data
+          .arrayBuffer()
+          .then((buf) => send(buf))
+          .catch(() => undefined);
       }
     };
 
@@ -423,7 +429,10 @@ const handler = async (request: Request): Promise<Response> => {
       if (typeof data === "string") sendOrQueue(data);
       else if (data instanceof ArrayBuffer) sendOrQueue(data);
       else if (data instanceof Blob) {
-        data.arrayBuffer().then((buf) => sendOrQueue(buf)).catch(() => undefined);
+        data
+          .arrayBuffer()
+          .then((buf) => sendOrQueue(buf))
+          .catch(() => undefined);
       }
     };
 

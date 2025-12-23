@@ -14,11 +14,11 @@ Deno.test("Overrides: tries override then fallback when allowed", async () => {
   const fallbackRpc = "https://fallback.example";
 
   const originalOpenKv = Deno.openKv;
-  Deno.openKv = (async () =>
-    ({
-      set: async () => {},
+  Deno.openKv = (() =>
+    Promise.resolve({
+      set: () => Promise.resolve(undefined),
       close: () => {},
-    }) as unknown as Deno.Kv) as typeof Deno.openKv;
+    } as unknown as Deno.Kv)) as typeof Deno.openKv;
 
   const manager = new Permit2RpcManager({
     initialRpcData: { rpcs: { [String(chainId)]: [overrideRpc, fallbackRpc] } },

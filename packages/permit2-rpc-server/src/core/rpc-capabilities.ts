@@ -45,13 +45,7 @@ export class RpcMethodCapabilities {
     return record.status;
   }
 
-  markUnsupported(
-    chainId: number,
-    rpcUrl: string,
-    method: string,
-    reason: string,
-    ttlMs: number,
-  ): void {
+  markUnsupported(chainId: number, rpcUrl: string, method: string, reason: string, ttlMs: number): void {
     const now = this.now();
     const key = this.makeKey(chainId, rpcUrl, method);
     const existing = this.records.get(key);

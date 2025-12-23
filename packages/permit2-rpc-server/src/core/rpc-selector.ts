@@ -64,7 +64,9 @@ export class RpcSelector {
 
     // If cache is invalid (no map or fastest RPC doesn't match map status), re-test
     if (
-      !latencyMap || !fastestCachedRpc || !latencyMap[fastestCachedRpc] ||
+      !latencyMap ||
+      !fastestCachedRpc ||
+      !latencyMap[fastestCachedRpc] ||
       !fastestIsAllowed ||
       !ACCEPTABLE_STATUSES.includes(latencyMap[fastestCachedRpc].status)
     ) {

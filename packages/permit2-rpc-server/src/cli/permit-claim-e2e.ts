@@ -211,7 +211,9 @@ function extractCallFromPreparedRequest(prepared: Record<string, unknown>): Perm
   const data = typeof prepared.data === "string" ? prepared.data : undefined;
   const from = typeof prepared.from === "string"
     ? prepared.from
-    : (typeof prepared.account === "string" ? prepared.account : undefined);
+    : typeof prepared.account === "string"
+    ? prepared.account
+    : undefined;
   const value = typeof prepared.value === "string" ? prepared.value : undefined;
   if (!to || !data) return null;
   return { to, data, from, value };
@@ -242,9 +244,7 @@ function normalizePermits(
     }
 
     const blockTag = permit.blockTag ?? blockFallback;
-    const rawMethods = Array.isArray(permit.methods) && permit.methods.length > 0
-      ? permit.methods
-      : defaultMethods;
+    const rawMethods = Array.isArray(permit.methods) && permit.methods.length > 0 ? permit.methods : defaultMethods;
     const methods = Array.from(new Set(rawMethods.map((method) => String(method).toLowerCase())));
     for (const method of methods) {
       if (method !== "eth_call" && method !== "eth_estimateGas") {
@@ -313,7 +313,9 @@ async function rpcRequest(
   params: unknown[],
   timeoutMs: number,
   id: number,
-): Promise<{ httpStatus: number; json?: Record<string, unknown>; text?: string; latencyMs: number; parseError?: string }> {
+): Promise<
+  { httpStatus: number; json?: Record<string, unknown>; text?: string; latencyMs: number; parseError?: string }
+> {
   const started = performance.now();
   const controller = new AbortController();
   const requestBody = {
@@ -428,10 +430,7 @@ async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, maxInflight
     }
   };
 
-  const workers = Array.from(
-    { length: Math.min(maxInflight, tasks.length) },
-    () => worker(),
-  );
+  const workers = Array.from({ length: Math.min(maxInflight, tasks.length) }, () => worker());
   await Promise.all(workers);
   return results;
 }
@@ -526,13 +525,12 @@ async function main(): Promise<void> {
       console.error("Multiple chainIds detected. Use --chain with a single chain, or pass explicit --rpc values.");
       Deno.exit(1);
     }
-    const whitelistPath = args.whitelistPath ??
-      new URL("../../rpc-whitelist.json", import.meta.url);
+    const whitelistPath = args.whitelistPath ?? new URL("../../rpc-whitelist.json", import.meta.url);
     const whitelistRaw = await readJsonFile(whitelistPath);
     const whitelist = whitelistRaw as { rpcs?: Record<string, string[]> };
     const chainId = args.chainId ?? permits[0].chainId;
-    rpcUrls = (whitelist.rpcs?.[String(chainId)] ?? []).filter(
-      (url) => typeof url === "string" && /^https?:\/\//.test(url) && !url.includes("${"),
+    rpcUrls = (whitelist.rpcs?.[String(chainId)] ?? []).filter((url) =>
+      typeof url === "string" && /^https?:\/\//.test(url) && !url.includes("${")
     );
   }
 

@@ -210,7 +210,7 @@ export class CacheManager {
       _invalidated: true,
       _healthStatus: healthStatus,
       _invalidatedAt: Date.now(),
-      _nextRetryAt: Date.now() + (60 * 60 * 1000), // 1 hour for eliminated RPCs
+      _nextRetryAt: Date.now() + 60 * 60 * 1000, // 1 hour for eliminated RPCs
     };
 
     chainCache.latencyMap[rpcUrl] = invalidatedResult as LatencyTestResult & {

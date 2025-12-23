@@ -102,10 +102,7 @@ const PRESETS: PresetInfo[] = [
     name: "pending-counts",
     description:
       "Aggregated pending-tx throughput (tx/s) from newPendingTransactions (WS subscribe or HTTP filter polling).",
-    notes: [
-      "Streams 1 event per interval with count + tx/s.",
-      "Portable: hashes-only; no per-tx lookups required.",
-    ],
+    notes: ["Streams 1 event per interval with count + tx/s.", "Portable: hashes-only; no per-tx lookups required."],
     exampleEvent: {
       type: "pending_counts",
       ts: "2025-01-01T00:00:00.000Z",
@@ -126,19 +123,14 @@ const PRESETS: PresetInfo[] = [
         intervalMs: 1000,
         pendingCount: 1234,
         pendingPerSecond: 1234,
-        samples: [
-          { hash: "0x…", from: "0x…", to: "0x…", valueEth: "0.01", maxFeeGwei: "42.0", dataBytes: 68 },
-        ],
+        samples: [{ hash: "0x…", from: "0x…", to: "0x…", valueEth: "0.01", maxFeeGwei: "42.0", dataBytes: 68 }],
       },
     },
   },
   {
     name: "pending-raw",
     description: "Raw pending events (WS subscription notifications; HTTP filter hashes).",
-    notes: [
-      "Streams every pending event; can be extremely noisy on mainnet.",
-      "Use --max-events to stop quickly.",
-    ],
+    notes: ["Streams every pending event; can be extremely noisy on mainnet.", "Use --max-events to stop quickly."],
     exampleEvent: {
       type: "pending_raw",
       ts: "2025-01-01T00:00:00.000Z",
@@ -376,30 +368,36 @@ function parseCliArgs(argv: string[]): CliArgs {
 
 function isJsonRpcSuccessResponse(value: unknown): value is JsonRpcSuccessResponse {
   return typeof value === "object" && value !== null && (value as any).jsonrpc === "2.0" &&
-    typeof (value as any).id === "number" &&
-    "result" in (value as any);
+    typeof (value as any).id === "number" && "result" in (value as any);
 }
 
 function isJsonRpcErrorResponse(value: unknown): value is JsonRpcErrorResponse {
   return typeof value === "object" && value !== null && (value as any).jsonrpc === "2.0" &&
-    typeof (value as any).id === "number" &&
-    "error" in (value as any);
+    typeof (value as any).id === "number" && "error" in (value as any);
 }
 
 function isSubscriptionNotification(value: unknown): value is JsonRpcSubscriptionNotification {
-  return typeof value === "object" && value !== null && (value as any).jsonrpc === "2.0" &&
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as any).jsonrpc === "2.0" &&
     (value as any).method === "eth_subscription" &&
-    typeof (value as any).params?.subscription === "string" && "result" in (value as any).params;
+    typeof (value as any).params?.subscription === "string" &&
+    "result" in (value as any).params
+  );
 }
 
 class JsonRpcWsClient {
   private readonly socket: WebSocket;
   private nextId = 1;
-  private readonly pending = new Map<JsonRpcId, {
-    resolve: (value: unknown) => void;
-    reject: (error: Error) => void;
-    timeout: ReturnType<typeof setTimeout>;
-  }>();
+  private readonly pending = new Map<
+    JsonRpcId,
+    {
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      timeout: ReturnType<typeof setTimeout>;
+    }
+  >();
   private readonly subscriptions = new Map<string, (result: unknown) => void>();
 
   private constructor(socket: WebSocket) {
@@ -635,14 +633,17 @@ function summarizeTx(tx: RpcTransaction): TxSummary {
 
 type PreviewEvent = { type: string; ts: string; data: unknown };
 
-function createEmitter(
-  {
-    format,
-    maxEvents,
-    quiet,
-    onStop,
-  }: { format: OutputFormat; maxEvents: number; quiet: boolean; onStop: () => void },
-): (event: PreviewEvent) => boolean {
+function createEmitter({
+  format,
+  maxEvents,
+  quiet,
+  onStop,
+}: {
+  format: OutputFormat;
+  maxEvents: number;
+  quiet: boolean;
+  onStop: () => void;
+}): (event: PreviewEvent) => boolean {
   let emitted = 0;
 
   const emitJsonl = (event: PreviewEvent) => console.log(JSON.stringify(event));
@@ -1230,11 +1231,11 @@ class HttpPendingTxPoller {
 async function runPendingCountsHttp(
   client: JsonRpcCaller,
   emit: (event: PreviewEvent) => boolean,
-  {
-    intervalMs,
-    quiet,
-    setActiveFilterId,
-  }: { intervalMs: number; quiet: boolean; setActiveFilterId: (filterId: string | undefined) => void },
+  { intervalMs, quiet, setActiveFilterId }: {
+    intervalMs: number;
+    quiet: boolean;
+    setActiveFilterId: (filterId: string | undefined) => void;
+  },
 ): Promise<void> {
   let totalSeen = 0;
   const poller = new HttpPendingTxPoller(client, { quiet, setActiveFilterId });
@@ -1257,11 +1258,11 @@ async function runPendingCountsHttp(
 async function runPendingRawHttp(
   client: JsonRpcCaller,
   emit: (event: PreviewEvent) => boolean,
-  {
-    intervalMs,
-    quiet,
-    setActiveFilterId,
-  }: { intervalMs: number; quiet: boolean; setActiveFilterId: (filterId: string | undefined) => void },
+  { intervalMs, quiet, setActiveFilterId }: {
+    intervalMs: number;
+    quiet: boolean;
+    setActiveFilterId: (filterId: string | undefined) => void;
+  },
 ): Promise<void> {
   const poller = new HttpPendingTxPoller(client, { quiet, setActiveFilterId });
 
@@ -1386,11 +1387,11 @@ async function runNewHeadsHttp(
 async function runComboHttp(
   client: JsonRpcCaller,
   emit: (event: PreviewEvent) => boolean,
-  {
-    intervalMs,
-    quiet,
-    setActiveFilterId,
-  }: { intervalMs: number; quiet: boolean; setActiveFilterId: (filterId: string | undefined) => void },
+  { intervalMs, quiet, setActiveFilterId }: {
+    intervalMs: number;
+    quiet: boolean;
+    setActiveFilterId: (filterId: string | undefined) => void;
+  },
 ): Promise<void> {
   let totalSeen = 0;
   let lastHead: unknown = undefined;
