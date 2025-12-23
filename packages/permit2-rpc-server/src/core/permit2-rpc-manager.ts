@@ -38,6 +38,26 @@ const JSON_RPC_ERROR_CODES = {
   REQUEST_LIMIT: -32005,
 } as const;
 
+type SendOptions = {
+  rpcOverrides?: string[];
+  allowFallback?: boolean;
+};
+
+const normalizeRpcUrl = (value: string): string => value.trim().replace(/\/$/, "");
+
+const normalizeRpcList = (values: string[] | undefined): string[] => {
+  if (!values || values.length === 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of values) {
+    const normalized = normalizeRpcUrl(entry);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+};
+
 class JsonRpcError extends Error {
   constructor(
     public code: number,
@@ -538,20 +558,40 @@ export class Permit2RpcManager {
   /**
    * Send a JSON-RPC request with intelligent failover
    */
-  send<T = unknown>(chainId: number, method: string, params: unknown[] = []): Promise<T> {
+  send<T = unknown>(chainId: number, method: string, params: unknown[] = [], options?: SendOptions): Promise<T> {
+    const normalizedOverrides = normalizeRpcList(options?.rpcOverrides);
+    const allowFallback = Boolean(options?.allowFallback);
+    const overrideKey = normalizedOverrides.length > 0
+      ? `|override=${normalizedOverrides.join(",")}|fallback=${allowFallback ? "1" : "0"}`
+      : "";
+
     // Use request deduplication for identical concurrent requests
-    const deduplicationKey = RequestDeduplicator.generateKey(chainId, method, params);
+    const deduplicationKey = `${RequestDeduplicator.generateKey(chainId, method, params)}${overrideKey}`;
 
     return this.requestDeduplicator.deduplicate(deduplicationKey, () => {
-      return this._sendInternal<T>(chainId, method, params);
+      return this._sendInternal<T>(chainId, method, params, {
+        rpcOverrides: normalizedOverrides,
+        allowFallback,
+      });
     });
   }
 
   /**
    * Internal send implementation (after deduplication)
    */
-  private async _sendInternal<T = unknown>(chainId: number, method: string, params: unknown[]): Promise<T> {
+  private async _sendInternal<T = unknown>(
+    chainId: number,
+    method: string,
+    params: unknown[],
+    options?: SendOptions,
+  ): Promise<T> {
     const allRpcs = await this.rpcSelector.getRankedRpcList(chainId);
+    const rpcByNormalized = new Map(allRpcs.map((rpc) => [normalizeRpcUrl(rpc), rpc]));
+    const overrideRequested = options?.rpcOverrides && options.rpcOverrides.length > 0;
+    const overrideCandidates = normalizeRpcList(options?.rpcOverrides)
+      .map((rpc) => rpcByNormalized.get(rpc))
+      .filter((rpc): rpc is string => typeof rpc === "string");
+    const allowFallback = Boolean(options?.allowFallback);
 
     // Filter available RPCs using both health state and circuit breaker
     const availableRpcs = allRpcs.filter((rpc) => this.isRpcAvailable(rpc) && this.circuitBreaker.canRequest(rpc));
@@ -586,8 +626,21 @@ export class Permit2RpcManager {
 
     // Use scoring to rank available RPCs by performance
     let rankedRpcs = rankCandidates(getCandidates(availableRpcs));
+    const hasOverride = overrideCandidates.length > 0;
+    const overrideSet = new Set(overrideCandidates);
 
-    if (rankedRpcs.length === 0) {
+    if (overrideRequested && !hasOverride) {
+      const message = "No override RPCs matched the configured whitelist.";
+      if (!allowFallback) {
+        throw new JsonRpcError(JSON_RPC_ERROR_CODES.INVALID_PARAMS, message, {
+          chainId,
+          provided: options?.rpcOverrides ?? [],
+        });
+      }
+      this._log("warn", `[SEND] ${message} Falling back to default selection for chain ${chainId}.`);
+    }
+
+    if (!hasOverride && rankedRpcs.length === 0) {
       // Check if all are in backoff
       const backoffCount = allRpcs.filter((rpc) => {
         const state = this.getHealthState(rpc);
@@ -641,21 +694,45 @@ export class Permit2RpcManager {
       }
     }
 
-    // Round-robin selection from ranked RPCs
-    const currentIndex = this.rpcIndexMap.get(chainId) || 0;
-    const startIndex = currentIndex % rankedRpcs.length;
-    this.rpcIndexMap.set(chainId, (currentIndex + 1) % rankedRpcs.length);
+    let orderedRpcs: string[] = [];
+    let startIndex = 0;
 
-    this._log(
-      "debug",
-      `[SEND] Chain ${chainId}: ${rankedRpcs.length}/${allRpcs.length} RPCs available. ` +
-        `Starting at index ${startIndex}.`,
-    );
+    if (hasOverride) {
+      const fallbackPool = allowFallback ? availableRpcs.filter((rpc) => !overrideSet.has(rpc)) : [];
+      const rankedFallback = fallbackPool.length > 0 ? rankCandidates(getCandidates(fallbackPool)) : [];
+      orderedRpcs = [...overrideCandidates, ...rankedFallback];
+      this._log(
+        "info",
+        `[SEND] Using override RPCs for chain ${chainId}. ` +
+          `Overrides=${overrideCandidates.length}, allowFallback=${allowFallback}, fallbackCount=${rankedFallback.length}.`,
+        { overrides: overrideCandidates, fallback: rankedFallback },
+      );
+    } else {
+      // Round-robin selection from ranked RPCs
+      const currentIndex = this.rpcIndexMap.get(chainId) || 0;
+      startIndex = currentIndex % rankedRpcs.length;
+      this.rpcIndexMap.set(chainId, (currentIndex + 1) % rankedRpcs.length);
+
+      this._log(
+        "debug",
+        `[SEND] Chain ${chainId}: ${rankedRpcs.length}/${allRpcs.length} RPCs available. ` +
+          `Starting at index ${startIndex}.`,
+      );
+
+      orderedRpcs = rankedRpcs.slice(startIndex).concat(rankedRpcs.slice(0, startIndex));
+    }
+
+    if (orderedRpcs.length === 0) {
+      throw new JsonRpcError(
+        JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+        `No RPC endpoints available for chain ${chainId}.`,
+        { chainId },
+      );
+    }
 
     let lastError: Error | null = null;
     const attemptedRpcs: string[] = [];
 
-    const orderedRpcs = rankedRpcs.slice(startIndex).concat(rankedRpcs.slice(0, startIndex));
     const normalizedMethod = method.trim().toLowerCase();
 
     const consensusEnabled = this.consensus.enabled && !isWriteMethod(method) &&
@@ -1262,6 +1339,7 @@ export class Permit2RpcManager {
     chainId: number,
     requests: Multicall3Request[],
     blockTag: string | number = "latest",
+    options?: SendOptions,
   ): Promise<JsonRpcResponse[]> {
     if (requests.length === 0) {
       return [];
@@ -1305,10 +1383,15 @@ export class Permit2RpcManager {
       });
 
       // Perform single eth_call to multicall contract
-      const resultHex = await this.send<string>(chainId, "eth_call", [{
-        to: getMulticall3Address(chainId),
-        data: calldata,
-      }, blockTag]);
+      const resultHex = await this.send<string>(
+        chainId,
+        "eth_call",
+        [{
+          to: getMulticall3Address(chainId),
+          data: calldata,
+        }, blockTag],
+        options,
+      );
 
       const decodedResult = decodeFunctionResult({
         abi: multicall3Abi,
