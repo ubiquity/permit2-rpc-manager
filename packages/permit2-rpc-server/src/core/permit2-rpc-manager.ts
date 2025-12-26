@@ -355,6 +355,23 @@ export class Permit2RpcManager {
       }
 
       // JSON-RPC error codes
+      if (code === JSON_RPC_ERROR_CODES.PARSE_ERROR) {
+        // Invalid JSON responses are provider issues; allow failover.
+        return {
+          behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+          reason: "invalid_json_response",
+          isProviderIssue: true,
+        };
+      }
+
+      if (code === JSON_RPC_ERROR_CODES.INVALID_REQUEST || code === JSON_RPC_ERROR_CODES.INVALID_PARAMS) {
+        return {
+          behavior: ErrorBehavior.DO_NOT_RETRY,
+          reason: code === JSON_RPC_ERROR_CODES.INVALID_PARAMS ? "invalid_params" : "invalid_request",
+          isProviderIssue: false,
+        };
+      }
+
       if (code === JSON_RPC_ERROR_CODES.EXECUTION_REVERTED) {
         return {
           behavior: ErrorBehavior.BLOCKCHAIN_ERROR,
@@ -367,6 +384,14 @@ export class Permit2RpcManager {
         return {
           behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
           reason: "method_not_found",
+          isProviderIssue: true,
+        };
+      }
+
+      if (code === JSON_RPC_ERROR_CODES.INTERNAL_ERROR) {
+        return {
+          behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+          reason: "internal_error",
           isProviderIssue: true,
         };
       }
@@ -389,7 +414,7 @@ export class Permit2RpcManager {
         };
       }
 
-      // Standard JSON-RPC errors
+      // Standard JSON-RPC errors (default: client-side)
       if (code <= -32000 && code >= -32768) {
         return {
           behavior: ErrorBehavior.DO_NOT_RETRY,
