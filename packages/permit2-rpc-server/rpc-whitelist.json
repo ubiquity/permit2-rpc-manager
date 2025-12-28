@@ -21,6 +21,7 @@
       "https://eth.meowrpc.com",
       "https://eth.drpc.org",
       "https://mainnet.gateway.tenderly.co",
+      "https://virtual.mainnet.rpc.tenderly.co/5804dcf7-70e6-4988-b2b0-3672193e0c91",
       "https://gateway.tenderly.co/public/mainnet",
       "https://api.zan.top/eth-mainnet",
       "https://eth.merkle.io",
@@ -32,7 +33,6 @@
       "https://eth1.lava.build",
       "https://0xrpc.io/eth",
       "https://eth.api.onfinality.io/public",
-      "https://ethereum-json-rpc.stakely.io",
       "https://eth.api.pocket.network",
       "https://api-ethereum-mainnet-reth.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
       "https://rpc.fullsend.to",
@@ -57,8 +57,7 @@
       "https://endpoints.omniatech.io/v1/op/mainnet/public",
       "https://optimism.rpc.subquery.network/public",
       "https://0xrpc.io/op",
-      "https://public-op-mainnet.fastnode.io",
-      "https://api-optimism-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+      "https://public-op-mainnet.fastnode.io"
     ],
     "56": [
       "https://binance.llamarpc.com",
@@ -79,7 +78,6 @@
       "https://0.48.club",
       "https://binance-smart-chain-public.nodies.app",
       "https://bsc-mainnet.nodereal.io/v1/64a9df0874fb4a93b9d0a3849de012d3",
-      "https://go.getblock.io/cc778cdbdf5c4b028ec9456e0e6c0cf3",
       "https://binance.nodereal.io",
       "https://bsc-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://1rpc.io/bnb",
@@ -96,7 +94,8 @@
       "https://bsc.blockrazor.xyz",
       "https://endpoints.omniatech.io/v1/bsc/mainnet/public",
       "https://bsc.api.pocket.network",
-      "https://public-bsc-mainnet.fastnode.io"
+      "https://public-bsc-mainnet.fastnode.io",
+      "https://api-bsc-mainnet-full.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "100": [
       "https://rpc.gnosischain.com",
@@ -105,6 +104,7 @@
       "https://rpc.ap-southeast-1.gateway.fm/v4/gnosis/non-archival/mainnet",
       "https://gnosis.api.onfinality.io/public",
       "https://gnosis.drpc.org",
+      "https://endpoints.omniatech.io/v1/gnosis/mainnet/public",
       "https://gnosis-rpc.publicnode.com",
       "https://1rpc.io/gnosis",
       "https://gno-mainnet.gateway.tatum.io",
@@ -147,6 +147,7 @@
       "https://base-mainnet.gateway.tatum.io",
       "https://base.rpc.subquery.network/public",
       "https://api.zan.top/base-mainnet",
+      "https://endpoints.omniatech.io/v1/base/mainnet/public",
       "https://base.lava.build",
       "https://base.api.pocket.network",
       "https://base.rpc.blxrbdn.com",
@@ -204,17 +205,20 @@
       "https://blast.gateway.tenderly.co",
       "https://endpoints.omniatech.io/v1/blast/mainnet/public",
       "https://blast-public.nodies.app",
-      "https://blast.api.pocket.network"
+      "https://blast.api.pocket.network",
+      "https://api-blast-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
-    "7777777": ["https://rpc.zora.energy", "https://zora.drpc.org", "https://api-zora-mainnet.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"]
+    "7777777": [
+      "https://rpc.zora.energy",
+      "https://api-zora-mainnet.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+    ]
   },
   "wss": {
     "1": [
       "wss://ethereum-rpc.publicnode.com",
       "wss://0xrpc.io/eth",
       "wss://eth.drpc.org",
-      "wss://eth.llamarpc.com",
-      "wss://eth.merkle.io"
+      "wss://eth.llamarpc.com"
     ],
     "10": [
       "wss://optimism-rpc.publicnode.com",
@@ -222,17 +226,20 @@
       "wss://optimism.gateway.tenderly.co",
       "wss://optimism.drpc.org",
       "wss://optimism.api.onfinality.io/public",
-      "wss://gateway.tenderly.co/public/optimism"
+      "wss://gateway.tenderly.co/public/optimism",
+      "wss://api-optimism-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "56": [
       "wss://bsc-rpc.publicnode.com",
-      "wss://bsc.drpc.org"
+      "wss://bsc.drpc.org",
+      "wss://bsc.api.pocket.network"
     ],
     "100": [
       "wss://gnosis-rpc.publicnode.com",
       "wss://0xrpc.io/gno",
       "wss://gnosis.drpc.org",
-      "wss://rpc.gnosischain.com/wss"
+      "wss://rpc.gnosischain.com/wss",
+      "wss://gnosis.api.pocket.network"
     ],
     "137": [
       "wss://polygon-bor-rpc.publicnode.com",
@@ -240,6 +247,7 @@
       "wss://polygon.drpc.org",
       "wss://rpc-mainnet.matic.quiknode.pro",
       "wss://gateway.tenderly.co/public/polygon",
+      "wss://poly.api.pocket.network",
       "wss://api-polygon-mainnet-full.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "8453": [
@@ -248,15 +256,25 @@
       "wss://base.llamarpc.com",
       "wss://gateway.tenderly.co/public/base",
       "wss://base.drpc.org",
+      "wss://base.api.pocket.network",
       "wss://api-base-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "42161": [
       "wss://arbitrum-one-rpc.publicnode.com",
       "wss://arbitrum.drpc.org",
-      "wss://arbitrum.gateway.tenderly.co"
+      "wss://arbitrum.gateway.tenderly.co",
+      "wss://api-arbitrum-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
-    "42220": ["wss://celo.drpc.org", "wss://forno.celo.org/ws", "wss://api-celo-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"],
-    "43114": ["wss://avalanche-c-chain-rpc.publicnode.com", "wss://0xrpc.io/avax", "wss://avalanche.drpc.org", "wss://avalanche-mainnet.gateway.tenderly.co"],
+    "42220": [
+      "wss://celo.drpc.org",
+      "wss://forno.celo.org/ws"
+    ],
+    "43114": [
+      "wss://avalanche-c-chain-rpc.publicnode.com",
+      "wss://0xrpc.io/avax",
+      "wss://avalanche.drpc.org",
+      "wss://avalanche-mainnet.gateway.tenderly.co"
+    ],
     "81457": [
       "wss://blast-rpc.publicnode.com",
       "wss://blast.drpc.org",
@@ -264,6 +282,10 @@
       "wss://blast.gateway.tenderly.co",
       "wss://api-blast-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
-    "7777777": ["wss://zora.drpc.org", "wss://rpc.zora.energy"]
+    "7777777": [
+      "wss://zora.drpc.org",
+      "wss://rpc.zora.energy",
+      "wss://api-zora-mainnet.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+    ]
   }
 }
