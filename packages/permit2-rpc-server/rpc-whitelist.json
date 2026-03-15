@@ -2,6 +2,7 @@
   "rpcs": {
     "1": [
       "https://eth.llamarpc.com",
+      "https://go.getblock.io/aefd01aa907c4805ba3c00a9e5b48c6b",
       "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
       "https://ethereum-rpc.publicnode.com",
       "https://1rpc.io/eth",
@@ -15,9 +16,10 @@
       "https://openapi.bitstack.com/v1/wNFxbiJyQsSeLrX8RRCHi7NpRxrlErZk/DjShIqLishPCTB9HiMkPHXjUM9CNM9Na/ETH/mainnet",
       "https://ethereum-public.nodies.app",
       "https://ethereum.public.blockpi.network/v1/rpc/public",
-      "https://core.gashawk.io/rpc",
+      "https://eth-mainnet.g.alchemy.com/v2/demo",
       "https://eth-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://rpc.eth.gateway.fm",
+      "https://eth.meowrpc.com",
       "https://eth.drpc.org",
       "https://mainnet.gateway.tenderly.co",
       "https://virtual.mainnet.rpc.tenderly.co/5804dcf7-70e6-4988-b2b0-3672193e0c91",
@@ -25,6 +27,7 @@
       "https://api.zan.top/eth-mainnet",
       "https://eth.merkle.io",
       "https://ethereum-mainnet.gateway.tatum.io",
+      "https://public-eth.nownodes.io",
       "https://ethereum.rpc.subquery.network/public",
       "https://eth.blockrazor.xyz",
       "https://eth1.lava.build",
@@ -42,6 +45,7 @@
       "https://mainnet.optimism.io",
       "https://1rpc.io/op",
       "https://optimism-public.nodies.app",
+      "https://opt-mainnet.g.alchemy.com/v2/demo",
       "https://optimism.public.blockpi.network/v1/rpc/public",
       "https://optimism.api.onfinality.io/public",
       "https://optimism-rpc.publicnode.com",
@@ -90,8 +94,7 @@
       "https://bnb.rpc.subquery.network/public",
       "https://bsc.blockrazor.xyz",
       "https://bsc.api.pocket.network",
-      "https://public-bsc-mainnet.fastnode.io",
-      "https://api-bsc-mainnet-full.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+      "https://public-bsc-mainnet.fastnode.io"
     ],
     "100": [
       "https://rpc.gnosischain.com",
@@ -110,6 +113,7 @@
     "137": [
       "https://rpc-mainnet.matic.quiknode.pro",
       "https://polygon-public.nodies.app",
+      "https://1rpc.io/matic",
       "https://polygon-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://polygon-bor-rpc.publicnode.com",
       "https://go.getblock.io/02667b699f05444ab2c64f9bff28f027",
@@ -131,6 +135,7 @@
       "https://base.public.blockpi.network/v1/rpc/public",
       "https://1rpc.io/base",
       "https://base-public.nodies.app",
+      "https://base.meowrpc.com",
       "https://base-mainnet.public.blastapi.io",
       "https://base.gateway.tenderly.co",
       "https://gateway.tenderly.co/public/base",
@@ -148,6 +153,7 @@
       "https://arb1.arbitrum.io/rpc",
       "https://1rpc.io/arb",
       "https://arbitrum-one-public.nodies.app",
+      "https://arb-mainnet.g.alchemy.com/v2/demo",
       "https://arbitrum.public.blockpi.network/v1/rpc/public",
       "https://arbitrum-one.public.blastapi.io",
       "https://arbitrum-one-rpc.publicnode.com",
@@ -160,11 +166,11 @@
       "https://arbitrum.api.onfinality.io/public",
       "https://arb-one-mainnet.gateway.tatum.io",
       "https://arb-one.api.pocket.network",
-      "https://public-arb-mainnet.fastnode.io",
-      "https://api-arbitrum-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+      "https://public-arb-mainnet.fastnode.io"
     ],
     "42220": [
       "https://forno.celo.org",
+      "https://rpc.celocolombia.org",
       "https://rpc.ankr.com/celo",
       "https://celo-mainnet.gateway.tatum.io",
       "https://celo.drpc.org",
@@ -175,7 +181,6 @@
     "43114": [
       "https://api.avax.network/ext/bc/C/rpc",
       "https://avalanche-c-chain-rpc.publicnode.com",
-      "https://1rpc.io/avax/c",
       "https://avalanche-public.nodies.app/ext/bc/C/rpc",
       "https://avalanche.api.onfinality.io/public/ext/bc/C/rpc",
       "https://api.zan.top/avax-mainnet/ext/bc/C/rpc",
@@ -191,8 +196,7 @@
       "https://blast.drpc.org",
       "https://blast.gateway.tenderly.co",
       "https://blast-public.nodies.app",
-      "https://blast.api.pocket.network",
-      "https://api-blast-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+      "https://blast.api.pocket.network"
     ],
     "7777777": [
       "https://rpc.zora.energy",
@@ -204,12 +208,14 @@
       "wss://ethereum-rpc.publicnode.com",
       "wss://eth.drpc.org",
       "wss://eth.llamarpc.com",
+      "wss://eth-mainnet.g.alchemy.com/v2/demo",
       "wss://eth.merkle.io"
     ],
     "10": [
       "wss://optimism-rpc.publicnode.com",
       "wss://optimism.gateway.tenderly.co",
       "wss://optimism.drpc.org",
+      "wss://opt-mainnet.g.alchemy.com/v2/demo",
       "wss://optimism.api.onfinality.io/public",
       "wss://gateway.tenderly.co/public/optimism",
       "wss://api-optimism-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
@@ -219,8 +225,7 @@
       "wss://bsc.drpc.org",
       "wss://binance.llamarpc.com",
       "wss://bnb.api.onfinality.io/public",
-      "wss://bsc.api.pocket.network",
-      "wss://api-bsc-mainnet-full.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+      "wss://bsc.api.pocket.network"
     ],
     "100": [
       "wss://gnosis-rpc.publicnode.com",
@@ -254,11 +259,11 @@
     ],
     "42220": [
       "wss://celo.drpc.org",
-      "wss://forno.celo.org/ws"
+      "wss://forno.celo.org/ws",
+      "wss://api-celo-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "43114": [
       "wss://avalanche-c-chain-rpc.publicnode.com",
-      "wss://avalanche.drpc.org",
       "wss://avalanche-mainnet.gateway.tenderly.co"
     ],
     "81457": [
@@ -266,8 +271,7 @@
       "wss://blast.drpc.org",
       "wss://rpc.blast.io",
       "wss://blast.gateway.tenderly.co",
-      "wss://blast.api.pocket.network",
-      "wss://api-blast-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+      "wss://blast.api.pocket.network"
     ],
     "7777777": [
       "wss://zora.drpc.org",
