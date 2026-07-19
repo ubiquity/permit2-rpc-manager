@@ -5,7 +5,6 @@
       "https://ethereum-rpc.publicnode.com",
       "https://1rpc.io/eth",
       "https://rpc.mevblocker.io",
-      "https://rpc.flashbots.net",
       "https://virginia.rpc.blxrbdn.com",
       "https://uk.rpc.blxrbdn.com",
       "https://singapore.rpc.blxrbdn.com",
@@ -31,14 +30,12 @@
       "https://eth.api.pocket.network",
       "https://api-ethereum-mainnet-reth.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
       "https://rpc.fullsend.to",
-      "https://rpc.flashbots.net/fast",
       "https://rpc.mevblocker.io/fast",
       "https://rpc.mevblocker.io/noreverts",
       "https://rpc.mevblocker.io/fullprivacy"
     ],
     "10": [
       "https://mainnet.optimism.io",
-      "https://1rpc.io/op",
       "https://optimism-public.nodies.app",
       "https://optimism.public.blockpi.network/v1/rpc/public",
       "https://optimism.api.onfinality.io/public",
@@ -48,7 +45,6 @@
       "https://optimism.gateway.tenderly.co",
       "https://gateway.tenderly.co/public/optimism",
       "https://optimism-mainnet.gateway.tatum.io",
-      "https://go.getblock.io/e8a75f8dcf614861becfbcb185be6eb4",
       "https://public-op-mainnet.fastnode.io"
     ],
     "56": [
@@ -103,7 +99,6 @@
       "https://polygon-public.nodies.app",
       "https://polygon-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
       "https://polygon-bor-rpc.publicnode.com",
-      "https://go.getblock.io/02667b699f05444ab2c64f9bff28f027",
       "https://polygon.api.onfinality.io/public",
       "https://polygon.drpc.org",
       "https://polygon.gateway.tenderly.co",
@@ -137,6 +132,7 @@
     ],
     "42161": [
       "https://arb1.arbitrum.io/rpc",
+      "https://1rpc.io/arb",
       "https://arbitrum-one-public.nodies.app",
       "https://arbitrum-one.public.blastapi.io",
       "https://arbitrum-one-rpc.publicnode.com",
@@ -156,11 +152,14 @@
       "https://rpc.ankr.com/celo",
       "https://celo-mainnet.gateway.tatum.io",
       "https://celo.drpc.org",
-      "https://celo.api.onfinality.io/public"
+      "https://celo-json-rpc.stakely.io",
+      "https://celo.api.onfinality.io/public",
+      "https://api-celo-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "43114": [
       "https://api.avax.network/ext/bc/C/rpc",
       "https://avalanche-c-chain-rpc.publicnode.com",
+      "https://1rpc.io/avax/c",
       "https://avalanche.api.onfinality.io/public/ext/bc/C/rpc",
       "https://api.zan.top/avax-mainnet/ext/bc/C/rpc",
       "https://avalanche.drpc.org",
@@ -190,12 +189,13 @@
       "wss://optimism.gateway.tenderly.co",
       "wss://optimism.drpc.org",
       "wss://optimism.api.onfinality.io/public",
-      "wss://gateway.tenderly.co/public/optimism",
-      "wss://api-optimism-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+      "wss://gateway.tenderly.co/public/optimism"
     ],
     "56": [
       "wss://bsc-rpc.publicnode.com",
+      "wss://bsc.drpc.org",
       "wss://bnb.api.onfinality.io/public",
+      "wss://bsc.api.pocket.network",
       "wss://api-bsc-mainnet-full.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "100": [
@@ -215,7 +215,8 @@
       "wss://base.gateway.tenderly.co",
       "wss://gateway.tenderly.co/public/base",
       "wss://base.drpc.org",
-      "wss://base.api.pocket.network"
+      "wss://base.api.pocket.network",
+      "wss://api-base-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "42161": [
       "wss://arbitrum-one-rpc.publicnode.com",
@@ -228,15 +229,15 @@
     ],
     "43114": [
       "wss://avalanche-c-chain-rpc.publicnode.com",
-      "wss://avalanche.drpc.org",
-      "wss://avalanche-mainnet.gateway.tenderly.co"
+      "wss://avalanche.drpc.org"
     ],
     "81457": [
       "wss://blast-rpc.publicnode.com",
       "wss://blast.drpc.org",
       "wss://rpc.blast.io",
       "wss://blast.gateway.tenderly.co",
-      "wss://blast.api.pocket.network"
+      "wss://blast.api.pocket.network",
+      "wss://api-blast-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "7777777": [
       "wss://zora.drpc.org",
