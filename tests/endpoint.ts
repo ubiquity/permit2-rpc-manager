@@ -1,5 +1,5 @@
 import { TEST_TIMEOUT, MAX_RETRIES, CONCURRENT_TESTS, RPC_REQUESTS } from "./constants.ts";
-import PERMIT2_BYTECODE from "./fixtures/permit2-bytecode.ts";
+import PERMIT2_BYTECODE from "../packages/permit2-rpc-server/src/fixtures/permit2-bytecode.ts";
 
 type RpcEndpointResult = {
   url: string;

@@ -18,7 +18,8 @@ deno task dev
 
 ## API Endpoint
 
-The service exposes the following endpoint:
+The production service is available at `https://rpc.ubq.fi` and exposes the
+following endpoint:
 
 `POST /{chainId}`
 
@@ -95,9 +96,10 @@ Use Deno tasks defined in `deno.jsonc`:
 
 - `deno task start`: Run the server.
 - `deno task dev`: Run the server with file watching.
+- `deno task build`: Type-check the deploy entrypoint for Deno 2.
 - `deno task lint`: Lint the code.
 - `deno task fmt`: Format the code.
-- `deno task test`: Run tests (requires tests to be added/adapted).
+- `deno task test`: Run the server test suite.
 - `deno task mempool:preview`: Preview candidate mempool stream payloads (defaults to `ws://127.0.0.1:8000/1`; use `--rpc http://...` for HTTP polling with pending-block fallback).
 - `deno task permit:claim-e2e`: Run permit claim read-path E2E checks across RPCs from a permit JSON file.
 
@@ -114,6 +116,10 @@ deno task mempool:preview --rpc http://127.0.0.1:8000/1 --preset pending-counts 
 
 Deployment is handled automatically via the GitHub Actions workflow defined in
 the repository root (`.github/workflows/deno-deploy.yml`).
+
+Production (`rpc-ubq-fi`) and preview (`p-rpc-ubq-fi`) use fresh, matching
+Deno KV databases. The legacy Deno Classic cache and RPC-failure state are not
+migrated.
 
 ## Configuration
 

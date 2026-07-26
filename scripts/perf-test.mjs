@@ -3,7 +3,7 @@ import path from "path";
 import puppeteer from "puppeteer";
 
 // --- Configuration ---
-const PROXY_URL = "https://permit2-rpc-proxy-khcj5qav1k79.deno.dev"; // Your deployed proxy
+const PROXY_URL = "https://rpc.ubq.fi";
 const CHAIN_ID = 100; // Gnosis
 const NUM_RUNS = 5; // Number of times to run each scenario for averaging
 const RPC_METHOD = "eth_blockNumber";
@@ -36,8 +36,8 @@ async function testProxyPerformance(page, proxyUrl, chainId, method, params, num
       for (let run = 0; run < count; run++) {
         const start = performance.now();
         try {
-          const response = await fetch(`${url}/rpc/${chain}`, {
-            // Use proxy format
+          const response = await fetch(`${url}/${chain}`, {
+            // Use the proxy's JSON-RPC endpoint format.
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

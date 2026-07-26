@@ -1,33 +1,32 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Manual deployment script for Deno Deploy
-# Requires deployctl to be installed: deno install -A -r https://deno.land/x/deploy/deployctl.ts
-# Requires DENO_DEPLOY_TOKEN environment variable to be set.
+set -euo pipefail
+
+# Manual deployment script for the provisioned Deno 2 app.
+# Requires the Deno CLI and DENO_DEPLOY_TOKEN.
 
 # --- Configuration ---
-PROJECT_NAME="permit2-rpc-proxy" # Replace with your Deno Deploy project name
-ENTRYPOINT="packages/permit2-rpc-server/src/deno-server.ts" # Updated entrypoint path
+PROJECT_NAME="rpc-ubq-fi"
+DENO_ORG="ubiquity-dao"
+DEPLOY_ROOT="packages/permit2-rpc-server"
 # --- End Configuration ---
 
 # Check if DENO_DEPLOY_TOKEN is set
-if [ -z "$DENO_DEPLOY_TOKEN" ]; then
+if [ -z "${DENO_DEPLOY_TOKEN:-}" ]; then
   echo "Error: DENO_DEPLOY_TOKEN environment variable is not set."
   echo "Please set it before running this script."
   exit 1
 fi
 
-echo "Deploying project '$PROJECT_NAME' from entrypoint '$ENTRYPOINT'..."
+echo "Deploying Deno 2 app '$PROJECT_NAME' from '$DEPLOY_ROOT'..."
 
-# Execute deployctl
-# Exclude directories not needed for the deployment runtime
-# Note: deployctl usually runs from the root, so paths are relative to root
-deployctl deploy --project="$PROJECT_NAME" "$ENTRYPOINT" \
-  --include=packages/permit2-rpc-server/static \
-  --exclude=node_modules \
-  --exclude=lib \
-  --exclude=.git \
-  --exclude=.github \
-  --exclude=scripts # Exclude the scripts dir itself
+# The app is provisioned with src/deno-server.ts as its Deno 2 entrypoint.
+deno deploy \
+  --org="$DENO_ORG" \
+  --app="$PROJECT_NAME" \
+  --prod \
+  --non-interactive \
+  "$DEPLOY_ROOT"
 
 echo "Deployment command executed."
-echo "Check the output above or the Deno Deploy dashboard for deployment status and URL."
+echo "Check the output above or https://rpc.ubq.fi/ for deployment status."

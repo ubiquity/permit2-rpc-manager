@@ -3,6 +3,9 @@
 This repository contains the code for the Permit2 RPC ecosystem, managed as a
 monorepo.
 
+The canonical production endpoint is `https://rpc.ubq.fi`. JSON-RPC, MCP, and
+client SDK APIs are served from that endpoint without a compatibility URL.
+
 ## Packages
 
 This monorepo includes the following packages:
@@ -52,7 +55,8 @@ This repository uses GitHub Actions for automated deployment and maintenance:
     - Pushes to main branch
     - Pull requests (preview deployments)
     - Successful whitelist updates (via workflow dispatch)
-  - Performs format and lint checks before deployment
+  - Runs the Deno 2 dependency install, server build, and server test suite
+  - Probes the deployed root, static assets, and `/health`
 
 ## Development
 

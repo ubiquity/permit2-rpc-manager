@@ -13,12 +13,21 @@ Deno.test("Overrides: tries override then fallback when allowed", async () => {
   const overrideRpc = "https://override.example";
   const fallbackRpc = "https://fallback.example";
 
-  const originalOpenKv = Deno.openKv;
-  Deno.openKv = (async () =>
-    ({
-      set: async () => {},
-      close: () => {},
-    }) as unknown as Deno.Kv) as typeof Deno.openKv;
+  const originalOpenKvDescriptor = Object.getOwnPropertyDescriptor(Deno, "openKv");
+  if (!originalOpenKvDescriptor) {
+    throw new Error("Deno.openKv descriptor is unavailable");
+  }
+
+  Object.defineProperty(Deno, "openKv", {
+    configurable: originalOpenKvDescriptor.configurable,
+    enumerable: originalOpenKvDescriptor.enumerable,
+    writable: true,
+    value: (async () =>
+      ({
+        set: async () => {},
+        close: () => {},
+      }) as unknown as Deno.Kv) as typeof Deno.openKv,
+  });
 
   const manager = new Permit2RpcManager({
     initialRpcData: { rpcs: { [String(chainId)]: [overrideRpc, fallbackRpc] } },
@@ -52,7 +61,7 @@ Deno.test("Overrides: tries override then fallback when allowed", async () => {
     assert.deepEqual(calls, [overrideRpc, fallbackRpc]);
   } finally {
     globalThis.fetch = originalFetch;
-    Deno.openKv = originalOpenKv;
+    Object.defineProperty(Deno, "openKv", originalOpenKvDescriptor);
   }
 });
 

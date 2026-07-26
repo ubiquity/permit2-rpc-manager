@@ -24,7 +24,7 @@ import { createRpcClient } from "@ubiquity-dao/permit2-rpc-client";
 
 // Initialize the client with the base URL of your deployed proxy service
 const client = createRpcClient({
-  baseUrl: "https://rpc.ubq.fi", // Use your custom domain or the .deno.dev URL
+  baseUrl: "https://rpc.ubq.fi", // Canonical Permit2 RPC endpoint
 });
 
 async function example() {

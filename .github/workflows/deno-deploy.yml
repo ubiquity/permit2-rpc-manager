@@ -1,0 +1,44 @@
+name: Deno Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/permit2-rpc-server/**"
+      - ".github/workflows/deno-deploy.yml"
+  pull_request:
+    paths:
+      - "packages/permit2-rpc-server/**"
+      - ".github/workflows/deno-deploy.yml"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [trigger-deno-deploy]
+
+concurrency:
+  group: deno-deploy-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    uses: ubiquity/deno-deploy-workflow/.github/workflows/deno-deploy-reusable.yml@091927036712d54a020a3240b5b2fa492f78a94b
+    with:
+      project: rpc-ubq-fi
+      preview_project: p-rpc-ubq-fi
+      root: packages/permit2-rpc-server
+      entrypoint: src/deno-server.ts
+      deploy_platform: deno2
+      deno_org: ubiquity-dao
+      prod_branch: main
+      install_command: cd packages/permit2-rpc-server && deno install
+      build_command: |
+        cd packages/permit2-rpc-server
+        deno task build
+        deno task test
+      index_html_path: static/index.html
+      extra_paths: /health
+      debug_fetch_fail: true
+    secrets: inherit

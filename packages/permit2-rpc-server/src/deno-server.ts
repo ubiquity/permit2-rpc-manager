@@ -306,7 +306,7 @@ const STATIC_ASSET_ROOT = new URL("../static/", import.meta.url);
 const staticTextAssetCache = new Map<string, string>();
 const CACHE_STATIC_ASSETS = (() => {
   try {
-    return Deno.env.get("DENO_DEPLOY") === "1";
+    return Boolean(Deno.env.get("DENO_DEPLOYMENT_ID") || Deno.env.get("DENO_REGION"));
   } catch {
     return false;
   }

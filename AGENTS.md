@@ -107,23 +107,20 @@ The server implements Model Context Protocol (MCP) compliance:
 
 ### Viewing Deno Deploy Logs
 
-Use the `deployctl` CLI to access production logs:
+Use the Deno 2 CLI to access production logs:
 
 ```bash
 # View live logs
-deployctl logs --project=permit2-rpc-proxy
+deno deploy logs --org=ubiquity-dao --app=rpc-ubq-fi
 
-# View logs from the last hour
-deployctl logs --project=permit2-rpc-proxy --since="$(date -Iseconds -v-1H)" --limit=100
-
-# Filter logs by error level
-deployctl logs --project=permit2-rpc-proxy --levels=error,warn
+# Capture recent logs and exit
+deno deploy logs --org=ubiquity-dao --app=rpc-ubq-fi --once
 
 # Search for specific terms
-deployctl logs --project=permit2-rpc-proxy --grep="failed" --grep="error"
+deno deploy logs --org=ubiquity-dao --app=rpc-ubq-fi --once | rg -i "failed|error"
 ```
 
-Note: The Deno Deploy token should be available in environment as `DENO_DEPLOY_TOKEN`. Logs older than 24 hours are not available.
+The Deno Deploy token should be available in the environment as `DENO_DEPLOY_TOKEN`.
 
 ## Testing Approach
 

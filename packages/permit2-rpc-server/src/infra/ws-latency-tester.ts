@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import PERMIT2_BYTECODE_PREFIX from "../../../../tests/fixtures/permit2-bytecode.ts";
+import PERMIT2_BYTECODE_PREFIX from "../fixtures/permit2-bytecode.ts";
 import type { LatencyTestResult } from "./latency-tester.ts";
 
 interface JsonRpcRequest {

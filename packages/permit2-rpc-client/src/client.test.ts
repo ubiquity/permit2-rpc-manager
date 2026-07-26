@@ -5,7 +5,7 @@ import process from "node:process";
 
 // --- Test Configuration ---
 // Read target URL from environment variable, default to deployed URL
-const SERVER_BASE_URL = process.env.TEST_TARGET_URL ?? "https://permit2-rpc-proxy.deno.dev";
+const SERVER_BASE_URL = process.env.TEST_TARGET_URL ?? "https://rpc.ubq.fi";
 const LOCAL_SERVER_URL = "http://localhost:8000"; // Default local Deno port
 const GNOSIS_CHAIN_ID = 100;
 const WXDAI_CONTRACT = "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d"; // WXDAI on Gnosis

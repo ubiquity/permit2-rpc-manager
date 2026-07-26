@@ -1,6 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { LatencyTester } from "./latency-tester.ts";
-import PERMIT2_BYTECODE_PREFIX from "../../../../tests/fixtures/permit2-bytecode.ts";
+import PERMIT2_BYTECODE_PREFIX from "../fixtures/permit2-bytecode.ts";
 
 function makeJsonRpcResponse(id: unknown, result: unknown) {
   return { jsonrpc: "2.0", id, result };
