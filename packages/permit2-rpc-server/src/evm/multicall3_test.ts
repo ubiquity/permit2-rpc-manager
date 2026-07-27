@@ -39,10 +39,17 @@ Deno.test("isMulticall3Request: rejects eth_call with value set", () => {
   assertEquals(isMulticall3Request(chainId, withValue as JsonRpcRequest), false);
 });
 
-Deno.test("isMulticall3Request: rejects sender-sensitive selectors", () => {
-  const permitCall = {
-    ...baseRequest,
-    params: [{ ...baseCall, data: "0x30f28b7a00" }, "latest"],
-  } satisfies JsonRpcRequest;
-  assertEquals(isMulticall3Request(chainId, permitCall as JsonRpcRequest), false);
+Deno.test("isMulticall3Request: accepts ID 0", () => {
+  const idZeroRequest = { ...baseRequest, id: 0 } satisfies JsonRpcRequest;
+  assertEquals(isMulticall3Request(chainId, idZeroRequest), true);
+});
+
+Deno.test("isMulticall3Request: rejects every sender-sensitive Permit2 selector", () => {
+  for (const selector of ["0x30f28b7a", "0x6700a7c5", "0x32d88955", "0xbba8c6d5"]) {
+    const permitCall = {
+      ...baseRequest,
+      params: [{ ...baseCall, data: `${selector}00` }, "latest"],
+    } satisfies JsonRpcRequest;
+    assertEquals(isMulticall3Request(chainId, permitCall as JsonRpcRequest), false, selector);
+  }
 });

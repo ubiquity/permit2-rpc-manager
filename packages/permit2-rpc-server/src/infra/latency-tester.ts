@@ -1,4 +1,5 @@
 import PERMIT2_BYTECODE_PREFIX from "../fixtures/permit2-bytecode.ts";
+import { getRpcEndpointId, redactRpcDiagnostic } from "../core/rpc-endpoint-id.ts";
 
 // --- Interfaces ---
 interface JsonRpcRequest {
@@ -23,7 +24,15 @@ interface JsonRpcResponse {
 type EthSyncingResult = false | Record<string, unknown>; // Use Record<string, unknown> instead of {}
 
 // Restore 'wrong_bytecode' status
-type LatencyTestStatus = "ok" | "syncing" | "wrong_bytecode" | "wrong_chain_id" | "timeout" | "http_error" | "rpc_error" | "network_error";
+type LatencyTestStatus =
+  | "ok"
+  | "syncing"
+  | "wrong_bytecode"
+  | "wrong_chain_id"
+  | "timeout"
+  | "http_error"
+  | "rpc_error"
+  | "network_error";
 
 export interface LatencyTestResult {
   url: string;
@@ -60,7 +69,7 @@ export class LatencyTester {
   private async _makeRpcCall(
     url: string,
     method: string,
-    params: unknown[] // Changed any[] to unknown[]
+    params: unknown[], // Changed any[] to unknown[]
   ): Promise<JsonRpcResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -104,7 +113,10 @@ export class LatencyTester {
     let status: LatencyTestStatus = "network_error"; // Default to network error
 
     try {
-      const calls = [this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]), this._makeRpcCall(url, "eth_syncing", [])];
+      const calls = [
+        this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]),
+        this._makeRpcCall(url, "eth_syncing", []),
+      ];
 
       if (this.validateChainId) {
         calls.push(this._makeRpcCall(url, "eth_chainId", []));
@@ -126,8 +138,13 @@ export class LatencyTester {
         }
       }
       // Log expected "Failed to fetch" (likely CORS) at debug level, others at warn
-      const logLevel = status === "network_error" && err instanceof TypeError && err.message === "Failed to fetch" ? "debug" : "warn";
-      this.log(logLevel, `Latency test failed for ${url}: ${status} - ${err.message}`);
+      const logLevel = status === "network_error" && err instanceof TypeError && err.message === "Failed to fetch"
+        ? "debug"
+        : "warn";
+      this.log(
+        logLevel,
+        `Latency test failed for ${getRpcEndpointId(url)}: ${status} - ${redactRpcDiagnostic(err.message)}`,
+      );
       return { url, latency: Infinity, status, error: err.message };
     }
 
@@ -137,19 +154,19 @@ export class LatencyTester {
     if (getCodeResponse?.error) {
       status = "rpc_error";
       const errMsg = `eth_getCode RPC error ${getCodeResponse.error.code} - ${getCodeResponse.error.message}`;
-      this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
+      this.log("warn", `Latency test failed for ${getRpcEndpointId(url)}: ${redactRpcDiagnostic(errMsg)}`);
       return { url, latency: Infinity, status, error: errMsg };
     }
     if (syncingResponse?.error) {
       status = "rpc_error";
       const errMsg = `eth_syncing RPC error ${syncingResponse.error.code} - ${syncingResponse.error.message}`;
-      this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
+      this.log("warn", `Latency test failed for ${getRpcEndpointId(url)}: ${redactRpcDiagnostic(errMsg)}`);
       return { url, latency: Infinity, status, error: errMsg };
     }
     if (chainIdResponse?.error) {
       status = "rpc_error";
       const errMsg = `eth_chainId RPC error ${chainIdResponse.error.code} - ${chainIdResponse.error.message}`;
-      this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
+      this.log("warn", `Latency test failed for ${getRpcEndpointId(url)}: ${redactRpcDiagnostic(errMsg)}`);
       return { url, latency: Infinity, status, error: errMsg };
     }
 
@@ -167,14 +184,14 @@ export class LatencyTester {
       if (observedChainId === undefined) {
         status = "rpc_error";
         const errMsg = `Invalid eth_chainId result: ${JSON.stringify(chainIdResponse?.result)}`;
-        this.log("warn", `Latency test failed for ${url}: ${errMsg}`);
+        this.log("warn", `Latency test failed for ${getRpcEndpointId(url)}: ${redactRpcDiagnostic(errMsg)}`);
         return { url, latency: Infinity, status, error: errMsg };
       }
 
       if (observedChainId !== chainId) {
         status = "wrong_chain_id";
         const errMsg = `Chain ID mismatch: expected ${chainId}, got ${observedChainId}`;
-        this.log("warn", `RPC ${url} returned wrong chainId: ${errMsg}`);
+        this.log("warn", `RPC ${getRpcEndpointId(url)} returned wrong chainId: ${redactRpcDiagnostic(errMsg)}`);
         return { url, latency, status, error: errMsg, observedChainId };
       }
     }
@@ -183,7 +200,7 @@ export class LatencyTester {
     if (syncingResponse?.result !== false) {
       status = "syncing";
       const errMsg = `Node is not synced (eth_syncing returned ${JSON.stringify(syncingResponse?.result)})`;
-      this.log("warn", `RPC ${url} is syncing: ${errMsg}`);
+      this.log("warn", `RPC ${getRpcEndpointId(url)} is syncing: ${redactRpcDiagnostic(errMsg)}`);
       // Return actual latency for syncing nodes so they can be used as fallback
       return { url, latency, status, error: errMsg };
     }
@@ -192,14 +209,17 @@ export class LatencyTester {
     if (typeof getCodeResponse?.result !== "string") {
       status = "wrong_bytecode";
       const errMsg = `Invalid bytecode response type: ${typeof getCodeResponse?.result}`;
-      this.log("warn", `RPC ${url} returned invalid bytecode: ${errMsg}`);
+      this.log("warn", `RPC ${getRpcEndpointId(url)} returned invalid bytecode: ${redactRpcDiagnostic(errMsg)}`);
       // Return actual latency even for wrong bytecode, in case it's needed for basic operations
       return { url, latency, status, error: errMsg };
     }
 
     // Log first 100 chars of both expected and received for debugging (use debug level)
     this.log("debug", `\nExpected Permit2 prefix (first 100 chars): ${PERMIT2_BYTECODE_PREFIX.slice(0, 100)}`);
-    this.log("debug", `Received bytecode (first 100 chars): ${getCodeResponse.result.slice(0, 100)}`);
+    this.log(
+      "debug",
+      `Received bytecode (first 100 chars): ${redactRpcDiagnostic(getCodeResponse.result.slice(0, 100))}`,
+    );
 
     if (!getCodeResponse.result.startsWith(PERMIT2_BYTECODE_PREFIX)) {
       status = "wrong_bytecode";
@@ -213,14 +233,14 @@ export class LatencyTester {
         commonPrefixLength++;
       }
       const errMsg = `Bytecode mismatch at position ${commonPrefixLength}`;
-      this.log("warn", `RPC ${url} has incorrect bytecode: ${errMsg}`);
+      this.log("warn", `RPC ${getRpcEndpointId(url)} has incorrect bytecode: ${redactRpcDiagnostic(errMsg)}`);
       // Return actual latency even for wrong bytecode, in case it's needed for basic operations
       return { url, latency, status, error: errMsg };
     }
 
     // All checks passed - node is synced and has correct bytecode
     status = "ok";
-    this.log("debug", `RPC ${url} passed all checks (${latency}ms)`);
+    this.log("debug", `RPC ${getRpcEndpointId(url)} passed all checks (${latency}ms)`);
     return { url, latency, status };
   }
 
@@ -229,7 +249,10 @@ export class LatencyTester {
    */
   async testRpcUrls(chainId: number, urls: string[]): Promise<Record<string, LatencyTestResult>> {
     if (!urls || urls.length === 0) return {};
-    this.log("info", `Starting latency tests for chain ${chainId} across ${urls.length} RPC URLs (incl. chainId, sync & bytecode check)...`);
+    this.log(
+      "info",
+      `Starting latency tests for chain ${chainId} across ${urls.length} RPC URLs (incl. chainId, sync & bytecode check)...`,
+    );
 
     const results = await Promise.allSettled(urls.map((url) => this.testSingleRpc(chainId, url)));
     const resultMap: Record<string, LatencyTestResult> = {};
@@ -243,7 +266,11 @@ export class LatencyTester {
       if (result.status === "fulfilled") {
         resultMap[url] = result.value;
       } else {
-        this.log("error", `Unexpected rejection during latency test promise for ${url}:`, result.reason);
+        this.log(
+          "error",
+          `Unexpected rejection during latency test promise for ${getRpcEndpointId(url)}:`,
+          redactRpcDiagnostic(result.reason),
+        );
         resultMap[url] = {
           url,
           latency: Infinity,

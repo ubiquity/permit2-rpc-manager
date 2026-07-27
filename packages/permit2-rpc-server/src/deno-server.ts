@@ -9,8 +9,11 @@ import { RpcSelector } from "./core/rpc-selector.ts";
 import { ChainlistWsDataSource } from "./data/chainlist-ws-data-source.ts";
 import { WsLatencyTester } from "./infra/ws-latency-tester.ts";
 import { handleMcpRequest, isMcpRequest } from "./mcp/handler.ts";
+import { getRpcEndpointId, redactRpcDiagnostic } from "./core/rpc-endpoint-id.ts";
 // Adjust path to point one level up from src/
 import rpcWhitelist from "../rpc-whitelist.json" with { type: "json" };
+
+export type RequestHandlerManager = Pick<Permit2RpcManager, "getHealthStatus" | "multicall3" | "send">;
 
 // Type guard to check for valid JSON-RPC request object structure
 function isValidJsonRpcRequest(obj: unknown): obj is JsonRpcRequest {
@@ -109,13 +112,19 @@ function parseLogLevelEnv(name: string): Permit2RpcManagerOptions["logLevel"] | 
   const raw = Deno.env.get(name);
   if (!raw) return undefined;
   const normalized = raw.trim().toLowerCase();
-  if (normalized === "debug" || normalized === "info" || normalized === "warn" || normalized === "error" || normalized === "none") {
+  if (
+    normalized === "debug" || normalized === "info" || normalized === "warn" || normalized === "error" ||
+    normalized === "none"
+  ) {
     return normalized as Permit2RpcManagerOptions["logLevel"];
   }
   return undefined;
 }
 
-function buildPermit2RpcManagerOptionsFromEnv(initialRpcData: Permit2RpcManagerOptions["initialRpcData"], disableCache: boolean): Permit2RpcManagerOptions {
+function buildPermit2RpcManagerOptionsFromEnv(
+  initialRpcData: Permit2RpcManagerOptions["initialRpcData"],
+  disableCache: boolean,
+): Permit2RpcManagerOptions {
   const scoringV2: NonNullable<Permit2RpcManagerOptions["scoringV2"]> = {};
   const scoringV2Enabled = parseBoolEnv("RPC_SCORING_V2_ENABLED");
   if (scoringV2Enabled !== undefined) scoringV2.enabled = scoringV2Enabled;
@@ -195,7 +204,10 @@ type WsLogLevel = "debug" | "info" | "warn" | "error";
 const wsLogger = (level: WsLogLevel, message: string, ...optionalParams: unknown[]) => {
   if (level === "debug" || level === "info") return;
   const logFn = console[level] || console.log;
-  logFn(`[Permit2WSS:${level}] ${message}`, ...optionalParams);
+  logFn(
+    `[Permit2WSS:${level}] ${redactRpcDiagnostic(message)}`,
+    ...optionalParams.map((optionalParam) => redactRpcDiagnostic(optionalParam)),
+  );
 };
 
 const wsCandidateLimitRaw = Number.parseInt(Deno.env.get("WS_CANDIDATE_LIMIT") ?? "25", 10);
@@ -207,7 +219,9 @@ const wsCacheManager = new CacheManager({
   disableCache: shouldDisableCache,
 });
 const wsLatencyTesterTimeoutMsRaw = Number.parseInt(Deno.env.get("WS_LATENCY_TIMEOUT_MS") ?? "5000", 10);
-const wsLatencyTesterTimeoutMs = Number.isFinite(wsLatencyTesterTimeoutMsRaw) && wsLatencyTesterTimeoutMsRaw > 0 ? wsLatencyTesterTimeoutMsRaw : 5000;
+const wsLatencyTesterTimeoutMs = Number.isFinite(wsLatencyTesterTimeoutMsRaw) && wsLatencyTesterTimeoutMsRaw > 0
+  ? wsLatencyTesterTimeoutMsRaw
+  : 5000;
 const wsLatencyTester = new WsLatencyTester(wsLatencyTesterTimeoutMs, wsLogger);
 const wsSelector = new RpcSelector(wsDataSource, wsCacheManager, wsLatencyTester, wsLogger);
 
@@ -329,12 +343,21 @@ function isNotFoundError(error: unknown): boolean {
   return error instanceof Deno.errors.NotFound;
 }
 
-const handler = async (request: Request): Promise<Response> => {
+/**
+ * Creates the HTTP request handler without starting a listener. Keeping the
+ * manager injectable makes the JSON-RPC request path directly testable.
+ */
+export function createHandler(manager: RequestHandlerManager): (request: Request) => Promise<Response> {
+  return (request) => handleRequest(request, manager);
+}
+
+async function handleRequest(request: Request, manager: RequestHandlerManager): Promise<Response> {
   // Set CORS headers for all responses
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*", // Allow requests from any origin
     "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-UBQ-RPC-CANDIDATES, X-UBQ-RPC-URL, X-UBQ-RPC-FALLBACK",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, X-UBQ-RPC-CANDIDATES, X-UBQ-RPC-URL, X-UBQ-RPC-FALLBACK",
   };
 
   // WebSocket JSON-RPC proxy (ws/wss). Connect clients to our server, proxy to an upstream WS RPC.
@@ -400,7 +423,9 @@ const handler = async (request: Request): Promise<Response> => {
             queuedToUpstream.push(payload);
           } else if (!clientClosed) {
             clientClosed = true;
-            console.warn(`WebSocket upstream queue overflow (limit: ${MAX_QUEUE}) for chainId ${chainId}. Closing client connection.`);
+            console.warn(
+              `WebSocket upstream queue overflow (limit: ${MAX_QUEUE}) for chainId ${chainId}. Closing client connection.`,
+            );
             try {
               socket.close(4000, "Upstream queue overflow");
             } catch {
@@ -456,7 +481,9 @@ const handler = async (request: Request): Promise<Response> => {
         try {
           upstream = await connectFirstWebSocket(overrideCandidates, connectTimeout);
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Failed to connect to configured WS override";
+          const message = error instanceof Error
+            ? redactRpcDiagnostic(error.message)
+            : "Failed to connect to configured WS override";
           wsLogger("warn", `WS override failed for chain ${chainId}: ${message}`);
         }
       }
@@ -488,7 +515,7 @@ const handler = async (request: Request): Promise<Response> => {
         }
 
         if (!upstream) {
-          const message = lastError?.message ?? "Failed to connect to upstream WebSocket";
+          const message = redactRpcDiagnostic(lastError?.message ?? "Failed to connect to upstream WebSocket");
           try {
             socket.close(1011, message);
           } catch {
@@ -551,7 +578,7 @@ const handler = async (request: Request): Promise<Response> => {
         },
       });
     } catch (error) {
-      console.error("Failed to read static asset logo.svg:", error);
+      console.error("Failed to read static asset logo.svg:", redactRpcDiagnostic(error));
       return new Response("Not Found", {
         status: isNotFoundError(error) ? 404 : 500,
         headers: corsHeaders,
@@ -571,7 +598,7 @@ const handler = async (request: Request): Promise<Response> => {
         },
       });
     } catch (error) {
-      console.error("Failed to read static asset app.css:", error);
+      console.error("Failed to read static asset app.css:", redactRpcDiagnostic(error));
       return new Response("Not Found", {
         status: isNotFoundError(error) ? 404 : 500,
         headers: corsHeaders,
@@ -591,7 +618,7 @@ const handler = async (request: Request): Promise<Response> => {
         },
       });
     } catch (error) {
-      console.error("Failed to read static asset app.js:", error);
+      console.error("Failed to read static asset app.js:", redactRpcDiagnostic(error));
       return new Response("Not Found", {
         status: isNotFoundError(error) ? 404 : 500,
         headers: corsHeaders,
@@ -616,7 +643,7 @@ const handler = async (request: Request): Promise<Response> => {
       return new Response(
         JSON.stringify({
           error: "Failed to retrieve health status",
-          message: error instanceof Error ? error.message : String(error),
+          message: redactRpcDiagnostic(error instanceof Error ? error.message : String(error)),
         }),
         {
           status: 500,
@@ -624,7 +651,7 @@ const handler = async (request: Request): Promise<Response> => {
             "content-type": "application/json; charset=utf-8",
             ...corsHeaders,
           },
-        }
+        },
       );
     }
   }
@@ -641,7 +668,7 @@ const handler = async (request: Request): Promise<Response> => {
         },
       });
     } catch (error) {
-      console.error("Failed to read static asset index.html:", error);
+      console.error("Failed to read static asset index.html:", redactRpcDiagnostic(error));
       return new Response("Not Found", {
         status: isNotFoundError(error) ? 404 : 500,
         headers: corsHeaders,
@@ -678,9 +705,9 @@ const handler = async (request: Request): Promise<Response> => {
     requestBody = await request.json();
   } catch (e) {
     const error = e instanceof Error ? e : new Error(String(e));
-    console.error("Failed to parse request body:", error);
+    console.error("Failed to parse request body:", redactRpcDiagnostic(error));
     // Return JSON-RPC error for parse error
-    const errorResponse = createJsonRpcError(null, -32700, `Parse error: ${error.message}`);
+    const errorResponse = createJsonRpcError(null, -32700, `Parse error: ${redactRpcDiagnostic(error.message)}`);
     return new Response(JSON.stringify(errorResponse), {
       status: 200, // JSON-RPC compliance: parse errors return HTTP 200
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -689,7 +716,7 @@ const handler = async (request: Request): Promise<Response> => {
 
   // Check if this is an MCP request (at root path or with chainId)
   if (isMcpRequest(requestBody)) {
-    return handleMcpRequest({ requestBody, pathParts, manager, corsHeaders });
+    return handleMcpRequest({ requestBody, pathParts, manager: manager as Permit2RpcManager, corsHeaders });
   }
 
   // For regular JSON-RPC requests, require chainId in path
@@ -714,7 +741,10 @@ const handler = async (request: Request): Promise<Response> => {
   const overrideOptions = parseRpcOverrideOptions(request.headers);
   if (overrideOptions) {
     console.log(
-      `Received RPC override headers for chain ${chainId}: ` + `${overrideOptions.rpcOverrides.join(", ")} (allowFallback=${overrideOptions.allowFallback})`
+      `Received RPC override headers for chain ${chainId}: ` +
+        `${
+          overrideOptions.rpcOverrides.map(getRpcEndpointId).join(", ")
+        } (allowFallback=${overrideOptions.allowFallback})`,
     );
   }
 
@@ -732,7 +762,11 @@ const handler = async (request: Request): Promise<Response> => {
 
     // Validate all requests in the batch first
     if (!requestBody.every(isValidJsonRpcRequest)) {
-      const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Batch contains invalid JSON-RPC object(s).");
+      const errorResponse = createJsonRpcError(
+        null,
+        -32600,
+        "Invalid Request: Batch contains invalid JSON-RPC object(s).",
+      );
       return new Response(JSON.stringify(errorResponse), {
         status: 200, // JSON-RPC compliance: invalid requests return HTTP 200
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -740,7 +774,9 @@ const handler = async (request: Request): Promise<Response> => {
     }
 
     const multiCallRequests = requestBody.filter((req) => isMulticall3Request(chainId, req));
-    const otherRequests = requestBody.filter((req) => req.id && !multiCallRequests.map((r) => r.id).includes(req.id));
+    const otherRequests = requestBody.filter((req) =>
+      req.id !== null && !multiCallRequests.map((r) => r.id).includes(req.id)
+    );
 
     // group by block tag and split the array into chunks of 500 to avoid exceeding multicall limits
     const multiCallRequestsByBlockTag = multiCallRequests.reduce(
@@ -757,7 +793,7 @@ const handler = async (request: Request): Promise<Response> => {
         }
         return acc;
       },
-      {} as Record<string, Multicall3Request[][]>
+      {} as Record<string, Multicall3Request[][]>,
     );
 
     const multicallPromises: Promise<JsonRpcResponse[]>[] = [];
@@ -778,23 +814,28 @@ const handler = async (request: Request): Promise<Response> => {
           return { jsonrpc: "2.0", id: req.id, result } as JsonRpcResponse;
         } catch (e) {
           const error = e instanceof Error ? e : new Error(String(e));
-          console.error(`Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`, error);
+          console.error(
+            `Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`,
+            redactRpcDiagnostic(error),
+          );
 
           // Extract error details consistently
-          const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number" ? error.code : -32603;
-          const data = "data" in error ? error.data : undefined;
+          const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
+            ? error.code
+            : -32603;
+          const data = "data" in error ? redactRpcDiagnostic(error.data) : undefined;
 
           return {
             jsonrpc: "2.0",
             id: req.id,
             error: {
               code,
-              message: error.message,
+              message: redactRpcDiagnostic(error.message),
               data,
             },
           } as JsonRpcResponse;
         }
-      })
+      }),
     );
 
     return new Response(JSON.stringify([...multicallResponses, ...otherResponses]), {
@@ -819,7 +860,10 @@ const handler = async (request: Request): Promise<Response> => {
       });
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
-      console.error(`Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`, error);
+      console.error(
+        `Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`,
+        redactRpcDiagnostic(error),
+      );
 
       // Pass through HTTP status if available, otherwise default to 200 for JSON-RPC compliance
       // Contract reverts and JSON-RPC errors should return HTTP 200 per JSON-RPC spec
@@ -833,8 +877,8 @@ const handler = async (request: Request): Promise<Response> => {
         id: requestBody.id,
         error: {
           code: "code" in error && typeof error.code === "number" ? error.code : -32603,
-          message: error.message,
-          data: "data" in error ? error.data : undefined,
+          message: redactRpcDiagnostic(error.message),
+          data: "data" in error ? redactRpcDiagnostic(error.data) : undefined,
         },
       };
 
@@ -845,14 +889,16 @@ const handler = async (request: Request): Promise<Response> => {
     }
   } // --- Handle Invalid Request Structure ---
   else {
-    console.error("Invalid request body structure:", requestBody);
+    console.error("Invalid request body structure:", redactRpcDiagnostic(requestBody));
     const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Not a valid JSON-RPC object or batch.");
     return new Response(JSON.stringify(errorResponse), {
       status: 200, // JSON-RPC compliance: invalid requests return HTTP 200
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-};
+}
 
-console.log(`Permit2 RPC Manager Proxy listening on http://localhost:${PORT}`);
-Deno.serve({ port: PORT }, handler);
+if (import.meta.main) {
+  console.log(`Permit2 RPC Manager Proxy listening on http://localhost:${PORT}`);
+  Deno.serve({ port: PORT }, createHandler(manager));
+}

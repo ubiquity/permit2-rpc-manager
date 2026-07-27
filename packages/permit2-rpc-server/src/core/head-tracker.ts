@@ -1,4 +1,5 @@
 import type { RpcMetricsRegistry } from "./rpc-metrics.ts";
+import { getRpcEndpointId, redactRpcDiagnostic } from "./rpc-endpoint-id.ts";
 
 type LoggerFn = (level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]) => void;
 
@@ -42,7 +43,7 @@ export class HeadTracker {
 
   constructor(
     private readonly metrics: RpcMetricsRegistry,
-    options: HeadSamplingOptions = {}
+    options: HeadSamplingOptions = {},
   ) {
     this.now = options.now ?? Date.now;
     this.sampleIntervalMs = options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS;
@@ -130,7 +131,10 @@ export class HeadTracker {
       return head;
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      this.log("debug", `HeadTracker sample failed for ${rpcUrl}: ${err.message}`);
+      this.log(
+        "debug",
+        `HeadTracker sample failed for ${getRpcEndpointId(rpcUrl)}: ${redactRpcDiagnostic(err.message)}`,
+      );
       throw err;
     } finally {
       clearTimeout(timeoutId);

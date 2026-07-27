@@ -1,4 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
+import { getRpcEndpointId } from "../core/rpc-endpoint-id.ts";
 import { LatencyTester } from "./latency-tester.ts";
 import PERMIT2_BYTECODE_PREFIX from "../fixtures/permit2-bytecode.ts";
 
@@ -29,7 +30,7 @@ Deno.test("LatencyTester: eth_chainId mismatch returns wrong_chain_id", async ()
         new Response(JSON.stringify(makeJsonRpcResponse(body.id, result)), {
           status: 200,
           headers: { "Content-Type": "application/json" },
-        })
+        }),
       );
     }) as typeof fetch;
 
@@ -39,6 +40,47 @@ Deno.test("LatencyTester: eth_chainId mismatch returns wrong_chain_id", async ()
 
     assertEquals(results[url]?.status, "wrong_chain_id");
     assertEquals(results[url]?.observedChainId, 2);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+Deno.test("LatencyTester: redacts upstream URLs from emitted diagnostics", async () => {
+  const realFetch = globalThis.fetch;
+  const endpoint = "https://user:secret@rpc.example/private?token=endpoint-token";
+  const providerUrl = "https://provider.example/diagnostic?token=provider-token";
+  const logs: Array<{ message: string; optionalParams: unknown[] }> = [];
+
+  try {
+    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32000, message: `Provider diagnostic: ${providerUrl}` },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    }) as typeof fetch;
+
+    const tester = new LatencyTester(
+      250,
+      (_level, message, ...optionalParams) => logs.push({ message, optionalParams }),
+    );
+    const results = await tester.testRpcUrls(1, [endpoint]);
+    const diagnostics = JSON.stringify(logs);
+
+    assertEquals(diagnostics.includes(endpoint), false);
+    assertEquals(diagnostics.includes(providerUrl), false);
+    assertEquals(diagnostics.includes(getRpcEndpointId(endpoint)), true);
+    assertEquals(diagnostics.includes(getRpcEndpointId(providerUrl)), true);
+    assertEquals(results[endpoint]?.error?.includes(providerUrl), true);
   } finally {
     globalThis.fetch = realFetch;
   }
