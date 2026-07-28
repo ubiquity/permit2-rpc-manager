@@ -94,7 +94,7 @@ Deno.test("RpcSelector: ignores cached fastest RPC not in data source", async ()
   assertEquals(ranked, [okRpc]);
 });
 
-Deno.test("RpcSelector: skips deferred diagnostics while retaining cached recovery candidates", async () => {
+Deno.test("RpcSelector: appends cached deferred recovery candidates after fresh diagnostics", async () => {
   const chainId = 1;
   const deferredRpc = "https://deferred.example/rpc";
   const healthyRpc = "https://healthy.example/rpc";
@@ -128,18 +128,49 @@ Deno.test("RpcSelector: skips deferred diagnostics while retaining cached recove
   const ranked = await selector.getRankedRpcList(chainId);
 
   assertEquals(testedUrls, [[healthyRpc]]);
-  assertEquals(ranked, [deferredRpc, healthyRpc]);
+  assertEquals(ranked, [healthyRpc, deferredRpc]);
   const retainedMap = await cacheManager.getLatencyMap(chainId);
   assertEquals(retainedMap?.[deferredRpc], { url: deferredRpc, latency: 1, status: "ok" });
+  assertEquals(await cacheManager.getFastestRpc(chainId), healthyRpc);
 });
 
-Deno.test("RpcSelector: excludes backed-off, half-open, and active-probe diagnostics while retaining cached candidates", async () => {
+Deno.test("RpcSelector: retains uncached deferred recovery candidates after fresh diagnostics", async () => {
+  const chainId = 1;
+  const deferredRpc = "https://deferred.example/rpc";
+  const healthyRpc = "https://healthy.example/rpc";
+  const dataSource = { getRpcUrls: () => [deferredRpc, healthyRpc] };
+  const cacheManager = new CacheManager({ disableCache: true });
+  const testedUrls: string[][] = [];
+
+  const latencyTester = {
+    testRpcUrls: (_chainId: number, urls: string[]): Promise<Record<string, LatencyTestResult>> => {
+      testedUrls.push(urls);
+      return Promise.resolve({ [healthyRpc]: { url: healthyRpc, latency: 10, status: "ok" } });
+    },
+  };
+
+  const selector = new RpcSelector(
+    dataSource,
+    cacheManager,
+    latencyTester,
+    undefined,
+    (url) => url === healthyRpc,
+  );
+  const ranked = await selector.getRankedRpcList(chainId);
+
+  assertEquals(testedUrls, [[healthyRpc]]);
+  assertEquals(ranked, [healthyRpc, deferredRpc]);
+  assertEquals(await cacheManager.getLatencyMap(chainId), null);
+});
+
+Deno.test("RpcSelector: excludes backed-off, half-open, active-probe, and circuit-open diagnostics while retaining cached candidates", async () => {
   const chainId = 1;
   const backedOffRpc = "https://backed-off.example/rpc";
   const halfOpenRpc = "https://half-open.example/rpc";
   const activeProbeRpc = "https://active-probe.example/rpc";
+  const circuitOpenRpc = "https://circuit-open.example/rpc";
   const healthyRpc = "https://healthy.example/rpc";
-  const dataSource = { getRpcUrls: () => [backedOffRpc, halfOpenRpc, activeProbeRpc, healthyRpc] };
+  const dataSource = { getRpcUrls: () => [backedOffRpc, halfOpenRpc, activeProbeRpc, circuitOpenRpc, healthyRpc] };
   const cacheManager = new MemoryCacheManager();
   const testedUrls: string[][] = [];
 
@@ -149,6 +180,7 @@ Deno.test("RpcSelector: excludes backed-off, half-open, and active-probe diagnos
       [backedOffRpc]: { url: backedOffRpc, latency: 1, status: "ok" },
       [halfOpenRpc]: { url: halfOpenRpc, latency: 2, status: "ok" },
       [activeProbeRpc]: { url: activeProbeRpc, latency: 3, status: "ok" },
+      [circuitOpenRpc]: { url: circuitOpenRpc, latency: 4, status: "ok" },
       [healthyRpc]: { url: healthyRpc, latency: 20, status: "ok" },
     },
     null,
@@ -171,11 +203,12 @@ Deno.test("RpcSelector: excludes backed-off, half-open, and active-probe diagnos
   const ranked = await selector.getRankedRpcList(chainId);
 
   assertEquals(testedUrls, [[healthyRpc]]);
-  assertEquals(ranked, [backedOffRpc, halfOpenRpc, activeProbeRpc, healthyRpc]);
+  assertEquals(ranked, [healthyRpc, backedOffRpc, halfOpenRpc, activeProbeRpc, circuitOpenRpc]);
   const retainedMap = await cacheManager.getLatencyMap(chainId);
   assertEquals(retainedMap?.[backedOffRpc], { url: backedOffRpc, latency: 1, status: "ok" });
   assertEquals(retainedMap?.[halfOpenRpc], { url: halfOpenRpc, latency: 2, status: "ok" });
   assertEquals(retainedMap?.[activeProbeRpc], { url: activeProbeRpc, latency: 3, status: "ok" });
+  assertEquals(retainedMap?.[circuitOpenRpc], { url: circuitOpenRpc, latency: 4, status: "ok" });
 });
 
 Deno.test("RpcSelector: redacts RPC URLs from selector diagnostics", async () => {

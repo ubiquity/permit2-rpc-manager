@@ -60,6 +60,7 @@ export class RpcSelector {
     const allowedUrls = new Set(rpcUrls);
     const deferredUrls = new Set(rpcUrls.filter((url) => !this.isDiagnosticEligible(url)));
     const diagnosticUrls = rpcUrls.filter((url) => !deferredUrls.has(url));
+    const diagnosticUrlSet = new Set(diagnosticUrls);
 
     let latencyMap = await this.cacheManager.getLatencyMap(chainId);
     // Use const as this variable is not reassigned before the next block
@@ -107,7 +108,7 @@ export class RpcSelector {
         try {
           latencyMap = this.mergeLatencyMaps(await testPromise, latencyMap, allowedUrls, deferredUrls);
           // Find the new fastest based on the fresh test results
-          const newFastest = this._findFastestInMap(latencyMap);
+          const newFastest = this._findFastestInMap(latencyMap, diagnosticUrlSet);
           await this.cacheManager.updateChainCache(chainId, latencyMap, newFastest?.url ?? null);
           if (newFastest) {
             this.log(
@@ -138,7 +139,16 @@ export class RpcSelector {
     }
 
     // Filter and sort the results from the (potentially updated) latency map
-    const rankedList = this._rankResults(latencyMap, allowedUrls);
+    const rankedList = this._rankResults(latencyMap, diagnosticUrlSet);
+    const rankedUrls = new Set(rankedList);
+
+    for (const url of rpcUrls) {
+      if (deferredUrls.has(url) && !rankedUrls.has(url)) {
+        rankedList.push(url);
+        rankedUrls.add(url);
+      }
+    }
+
     this.log("debug", `Ranked RPC list for chain ${chainId}:`, redactRpcDiagnostic(rankedList));
     return rankedList;
   }
@@ -146,7 +156,10 @@ export class RpcSelector {
   /**
    * Helper to find the single best RPC from a latency map based on status and latency.
    */
-  private _findFastestInMap(latencyMap: Record<string, LatencyTestResult> | null): LatencyTestResult | null {
+  private _findFastestInMap(
+    latencyMap: Record<string, LatencyTestResult> | null,
+    allowedUrls: Set<string>,
+  ): LatencyTestResult | null {
     if (!latencyMap) return null;
 
     let bestResult: LatencyTestResult | null = null;
@@ -155,7 +168,7 @@ export class RpcSelector {
       let fastestForStatus: LatencyTestResult | null = null;
       for (const url in latencyMap) {
         const result = latencyMap[url];
-        if (result?.status === status) {
+        if (result?.status === status && allowedUrls.has(result.url)) {
           if (!fastestForStatus || result.latency < fastestForStatus.latency) {
             fastestForStatus = result;
           }
