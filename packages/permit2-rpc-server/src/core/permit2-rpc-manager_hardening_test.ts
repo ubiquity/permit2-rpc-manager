@@ -532,6 +532,120 @@ Deno.test("a failed recovery probe consumes its expired backoff window", async (
   }
 });
 
+Deno.test("cache-disabled selection retains an expired-backoff endpoint for its foreground recovery lease", async () => {
+  const recoveringRpc = "https://selector-recovery.example";
+  const healthyRpc = "https://selector-healthy.example";
+  const manager = new Permit2RpcManager({
+    initialRpcData: { rpcs: { "1": [recoveringRpc, healthyRpc] } },
+    disableCache: true,
+    logLevel: "none",
+    scoringV2: { enabled: false },
+  });
+  const testedUrls: string[][] = [];
+  const selector = manager.rpcSelector as unknown as {
+    latencyTester: {
+      testRpcUrls(
+        chainId: number,
+        urls: string[],
+      ): Promise<Record<string, { url: string; latency: number; status: "ok" }>>;
+    };
+  };
+  selector.latencyTester = {
+    testRpcUrls: (_chainId, urls) => {
+      testedUrls.push(urls);
+      return Promise.resolve({ [healthyRpc]: { url: healthyRpc, latency: 10, status: "ok" } });
+    },
+  };
+  (manager as any).rpcScorer.getRankedRpcs = (candidates: string[]) => candidates;
+  (manager as any).rpcIndexMap.set(1, 1);
+  markRpcHalfOpen(manager, recoveringRpc);
+
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  let resolveRecovery!: (response: Response) => void;
+  let signalRecoveryFetch!: () => void;
+  const recoveryResponse = new Promise<Response>((resolve) => {
+    resolveRecovery = resolve;
+  });
+  const recoveryFetchStarted = new Promise<void>((resolve) => {
+    signalRecoveryFetch = resolve;
+  });
+
+  globalThis.fetch = ((input) => {
+    calls.push(inputUrl(input));
+    signalRecoveryFetch();
+    return recoveryResponse;
+  }) as typeof fetch;
+
+  try {
+    const recoveryRequest = manager.send<string>(1, "eth_blockNumber");
+    await recoveryFetchStarted;
+
+    assert.deepEqual(testedUrls, [[healthyRpc]]);
+    assert.deepEqual(calls, [recoveringRpc]);
+    assert.equal(typeof (manager as any).rpcHealthStates.get(recoveringRpc).recoveryProbeToken, "string");
+
+    resolveRecovery(jsonResponse({ jsonrpc: "2.0", id: 1, result: "recovered" }));
+    assert.equal(await recoveryRequest, "recovered");
+  } finally {
+    resolveRecovery?.(jsonResponse({ jsonrpc: "2.0", id: 1, result: "recovered" }));
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("cache-disabled selection does not execute active recovery probes or circuit-open endpoints", async () => {
+  const activeProbeRpc = "https://selector-active-probe.example";
+  const circuitOpenRpc = "https://selector-circuit-open.example";
+  const healthyRpc = "https://selector-healthy.example";
+  const manager = new Permit2RpcManager({
+    initialRpcData: { rpcs: { "1": [activeProbeRpc, circuitOpenRpc, healthyRpc] } },
+    disableCache: true,
+    logLevel: "none",
+    scoringV2: { enabled: false },
+  });
+  const testedUrls: string[][] = [];
+  const selector = manager.rpcSelector as unknown as {
+    latencyTester: {
+      testRpcUrls(
+        chainId: number,
+        urls: string[],
+      ): Promise<Record<string, { url: string; latency: number; status: "ok" }>>;
+    };
+  };
+  selector.latencyTester = {
+    testRpcUrls: (_chainId, urls) => {
+      testedUrls.push(urls);
+      return Promise.resolve({ [healthyRpc]: { url: healthyRpc, latency: 10, status: "ok" } });
+    },
+  };
+  (manager as any).rpcScorer.getRankedRpcs = (candidates: string[]) => candidates;
+  markRpcHalfOpen(manager, activeProbeRpc);
+  (manager as any).rpcHealthStates.get(activeProbeRpc).recoveryProbeToken = "already-probing";
+
+  const circuitBreaker = (manager as any).circuitBreaker;
+  for (let index = 0; index < 5; index++) {
+    circuitBreaker.recordResult(circuitOpenRpc, { isProviderIssue: true, reason: "network_error" }, false);
+  }
+
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = ((input) => {
+    calls.push(inputUrl(input));
+    return Promise.reject(new TypeError("Failed to fetch"));
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(() => manager.send(1, "eth_blockNumber"));
+
+    assert.deepEqual(testedUrls, [[healthyRpc]]);
+    assert.deepEqual(calls, [healthyRpc]);
+    assert.equal((manager as any).rpcHealthStates.get(activeProbeRpc).recoveryProbeToken, "already-probing");
+    assert.equal(circuitBreaker.getState(circuitOpenRpc), "open");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("consensus requests allow only one half-open recovery probe", async () => {
   const recoveringRpc = "https://recovering-consensus.example";
   const healthyRpc = "https://healthy-consensus.example";
