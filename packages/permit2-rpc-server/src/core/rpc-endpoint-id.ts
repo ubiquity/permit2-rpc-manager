@@ -1,50 +1,65 @@
 const FNV_64_OFFSET_BASIS = 0xcbf29ce484222325n;
 const FNV_64_PRIME = 0x100000001b3n;
 const FNV_64_MASK = 0xffffffffffffffffn;
-// URL paths and queries can contain brackets and punctuation, so consume the
-// complete non-whitespace token rather than leaving a sensitive suffix behind.
-const RPC_URL_PATTERN = /(?:https?|wss?):\/\/\S+/gi;
+// Quotes and common diagnostic wrappers terminate URL tokens. Brackets,
+// semicolons, and URL punctuation stay in the token because they are legal
+// URL characters (notably for IPv6 authorities and query strings).
+const RPC_URL_PATTERN = /(?:https?|wss?):\/\/[^\s"'<>`\\]+/gi;
 const MAX_REDACTION_DEPTH = 16;
 const REDACTED_DEPTH_MARKER = "[redacted: maximum depth]";
 const REDACTED_CIRCULAR_MARKER = "[redacted: circular reference]";
+const WRAPPER_CLOSERS: Readonly<Record<string, string>> = {
+  "(": ")",
+  "[": "]",
+  "{": "}",
+};
+const TRAILING_WRAPPER_PUNCTUATION = new Set([",", ".", "!", "?", ";", ":"]);
 
 function normalizeEndpoint(value: string): string {
   return value.trim().replace(/\/$/, "");
 }
 
-function hasUnmatchedClosingDelimiter(value: string, opening: string, closing: string): boolean {
-  let openings = 0;
-  let closings = 0;
-  for (const char of value) {
-    if (char === opening) openings++;
-    if (char === closing) closings++;
+function getExpectedClosingWrappers(value: string, urlOffset: number): string {
+  let expected = "";
+
+  for (let index = urlOffset - 1; index >= 0; index--) {
+    const closing = WRAPPER_CLOSERS[value[index]];
+    if (!closing) break;
+    expected += closing;
   }
-  return closings > openings;
+
+  return expected;
 }
 
-function splitTrailingUrlPunctuation(value: string): { endpoint: string; suffix: string } {
-  let endpointEnd = value.length;
-  let suffix = "";
+function splitTrailingUrlWrappers(
+  matchedUrl: string,
+  diagnostic: string,
+  urlOffset: number,
+): { endpoint: string; suffix: string } {
+  const expectedClosers = getExpectedClosingWrappers(diagnostic, urlOffset);
+  if (!expectedClosers) return { endpoint: matchedUrl, suffix: "" };
 
-  while (endpointEnd > 0) {
-    const char = value[endpointEnd - 1];
-    const candidate = value.slice(0, endpointEnd);
-    const isUnmatchedClosingDelimiter = (char === ")" && hasUnmatchedClosingDelimiter(candidate, "(", ")")) ||
-      (char === "]" && hasUnmatchedClosingDelimiter(candidate, "[", "]")) ||
-      (char === "}" && hasUnmatchedClosingDelimiter(candidate, "{", "}"));
-    const isSentencePunctuation = ",.!?".includes(char);
-    if (!isUnmatchedClosingDelimiter && !isSentencePunctuation) break;
-
-    endpointEnd--;
-    suffix = `${char}${suffix}`;
+  let punctuationStart = matchedUrl.length;
+  while (punctuationStart > 0 && TRAILING_WRAPPER_PUNCTUATION.has(matchedUrl[punctuationStart - 1])) {
+    punctuationStart--;
   }
 
-  return { endpoint: value.slice(0, endpointEnd), suffix };
+  for (let length = Math.min(expectedClosers.length, punctuationStart); length > 0; length--) {
+    if (matchedUrl.slice(punctuationStart - length, punctuationStart) === expectedClosers.slice(0, length)) {
+      const endpointEnd = punctuationStart - length;
+      return {
+        endpoint: matchedUrl.slice(0, endpointEnd),
+        suffix: matchedUrl.slice(endpointEnd),
+      };
+    }
+  }
+
+  return { endpoint: matchedUrl, suffix: "" };
 }
 
 function redactUrlString(value: string): string {
-  return value.replace(RPC_URL_PATTERN, (matchedUrl) => {
-    const { endpoint, suffix } = splitTrailingUrlPunctuation(matchedUrl);
+  return value.replace(RPC_URL_PATTERN, (matchedUrl, urlOffset) => {
+    const { endpoint, suffix } = splitTrailingUrlWrappers(matchedUrl, value, urlOffset);
     return `${getRpcEndpointId(endpoint)}${suffix}`;
   });
 }

@@ -1,9 +1,10 @@
-// Simple interface for JSON-RPC request structure
+// JSON-RPC request envelope. Property absence, rather than a null ID, marks a
+// notification; positional params may be omitted and default to an empty list.
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
   method: string;
-  params: unknown[] | Record<string, any>; // Allow both array and object params for MCP
-  id: number | string | null; // Allow null ID for notifications, though we might not process them specially
+  params?: unknown[] | Record<string, unknown>;
+  id?: number | string | null;
 }
 
 // Define the structure for a JSON-RPC response

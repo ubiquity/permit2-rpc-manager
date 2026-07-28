@@ -32,6 +32,7 @@ export class RpcSelector {
     cacheManager: CacheManager,
     latencyTester: LatencyTesterLike,
     logger?: LoggerFn,
+    private readonly isDiagnosticEligible: (url: string) => boolean = () => true,
   ) {
     this.dataSource = dataSource;
     this.cacheManager = cacheManager;
@@ -57,6 +58,8 @@ export class RpcSelector {
     }
 
     const allowedUrls = new Set(rpcUrls);
+    const deferredUrls = new Set(rpcUrls.filter((url) => !this.isDiagnosticEligible(url)));
+    const diagnosticUrls = rpcUrls.filter((url) => !deferredUrls.has(url));
 
     let latencyMap = await this.cacheManager.getLatencyMap(chainId);
     // Use const as this variable is not reassigned before the next block
@@ -82,19 +85,27 @@ export class RpcSelector {
         this.log("info", `No valid cache for chain ${chainId}. Performing latency tests...`);
       }
 
+      if (diagnosticUrls.length === 0) {
+        this.log("debug", `All RPC diagnostics are deferred for chain ${chainId}; retaining cached results.`);
+        // A first request can create a half-open health state before selector
+        // cache data exists. Return the source list so foreground recovery can
+        // still acquire the lease; it will perform its own health filtering.
+        if (!latencyMap) return rpcUrls;
+      }
+
       // --- Latency Test Locking ---
       let testPromise = this.ongoingLatencyTests.get(chainId);
-      if (testPromise) {
+      if (diagnosticUrls.length > 0 && testPromise) {
         this.log("debug", `Latency test already in progress for chain ${chainId}, awaiting result...`);
-        latencyMap = await testPromise; // Wait for the ongoing test
-      } else {
+        latencyMap = this.mergeLatencyMaps(await testPromise, latencyMap, allowedUrls, deferredUrls);
+      } else if (diagnosticUrls.length > 0) {
         // Create the promise, store it, run the test, then remove it
-        testPromise = this.latencyTester.testRpcUrls(chainId, rpcUrls);
+        testPromise = this.latencyTester.testRpcUrls(chainId, diagnosticUrls);
         this.ongoingLatencyTests.set(chainId, testPromise);
         this.log("debug", `Initiated latency test for chain ${chainId}.`);
 
         try {
-          latencyMap = await testPromise;
+          latencyMap = this.mergeLatencyMaps(await testPromise, latencyMap, allowedUrls, deferredUrls);
           // Find the new fastest based on the fresh test results
           const newFastest = this._findFastestInMap(latencyMap);
           await this.cacheManager.updateChainCache(chainId, latencyMap, newFastest?.url ?? null);
@@ -156,6 +167,34 @@ export class RpcSelector {
       }
     }
     return bestResult;
+  }
+
+  /**
+   * Fresh diagnostics replace only the endpoints they were allowed to probe.
+   * Cached entries for health-deferred URLs remain available to foreground
+   * traffic once the manager admits their recovery lease.
+   */
+  private mergeLatencyMaps(
+    freshResults: Record<string, LatencyTestResult>,
+    cachedResults: Record<string, LatencyTestResult> | null,
+    allowedUrls: Set<string>,
+    deferredUrls: Set<string>,
+  ): Record<string, LatencyTestResult> {
+    const merged: Record<string, LatencyTestResult> = {};
+
+    for (const [url, result] of Object.entries(cachedResults ?? {})) {
+      if (allowedUrls.has(url) && deferredUrls.has(url) && result?.url === url) {
+        merged[url] = result;
+      }
+    }
+
+    for (const [url, result] of Object.entries(freshResults)) {
+      if (allowedUrls.has(url) && result?.url === url) {
+        merged[url] = result;
+      }
+    }
+
+    return merged;
   }
 
   /**

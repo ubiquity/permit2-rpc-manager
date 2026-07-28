@@ -29,7 +29,7 @@ const DEFAULT_HALF_OPEN_TEST_LIMIT = 3;
 
 const PROVIDER_FAULT_REASONS = new Set<string>([
   "rate_limit",
-  "quota_exceeded",
+  "limit_exceeded",
   "server_error",
   "timeout",
   "network_error",

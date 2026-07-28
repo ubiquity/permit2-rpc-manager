@@ -16,6 +16,14 @@ export interface ConsensusOptions {
   preferNonEmpty?: boolean;
 }
 
+/** Signals that the caller error is deterministic and must win over quorum. */
+export class ConsensusNonRetryableError extends Error {
+  constructor(public override readonly cause: unknown) {
+    super("Non-retryable error during consensus request");
+    this.name = "ConsensusNonRetryableError";
+  }
+}
+
 function stableStringify(value: unknown): string {
   if (value === null || value === undefined) return JSON.stringify(value);
 
@@ -52,15 +60,24 @@ function isNonEmpty(value: unknown): boolean {
 export class ConsensusExecutor {
   constructor(private readonly metrics: RpcMetricsRegistry) {}
 
-  async execute<T>(chainId: number, method: string, candidates: string[], requestFn: (rpcUrl: string) => Promise<T>, config: ConsensusConfig): Promise<T> {
+  async execute<T>(
+    chainId: number,
+    method: string,
+    candidates: string[],
+    requestFn: (rpcUrl: string) => Promise<T>,
+    config: ConsensusConfig,
+  ): Promise<T> {
     const participantCount = Math.min(Math.max(1, config.participants), candidates.length);
     const quorum = Math.min(Math.max(1, config.agreementThreshold), participantCount);
     const selected = candidates.slice(0, participantCount);
 
-    const results = await Promise.allSettled(selected.map(async (rpcUrl) => ({ rpcUrl, value: await requestFn(rpcUrl) })));
+    const results = await Promise.allSettled(
+      selected.map(async (rpcUrl) => ({ rpcUrl, value: await requestFn(rpcUrl) })),
+    );
 
     const successes: Array<{ rpcUrl: string; value: T; key: string }> = [];
     let lastError: unknown;
+    let nonRetryableError: unknown;
 
     for (const res of results) {
       if (res.status === "fulfilled") {
@@ -68,11 +85,20 @@ export class ConsensusExecutor {
         successes.push({ rpcUrl: res.value.rpcUrl, value: res.value.value, key });
       } else {
         lastError = res.reason;
+        if (res.reason instanceof ConsensusNonRetryableError) {
+          nonRetryableError ??= res.reason.cause;
+        }
       }
     }
 
+    if (nonRetryableError !== undefined) {
+      throw nonRetryableError instanceof Error ? nonRetryableError : new Error(String(nonRetryableError));
+    }
+
     if (successes.length === 0) {
-      throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "Consensus: all participants failed"));
+      throw lastError instanceof Error
+        ? lastError
+        : new Error(String(lastError ?? "Consensus: all participants failed"));
     }
 
     const buckets = new Map<string, Array<{ rpcUrl: string; value: T }>>();

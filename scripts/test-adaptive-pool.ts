@@ -24,12 +24,11 @@ async function testAdaptivePoolManagement() {
   console.log("Testing Adaptive RPC Pool Management");
   console.log("=====================================\n");
 
-  // Create manager with adaptive pool management enabled
+  // Health tracking is deliberately local to this manager instance. Cache data
+  // remains in CacheManager, but no legacy rpc_failures KV entries are read or
+  // written by the request path.
   const manager = new Permit2RpcManager({
     initialRpcData: mockRpcData,
-    enableBadNetworkInvalidation: true,
-    eliminationThreshold: 3,
-    eliminationRetryMs: 10000, // 10 seconds for testing
     logLevel: "debug",
     disableCache: false,
     cacheTtlMs: 60000, // 1 minute cache
@@ -69,27 +68,20 @@ async function testAdaptivePoolManagement() {
   console.log("- Eliminated RPCs are excluded from selection");
   console.log("- Last remaining RPC is never eliminated to maintain service availability");
 
-  console.log("\n4. Checking KV failure tracking");
-  console.log("--------------------------------");
+  console.log("\n4. Checking in-memory health status");
+  console.log("-----------------------------------");
 
-  const kv = await Deno.openKv();
-  const failures = kv.list({ prefix: ["rpc_failures", 100] });
-
-  console.log("Current failure tracking:");
-  for await (const entry of failures) {
-    const rpcUrl = String(entry.key[2]);
-    console.log(`- ${rpcUrl}: ${JSON.stringify(entry.value)}`);
-  }
+  const health = await manager.getHealthStatus();
+  const chainHealth = health.chains[100];
+  console.log(`Tracked RPCs: ${chainHealth?.totalRpcs ?? 0}`);
+  console.log(`Healthy RPCs: ${chainHealth?.healthyRpcs ?? 0}`);
 
   console.log("\n5. Summary");
   console.log("----------");
   console.log("✓ Adaptive pool management is configured and active");
-  console.log("✓ Failure tracking uses Deno KV with proper key structure");
+  console.log("✓ Failure tracking is manager-local; no rpc_failures KV entries are used");
   console.log("✓ Cache invalidation updates latency results with metadata");
   console.log("✓ RPC selector filters eliminated RPCs from the pool");
-
-  // Cleanup
-  kv.close();
 }
 
 // Run the test

@@ -94,6 +94,90 @@ Deno.test("RpcSelector: ignores cached fastest RPC not in data source", async ()
   assertEquals(ranked, [okRpc]);
 });
 
+Deno.test("RpcSelector: skips deferred diagnostics while retaining cached recovery candidates", async () => {
+  const chainId = 1;
+  const deferredRpc = "https://deferred.example/rpc";
+  const healthyRpc = "https://healthy.example/rpc";
+  const dataSource = { getRpcUrls: () => [deferredRpc, healthyRpc] };
+  const cacheManager = new MemoryCacheManager();
+  const testedUrls: string[][] = [];
+
+  await cacheManager.updateChainCache(
+    chainId,
+    {
+      [deferredRpc]: { url: deferredRpc, latency: 1, status: "ok" },
+      [healthyRpc]: { url: healthyRpc, latency: 20, status: "ok" },
+    },
+    null,
+  );
+
+  const latencyTester = {
+    testRpcUrls: (_chainId: number, urls: string[]): Promise<Record<string, LatencyTestResult>> => {
+      testedUrls.push(urls);
+      return Promise.resolve({ [healthyRpc]: { url: healthyRpc, latency: 10, status: "ok" } });
+    },
+  };
+
+  const selector = new RpcSelector(
+    dataSource,
+    cacheManager,
+    latencyTester,
+    undefined,
+    (url) => url !== deferredRpc,
+  );
+  const ranked = await selector.getRankedRpcList(chainId);
+
+  assertEquals(testedUrls, [[healthyRpc]]);
+  assertEquals(ranked, [deferredRpc, healthyRpc]);
+  const retainedMap = await cacheManager.getLatencyMap(chainId);
+  assertEquals(retainedMap?.[deferredRpc], { url: deferredRpc, latency: 1, status: "ok" });
+});
+
+Deno.test("RpcSelector: excludes backed-off, half-open, and active-probe diagnostics while retaining cached candidates", async () => {
+  const chainId = 1;
+  const backedOffRpc = "https://backed-off.example/rpc";
+  const halfOpenRpc = "https://half-open.example/rpc";
+  const activeProbeRpc = "https://active-probe.example/rpc";
+  const healthyRpc = "https://healthy.example/rpc";
+  const dataSource = { getRpcUrls: () => [backedOffRpc, halfOpenRpc, activeProbeRpc, healthyRpc] };
+  const cacheManager = new MemoryCacheManager();
+  const testedUrls: string[][] = [];
+
+  await cacheManager.updateChainCache(
+    chainId,
+    {
+      [backedOffRpc]: { url: backedOffRpc, latency: 1, status: "ok" },
+      [halfOpenRpc]: { url: halfOpenRpc, latency: 2, status: "ok" },
+      [activeProbeRpc]: { url: activeProbeRpc, latency: 3, status: "ok" },
+      [healthyRpc]: { url: healthyRpc, latency: 20, status: "ok" },
+    },
+    null,
+  );
+
+  const latencyTester = {
+    testRpcUrls: (_chainId: number, urls: string[]): Promise<Record<string, LatencyTestResult>> => {
+      testedUrls.push(urls);
+      return Promise.resolve({ [healthyRpc]: { url: healthyRpc, latency: 10, status: "ok" } });
+    },
+  };
+
+  const selector = new RpcSelector(
+    dataSource,
+    cacheManager,
+    latencyTester,
+    undefined,
+    (url) => url === healthyRpc,
+  );
+  const ranked = await selector.getRankedRpcList(chainId);
+
+  assertEquals(testedUrls, [[healthyRpc]]);
+  assertEquals(ranked, [backedOffRpc, halfOpenRpc, activeProbeRpc, healthyRpc]);
+  const retainedMap = await cacheManager.getLatencyMap(chainId);
+  assertEquals(retainedMap?.[backedOffRpc], { url: backedOffRpc, latency: 1, status: "ok" });
+  assertEquals(retainedMap?.[halfOpenRpc], { url: halfOpenRpc, latency: 2, status: "ok" });
+  assertEquals(retainedMap?.[activeProbeRpc], { url: activeProbeRpc, latency: 3, status: "ok" });
+});
+
 Deno.test("RpcSelector: redacts RPC URLs from selector diagnostics", async () => {
   const chainId = 1;
   const rpcUrl = "https://user:super-secret@rpc.example/rpc?apiKey=very-secret";
