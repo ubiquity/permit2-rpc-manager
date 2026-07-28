@@ -1,5 +1,15 @@
 # RPC Routing & Reliability v2 (eRPC-inspired)
 
+> **Status: historical design baseline.** This document describes the broad
+> reliability design implemented in commit `4887736`. It is not the current
+> implementation roadmap. See
+> [`erpc-upstream-delta-a698f1d4-to-8459b053.md`](./erpc-upstream-delta-a698f1d4-to-8459b053.md)
+> for the 202-commit upstream audit and current product-fit conclusion: retain the
+> Permit2-specific Multicall3 optimization, implement only the small targeted
+> hardening fixes with direct operational value, and defer broader routing,
+> JSON-RPC, KV, hedging, head, and consensus redesigns until justified by production
+> evidence.
+
 ## Summary
 
 This document specifies a set of **advanced performance/reliability strategies** to implement in the Permit2 RPC proxy, inspired by patterns observed in `erpc/erpc` (as a reference implementation) but designed for our existing Deno/TypeScript codebase.
