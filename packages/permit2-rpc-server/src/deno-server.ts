@@ -15,25 +15,76 @@ import rpcWhitelist from "../rpc-whitelist.json" with { type: "json" };
 
 export type RequestHandlerManager = Pick<Permit2RpcManager, "getHealthStatus" | "multicall3" | "send">;
 
-// Type guard to check for valid JSON-RPC request object structure
-function isValidJsonRpcRequest(obj: unknown): obj is JsonRpcRequest {
-  if (typeof obj !== "object" || obj === null) {
-    return false;
+type JsonRpcId = JsonRpcResponse["id"];
+
+interface PositionalJsonRpcRequest {
+  jsonrpc: "2.0";
+  method: string;
+  params: unknown[];
+  id?: JsonRpcId;
+}
+
+interface NamedJsonRpcRequest {
+  jsonrpc: "2.0";
+  method: string;
+  params: Record<string, unknown>;
+  id?: JsonRpcId;
+}
+
+type ParsedJsonRpcRequest =
+  | { kind: "invalid" }
+  | { kind: "named-params"; request: NamedJsonRpcRequest }
+  | { kind: "positional"; request: PositionalJsonRpcRequest };
+
+const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
+
+function isJsonRpcId(value: unknown): value is JsonRpcId {
+  return typeof value === "string" || typeof value === "number" || value === null;
+}
+
+/**
+ * Parses only the JSON-RPC envelope. Ethereum RPC accepts positional params,
+ * while named params remain a valid JSON-RPC envelope and are rejected later
+ * with -32602.
+ */
+function parseJsonRpcRequest(value: unknown): ParsedJsonRpcRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { kind: "invalid" };
   }
-  // Use 'in' operator for safer property checks on unknown
-  return (
-    "jsonrpc" in obj &&
-    obj.jsonrpc === "2.0" &&
-    "method" in obj &&
-    typeof obj.method === "string" &&
-    (!("params" in obj) || obj.params === undefined || Array.isArray(obj.params) || typeof obj.params === "object") &&
-    "id" in obj &&
-    (typeof obj.id === "string" || typeof obj.id === "number" || obj.id === null)
-  );
+
+  const candidate = value as Record<string, unknown>;
+  if (candidate.jsonrpc !== "2.0" || typeof candidate.method !== "string") {
+    return { kind: "invalid" };
+  }
+
+  const idIsPresent = hasOwn(candidate, "id");
+  if (idIsPresent && !isJsonRpcId(candidate.id)) {
+    return { kind: "invalid" };
+  }
+
+  const base = {
+    jsonrpc: "2.0" as const,
+    method: candidate.method,
+    ...(idIsPresent ? { id: candidate.id as JsonRpcId } : {}),
+  };
+
+  if (!hasOwn(candidate, "params")) {
+    return { kind: "positional", request: { ...base, params: [] } };
+  }
+
+  if (Array.isArray(candidate.params)) {
+    return { kind: "positional", request: { ...base, params: candidate.params } };
+  }
+
+  if (typeof candidate.params === "object" && candidate.params !== null) {
+    return { kind: "named-params", request: { ...base, params: candidate.params as Record<string, unknown> } };
+  }
+
+  return { kind: "invalid" };
 }
 
 // Helper to create a JSON-RPC error response
-function createJsonRpcError(id: number | string | null, code: number, message: string): JsonRpcResponse {
+function createJsonRpcError(id: JsonRpcId, code: number, message: string): JsonRpcResponse {
   return {
     jsonrpc: "2.0",
     id,
@@ -41,8 +92,8 @@ function createJsonRpcError(id: number | string | null, code: number, message: s
   };
 }
 
-function isNotification(request: JsonRpcRequest): boolean {
-  return request.id === null;
+function isNotification(request: { id?: JsonRpcId }): boolean {
+  return !hasOwn(request, "id");
 }
 
 const RPC_OVERRIDE_HEADER = "x-ubq-rpc-candidates";
@@ -755,7 +806,7 @@ async function handleRequest(request: Request, manager: RequestHandlerManager): 
 
   // --- Handle Batch Request ---
   if (Array.isArray(requestBody)) {
-    console.log(`Received batch request for chain ${chainId} with ${requestBody.length} calls.`);
+    console.log("Received batch request for chain " + chainId + " with " + requestBody.length + " calls.");
 
     if (requestBody.length === 0) {
       const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Received empty batch.");
@@ -765,109 +816,189 @@ async function handleRequest(request: Request, manager: RequestHandlerManager): 
       });
     }
 
-    // Validate all requests in the batch first
-    if (!requestBody.every(isValidJsonRpcRequest)) {
-      const errorResponse = createJsonRpcError(
-        null,
-        -32600,
-        "Invalid Request: Batch contains invalid JSON-RPC object(s).",
-      );
-      return new Response(JSON.stringify(errorResponse), {
-        status: 200, // JSON-RPC compliance: invalid requests return HTTP 200
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    type MulticallCandidate = {
+      index: number;
+      originalRequest: PositionalJsonRpcRequest;
+      syntheticId: string;
+      request: Multicall3Request;
+    };
 
-    const multiCallRequests = requestBody.filter((req) => isMulticall3Request(chainId, req));
-    const multiCallRequestSet = new Set<JsonRpcRequest>(multiCallRequests);
-    const otherRequests = requestBody.filter((req) => !multiCallRequestSet.has(req));
+    const responses: Array<JsonRpcResponse | undefined> = new Array(requestBody.length);
+    const directRequests: Array<{ index: number; request: PositionalJsonRpcRequest }> = [];
+    const multicallRequests: MulticallCandidate[] = [];
 
-    // group by block tag and split the array into chunks of 500 to avoid exceeding multicall limits
-    const multiCallRequestsByBlockTag = multiCallRequests.reduce(
-      (acc, req) => {
-        const blockTag = req.params[1];
-        if (!acc[blockTag]) {
-          acc[blockTag] = [];
+    for (const [index, value] of requestBody.entries()) {
+      const parsed = parseJsonRpcRequest(value);
+      if (parsed.kind === "invalid") {
+        responses[index] = createJsonRpcError(null, -32600, "Invalid Request: Not a valid JSON-RPC object.");
+        continue;
+      }
+
+      if (parsed.kind === "named-params") {
+        if (!isNotification(parsed.request)) {
+          responses[index] = createJsonRpcError(
+            parsed.request.id ?? null,
+            -32602,
+            "Invalid params: Named parameters are not supported.",
+          );
         }
-        const currentBatch = acc[blockTag];
-        if (currentBatch.length === 0 || currentBatch[currentBatch.length - 1].length >= 500) {
-          currentBatch.push([req]);
-        } else {
-          currentBatch[currentBatch.length - 1].push(req);
-        }
-        return acc;
-      },
-      {} as Record<string, Multicall3Request[][]>,
-    );
+        continue;
+      }
 
-    const multicallPromises: Promise<JsonRpcResponse[]>[] = [];
-    for (const [blockTag, batches] of Object.entries(multiCallRequestsByBlockTag)) {
-      for (const batch of batches) {
-        multicallPromises.push(manager.multicall3(chainId, batch, blockTag, overrideOptions ?? undefined));
+      if (isNotification(parsed.request)) {
+        directRequests.push({ index, request: parsed.request });
+        continue;
+      }
+
+      // multicall3 deduplicates based on request IDs. Give each candidate a
+      // unique per-batch ID, then restore the client ID below.
+      const syntheticId = "__uos_multicall_" + index;
+      const candidate: JsonRpcRequest = {
+        jsonrpc: parsed.request.jsonrpc,
+        id: syntheticId,
+        method: parsed.request.method,
+        params: parsed.request.params,
+      };
+
+      if (isMulticall3Request(chainId, candidate)) {
+        multicallRequests.push({
+          index,
+          originalRequest: parsed.request,
+          syntheticId,
+          request: candidate,
+        });
+      } else {
+        directRequests.push({ index, request: parsed.request });
       }
     }
-    const multicallResponses = (await Promise.all(multicallPromises)).flat();
 
-    // Process batch requests concurrently
-    const otherResponses = await Promise.all(
-      otherRequests.map(async (req) => {
-        const notification = isNotification(req);
-        try {
-          // Ensure params is always an array for manager.send()
-          const params = Array.isArray(req.params) ? req.params : [];
-          const result = await manager.send(chainId, req.method, params, overrideOptions ?? undefined);
-          if (notification) return null;
-          return { jsonrpc: "2.0", id: req.id, result } as JsonRpcResponse;
-        } catch (e) {
-          const error = e instanceof Error ? e : new Error(String(e));
-          console.error(
-            `Error processing batch item (id: ${req.id}, method: ${req.method}) for chain ${chainId}:`,
-            redactRpcDiagnostic(error),
-          );
-
-          if (notification) return null;
-
-          // Extract error details consistently
-          const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
-            ? error.code
-            : -32603;
-          const data = "data" in error ? redactRpcDiagnostic(error.data) : undefined;
-
-          return {
-            jsonrpc: "2.0",
-            id: req.id,
-            error: {
-              code,
-              message: redactRpcDiagnostic(error.message),
-              data,
-            },
-          } as JsonRpcResponse;
+    const directRequestPromises = directRequests.map(async ({ index, request: rpcRequest }) => {
+      const notification = isNotification(rpcRequest);
+      try {
+        const result = await manager.send(chainId, rpcRequest.method, rpcRequest.params, overrideOptions ?? undefined);
+        if (!notification) {
+          responses[index] = { jsonrpc: "2.0", id: rpcRequest.id ?? null, result };
         }
-      }),
-    );
+      } catch (e) {
+        const error = e instanceof Error ? e : new Error(String(e));
+        console.error(
+          "Error processing batch item (id: " + rpcRequest.id + ", method: " + rpcRequest.method + ") for chain " +
+            chainId + ":",
+          redactRpcDiagnostic(error),
+        );
 
-    const responses = [
-      ...multicallResponses,
-      ...otherResponses.filter((response): response is JsonRpcResponse => response !== null),
-    ];
-    if (responses.length === 0) return noContentResponse();
+        if (notification) return;
 
-    return new Response(JSON.stringify(responses), {
+        const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
+          ? error.code
+          : -32603;
+        const data = "data" in error ? redactRpcDiagnostic(error.data) : undefined;
+        responses[index] = {
+          jsonrpc: "2.0",
+          id: rpcRequest.id ?? null,
+          error: {
+            code,
+            message: redactRpcDiagnostic(error.message),
+            data,
+          },
+        };
+      }
+    });
+
+    // Group multicall candidates by block tag and split each group into chunks
+    // of 500 to avoid exceeding multicall limits.
+    const multicallRequestsByBlockTag = new Map<string | number, MulticallCandidate[]>();
+    for (const request of multicallRequests) {
+      const blockTag = request.request.params[1];
+      const requestsForBlockTag = multicallRequestsByBlockTag.get(blockTag) ?? [];
+      requestsForBlockTag.push(request);
+      multicallRequestsByBlockTag.set(blockTag, requestsForBlockTag);
+    }
+
+    const multicallPromises: Promise<void>[] = [];
+    for (const [blockTag, requestsForBlockTag] of multicallRequestsByBlockTag) {
+      for (let start = 0; start < requestsForBlockTag.length; start += 500) {
+        const requestBatch = requestsForBlockTag.slice(start, start + 500);
+        multicallPromises.push((async () => {
+          try {
+            const multicallResponses = await manager.multicall3(
+              chainId,
+              requestBatch.map(({ request: rpcRequest }) => rpcRequest),
+              blockTag,
+              overrideOptions ?? undefined,
+            );
+            const responsesBySyntheticId = new Map<string, JsonRpcResponse>();
+            for (const response of multicallResponses) {
+              if (typeof response.id === "string") {
+                responsesBySyntheticId.set(response.id, response);
+              }
+            }
+
+            for (const request of requestBatch) {
+              const response = responsesBySyntheticId.get(request.syntheticId);
+              if (!response) {
+                responses[request.index] = createJsonRpcError(
+                  request.originalRequest.id ?? null,
+                  -32603,
+                  "Internal error: Multicall response missing.",
+                );
+                continue;
+              }
+              responses[request.index] = { ...response, id: request.originalRequest.id ?? null };
+            }
+          } catch (e) {
+            const error = e instanceof Error ? e : new Error(String(e));
+            console.error(
+              "Error processing multicall batch for chain " + chainId + ":",
+              redactRpcDiagnostic(error),
+            );
+            const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
+              ? error.code
+              : -32603;
+            const data = "data" in error ? redactRpcDiagnostic(error.data) : undefined;
+            for (const request of requestBatch) {
+              responses[request.index] = {
+                jsonrpc: "2.0",
+                id: request.originalRequest.id ?? null,
+                error: {
+                  code,
+                  message: redactRpcDiagnostic(error.message),
+                  data,
+                },
+              };
+            }
+          }
+        })());
+      }
+    }
+
+    await Promise.all([...directRequestPromises, ...multicallPromises]);
+
+    const responseBody = responses.filter((response): response is JsonRpcResponse => response !== undefined);
+    if (responseBody.length === 0) return noContentResponse();
+
+    return new Response(JSON.stringify(responseBody), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } // --- Handle Single Request ---
-  else if (isValidJsonRpcRequest(requestBody)) {
-    console.log(`Received single request for chain ${chainId}: ${requestBody.method}`);
-    const notification = isNotification(requestBody);
+  }
+
+  // --- Handle Single Request ---
+  const parsedRequest = parseJsonRpcRequest(requestBody);
+  if (parsedRequest.kind === "positional") {
+    console.log("Received single request for chain " + chainId + ": " + parsedRequest.request.method);
+    const notification = isNotification(parsedRequest.request);
     try {
-      // Ensure params is always an array for manager.send()
-      const params = Array.isArray(requestBody.params) ? requestBody.params : [];
-      const result = await manager.send(chainId, requestBody.method, params, overrideOptions ?? undefined);
+      const result = await manager.send(
+        chainId,
+        parsedRequest.request.method,
+        parsedRequest.request.params,
+        overrideOptions ?? undefined,
+      );
       if (notification) return noContentResponse();
       const rpcResponse: JsonRpcResponse = {
         jsonrpc: "2.0",
-        id: requestBody.id,
+        id: parsedRequest.request.id ?? null,
         result,
       };
       return new Response(JSON.stringify(rpcResponse), {
@@ -877,22 +1008,16 @@ async function handleRequest(request: Request, manager: RequestHandlerManager): 
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
       console.error(
-        `Error processing single request (id: ${requestBody.id}, method: ${requestBody.method}) for chain ${chainId}:`,
+        "Error processing single request (id: " + parsedRequest.request.id + ", method: " +
+          parsedRequest.request.method + ") for chain " + chainId + ":",
         redactRpcDiagnostic(error),
       );
 
       if (notification) return noContentResponse();
 
-      // Pass through HTTP status if available, otherwise default to 200 for JSON-RPC compliance
-      // Contract reverts and JSON-RPC errors should return HTTP 200 per JSON-RPC spec
-      let httpStatus = 200;
-      if (error.name === "JsonRpcError" && "httpStatus" in error && typeof error.httpStatus === "number") {
-        httpStatus = error.httpStatus;
-      }
-
       const errorResponse = {
         jsonrpc: "2.0",
-        id: requestBody.id,
+        id: parsedRequest.request.id ?? null,
         error: {
           code: "code" in error && typeof error.code === "number" ? error.code : -32603,
           message: redactRpcDiagnostic(error.message),
@@ -901,19 +1026,34 @@ async function handleRequest(request: Request, manager: RequestHandlerManager): 
       };
 
       return new Response(JSON.stringify(errorResponse), {
-        status: httpStatus,
+        // Application-level JSON-RPC errors always use the same response
+        // status as their batch equivalents; protocol details stay in body.
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-  } // --- Handle Invalid Request Structure ---
-  else {
-    console.error("Invalid request body structure:", redactRpcDiagnostic(requestBody));
-    const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Not a valid JSON-RPC object or batch.");
+  }
+
+  if (parsedRequest.kind === "named-params") {
+    if (isNotification(parsedRequest.request)) return noContentResponse();
+    const errorResponse = createJsonRpcError(
+      parsedRequest.request.id ?? null,
+      -32602,
+      "Invalid params: Named parameters are not supported.",
+    );
     return new Response(JSON.stringify(errorResponse), {
-      status: 200, // JSON-RPC compliance: invalid requests return HTTP 200
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+
+  // --- Handle Invalid Request Structure ---
+  console.error("Invalid request body structure:", redactRpcDiagnostic(requestBody));
+  const errorResponse = createJsonRpcError(null, -32600, "Invalid Request: Not a valid JSON-RPC object or batch.");
+  return new Response(JSON.stringify(errorResponse), {
+    status: 200, // JSON-RPC compliance: invalid requests return HTTP 200
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 if (import.meta.main) {

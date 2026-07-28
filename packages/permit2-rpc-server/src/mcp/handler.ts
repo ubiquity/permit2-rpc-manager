@@ -3,6 +3,12 @@ import { redactRpcDiagnostic } from "../core/rpc-endpoint-id.ts";
 import { buildRpcParams } from "./ethereum-rpc-params.ts";
 import { getEthereumTools } from "./ethereum-tools.ts";
 
+const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
+
+const isJsonRpcId = (value: unknown): value is string | number | null => {
+  return typeof value === "string" || typeof value === "number" || value === null;
+};
+
 function parseChainIdFromSinglePathPart(pathParts: string[]): number {
   if (pathParts.length !== 1) return 1;
   const parsed = parseInt(pathParts[0], 10);
@@ -21,15 +27,18 @@ function parseChainIdOverride(value: unknown): number | undefined {
 }
 
 export function isMcpRequest(body: unknown): boolean {
-  if (typeof body === "object" && body !== null && "method" in body) {
-    const method = (body as any).method;
-    return (
-      typeof method === "string" &&
-      (method === "initialize" || method.startsWith("tools/") || method.startsWith("resources/") ||
-        method.startsWith("prompts/"))
-    );
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return false;
+
+  const candidate = body as Record<string, unknown>;
+  if (candidate.jsonrpc !== "2.0" || typeof candidate.method !== "string") return false;
+  if (hasOwn(candidate, "id") && !isJsonRpcId(candidate.id)) return false;
+  if (hasOwn(candidate, "params") && (candidate.params === null || typeof candidate.params !== "object")) {
+    return false;
   }
-  return false;
+
+  const { method } = candidate;
+  return method === "initialize" || method.startsWith("tools/") || method.startsWith("resources/") ||
+    method.startsWith("prompts/");
 }
 
 export async function handleMcpRequest(options: {
@@ -39,6 +48,7 @@ export async function handleMcpRequest(options: {
   corsHeaders: Record<string, string>;
 }): Promise<Response> {
   const mcpRequest = options.requestBody as any;
+  const isNotification = !Object.prototype.hasOwnProperty.call(mcpRequest, "id");
   let mcpResponse: any;
 
   let chainId = parseChainIdFromSinglePathPart(options.pathParts);
@@ -105,6 +115,10 @@ export async function handleMcpRequest(options: {
           message: `Method not found: ${mcpRequest.method}`,
         },
       };
+  }
+
+  if (isNotification) {
+    return new Response(null, { status: 204, headers: options.corsHeaders });
   }
 
   return new Response(

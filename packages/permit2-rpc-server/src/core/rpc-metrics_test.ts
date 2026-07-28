@@ -25,7 +25,7 @@ Deno.test("RpcMetricsRegistry: records provider failures and separates throttle 
   const method = "eth_getLogs";
 
   metrics.recordFailure({ chainId, rpcUrl, method }, { reason: "network_error", isProviderIssue: true });
-  metrics.recordFailure({ chainId, rpcUrl, method }, { reason: "quota_exceeded", isProviderIssue: true });
+  metrics.recordFailure({ chainId, rpcUrl, method }, { reason: "limit_exceeded", isProviderIssue: true });
   metrics.recordFailure({ chainId, rpcUrl, method }, { reason: "invalid_params", isProviderIssue: false });
 
   const stats = metrics.getMethodStats(chainId, method, [rpcUrl]).get(rpcUrl);

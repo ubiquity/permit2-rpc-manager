@@ -62,7 +62,7 @@ export const isMulticall3Request = (chainId: number, req: JsonRpcRequest): req i
   }
 
   return (
-    req.id !== null &&
+    (typeof req.id === "number" || typeof req.id === "string") &&
     chainId in multicall3Addresses &&
     req.method === "eth_call" &&
     "to" in call &&

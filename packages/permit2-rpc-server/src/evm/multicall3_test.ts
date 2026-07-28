@@ -44,6 +44,18 @@ Deno.test("isMulticall3Request: accepts ID 0", () => {
   assertEquals(isMulticall3Request(chainId, idZeroRequest), true);
 });
 
+Deno.test("isMulticall3Request: rejects explicit null IDs and notifications", () => {
+  const nullIdRequest = { ...baseRequest, id: null } satisfies JsonRpcRequest;
+  const notification = {
+    jsonrpc: "2.0" as const,
+    method: "eth_call",
+    params: [baseCall, "latest"],
+  } satisfies JsonRpcRequest;
+
+  assertEquals(isMulticall3Request(chainId, nullIdRequest), false);
+  assertEquals(isMulticall3Request(chainId, notification), false);
+});
+
 Deno.test("isMulticall3Request: rejects every sender-sensitive Permit2 selector", () => {
   for (const selector of senderSensitiveSelectors) {
     const permitCall = {

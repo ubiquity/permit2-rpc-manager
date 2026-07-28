@@ -14,7 +14,7 @@ import { HeadTracker } from "./head-tracker.ts";
 import { HEDGE_ABORT_REASON, HedgedNonRetryableError, HedgedRequester } from "./hedged-requester.ts";
 import type { HedgeConfig } from "./hedged-requester.ts";
 import { isWriteMethod } from "./method-classifier.ts";
-import { ConsensusExecutor } from "./consensus.ts";
+import { ConsensusExecutor, ConsensusNonRetryableError } from "./consensus.ts";
 import type { ConsensusConfig, ConsensusOptions } from "./consensus.ts";
 import { getRpcEndpointId, redactRpcDiagnostic } from "./rpc-endpoint-id.ts";
 
@@ -36,8 +36,8 @@ const JSON_RPC_ERROR_CODES = {
   UNAUTHORIZED: -32001,
   ACTION_NOT_PERMITTED: -32002,
   EXECUTION_ERROR: -32003,
-  QUOTA_EXCEEDED: -32004,
-  REQUEST_LIMIT: -32005,
+  METHOD_NOT_SUPPORTED: -32004,
+  LIMIT_EXCEEDED: -32005,
 } as const;
 
 type SendOptions = {
@@ -60,6 +60,48 @@ const normalizeRpcList = (values: string[] | undefined): string[] => {
   return out;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
+
+const isJsonRpcResponseId = (value: unknown): value is number | string | null => {
+  return typeof value === "number" || typeof value === "string" || value === null;
+};
+
+const isJsonRpcErrorObject = (value: unknown): value is { code: number; message: string; data?: unknown } => {
+  return isRecord(value) && typeof value.code === "number" && typeof value.message === "string";
+};
+
+/**
+ * An upstream result is trusted only after it satisfies the JSON-RPC response
+ * envelope. JSON that is not a JSON-RPC response is a provider-body failure,
+ * not a successful `undefined` result.
+ */
+const isJsonRpcResponseEnvelope = (value: unknown): value is Record<string, unknown> => {
+  if (!isRecord(value) || value.jsonrpc !== "2.0" || !hasOwn(value, "id") || !isJsonRpcResponseId(value.id)) {
+    return false;
+  }
+
+  const hasResult = hasOwn(value, "result");
+  const hasError = hasOwn(value, "error");
+  if (hasResult === hasError) return false;
+
+  return hasResult || isJsonRpcErrorObject(value.error);
+};
+
+const isDeterministicExecutionRevert = (code: number, message: string): boolean => {
+  if (code === JSON_RPC_ERROR_CODES.EXECUTION_REVERTED) return true;
+  if (code !== JSON_RPC_ERROR_CODES.IMPLEMENTATION_DEFINED_START) return false;
+
+  return /\bexecution reverted\b|\bvm exception\b.*\brevert(?:ed)?\b|\binvalid opcode\b|\bcall exception\b/i.test(
+    message,
+  );
+};
+
+type UpstreamErrorSource = "provider_jsonrpc" | "transport" | "invalid_body";
+
 class JsonRpcError extends Error {
   public data?: unknown;
   public httpStatus?: number;
@@ -69,6 +111,7 @@ class JsonRpcError extends Error {
     message: string,
     data?: unknown,
     httpStatus?: number,
+    public source: UpstreamErrorSource = "provider_jsonrpc",
   ) {
     super(redactRpcDiagnostic(message));
     this.name = "JsonRpcError";
@@ -77,7 +120,7 @@ class JsonRpcError extends Error {
   }
 }
 
-/** An upstream response body could not be decoded as JSON. */
+/** An upstream response body was not a valid JSON-RPC response. */
 class InvalidJsonResponseError extends JsonRpcError {
   constructor(httpStatus?: number) {
     super(
@@ -85,6 +128,7 @@ class InvalidJsonResponseError extends JsonRpcError {
       "Invalid JSON response from provider",
       undefined,
       httpStatus,
+      "invalid_body",
     );
     this.name = "InvalidJsonResponseError";
   }
@@ -114,12 +158,14 @@ interface RpcHealthState {
   lastFailureTime: number;
   lastSuccessTime: number;
   temporaryUnavailableUntil?: number;
-  recoveryProbeInFlight?: boolean;
+  recoveryProbeToken?: string;
   failureReasons: Map<string, number>; // reason -> count
 }
 
 interface RpcAttemptLease {
-  recoveryProbe: boolean;
+  kind: "normal" | "recovery";
+  token?: string;
+  expiredBackoffUntil?: number;
 }
 
 class RpcAttemptUnavailableError extends Error {
@@ -141,6 +187,7 @@ interface ErrorClassification {
   behavior: ErrorBehavior;
   reason: string;
   isProviderIssue: boolean;
+  methodUnsupported?: boolean;
 }
 
 type ScoringV2Options = Partial<ScoringConfig> & { enabled?: boolean };
@@ -214,6 +261,8 @@ export class Permit2RpcManager {
   private maxConsecutiveFailures: number;
   private backoffBaseMs: number;
   private maxBackoffMs: number;
+  private readonly recoveryLeaseOwner = crypto.randomUUID();
+  private recoveryLeaseSequence = 0;
 
   // Round-robin tracking
   private rpcIndexMap = new Map<number, number>();
@@ -254,7 +303,13 @@ export class Permit2RpcManager {
     });
     this.validateChainId = options.validateChainId ?? true;
     this.latencyTester = new LatencyTester(options.latencyTimeoutMs, logger, { validateChainId: this.validateChainId });
-    this.rpcSelector = new RpcSelector(this.dataSource, this.cacheManager, this.latencyTester, logger);
+    this.rpcSelector = new RpcSelector(
+      this.dataSource,
+      this.cacheManager,
+      this.latencyTester,
+      logger,
+      (rpcUrl) => this.isRpcDiagnosticEligible(rpcUrl),
+    );
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
@@ -325,169 +380,138 @@ export class Permit2RpcManager {
   }
 
   /**
-   * Classify errors based on their characteristics, not string parsing
+   * Classify a synthesized upstream transport failure. A malformed response
+   * follows explicit transport statuses (such as 429) but remains provider-owned
+   * under a generic 4xx because it cannot establish caller invalidity.
    */
-  private classifyError(error: Error): ErrorClassification {
-    // Check JSON-RPC errors first (most structured)
-    if (error instanceof JsonRpcError) {
-      const { code, httpStatus } = error;
+  private classifyTransportStatus(httpStatus: number | undefined, invalidBody = false): ErrorClassification {
+    if (httpStatus === 429) {
+      return {
+        behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
+        reason: "rate_limit",
+        isProviderIssue: true,
+      };
+    }
 
-      // HTTP status takes precedence for network-level issues
-      if (httpStatus) {
-        if (httpStatus === 429) {
-          return {
-            behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
-            reason: "rate_limit",
-            isProviderIssue: true,
-          };
-        }
+    if (httpStatus === 408) {
+      return {
+        behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+        reason: "timeout",
+        isProviderIssue: true,
+      };
+    }
 
-        if (httpStatus === 401) {
-          // Unauthorized (missing/invalid credentials) for this upstream; try a different RPC.
-          return {
-            behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-            reason: "unauthorized",
-            isProviderIssue: true,
-          };
-        }
+    if (httpStatus === 401) {
+      return {
+        behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+        reason: "unauthorized",
+        isProviderIssue: true,
+      };
+    }
 
-        if (httpStatus === 403) {
-          // 403 with specific JSON-RPC codes indicates quota
-          if (code === JSON_RPC_ERROR_CODES.QUOTA_EXCEEDED || code === JSON_RPC_ERROR_CODES.REQUEST_LIMIT) {
-            return {
-              behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
-              reason: "quota_exceeded",
-              isProviderIssue: true,
-            };
-          }
-          // Other 403s are usually upstream permission/billing issues; try a different RPC.
-          return {
-            behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-            reason: "forbidden",
-            isProviderIssue: true,
-          };
-        }
+    if (httpStatus === 403) {
+      return {
+        behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+        reason: "forbidden",
+        isProviderIssue: true,
+      };
+    }
 
-        if (httpStatus >= 500 && httpStatus <= 599) {
-          return {
-            behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-            reason: "server_error",
-            isProviderIssue: true,
-          };
-        }
+    if (typeof httpStatus === "number" && httpStatus >= 500 && httpStatus <= 599) {
+      return {
+        behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+        reason: "server_error",
+        isProviderIssue: true,
+      };
+    }
 
-        if (httpStatus === 408) {
-          return {
-            behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-            reason: "timeout",
-            isProviderIssue: true,
-          };
-        }
-
-        if (httpStatus >= 400 && httpStatus <= 499) {
-          // A structured quota code is more specific than a provider's generic
-          // 4xx wrapper, so preserve healthy-endpoint failover.
-          if (code === JSON_RPC_ERROR_CODES.QUOTA_EXCEEDED || code === JSON_RPC_ERROR_CODES.REQUEST_LIMIT) {
-            return {
-              behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
-              reason: "quota_exceeded",
-              isProviderIssue: true,
-            };
-          }
-
-          // The HTTP status is client-facing, but a body we could not decode
-          // cannot establish that the caller made a bad JSON-RPC request.
-          if (error instanceof InvalidJsonResponseError) {
-            return {
-              behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-              reason: "invalid_json_response",
-              isProviderIssue: true,
-            };
-          }
-
-          return {
-            behavior: ErrorBehavior.DO_NOT_RETRY,
-            reason: "client_error",
-            isProviderIssue: false,
-          };
-        }
-      }
-
-      // A non-JSON response with no HTTP error status is still an upstream
-      // failure. A provider-supplied JSON-RPC parse error remains subject to
-      // the normal JSON-RPC error classification below.
-      if (error instanceof InvalidJsonResponseError) {
+    if (typeof httpStatus === "number" && httpStatus >= 400 && httpStatus <= 499) {
+      if (invalidBody) {
         return {
           behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
           reason: "invalid_json_response",
           isProviderIssue: true,
         };
       }
-
-      // JSON-RPC error codes
-      if (code === JSON_RPC_ERROR_CODES.INVALID_REQUEST || code === JSON_RPC_ERROR_CODES.INVALID_PARAMS) {
-        return {
-          behavior: ErrorBehavior.DO_NOT_RETRY,
-          reason: code === JSON_RPC_ERROR_CODES.INVALID_PARAMS ? "invalid_params" : "invalid_request",
-          isProviderIssue: false,
-        };
-      }
-
-      if (code === JSON_RPC_ERROR_CODES.EXECUTION_REVERTED) {
-        return {
-          behavior: ErrorBehavior.BLOCKCHAIN_ERROR,
-          reason: "execution_reverted",
-          isProviderIssue: false,
-        };
-      }
-
-      if (code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND) {
-        return {
-          behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-          reason: "method_not_found",
-          isProviderIssue: true,
-        };
-      }
-
-      if (code === JSON_RPC_ERROR_CODES.INTERNAL_ERROR) {
-        return {
-          behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-          reason: "internal_error",
-          isProviderIssue: true,
-        };
-      }
-
-      if (code === JSON_RPC_ERROR_CODES.QUOTA_EXCEEDED || code === JSON_RPC_ERROR_CODES.REQUEST_LIMIT) {
-        return {
-          behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
-          reason: "quota_exceeded",
-          isProviderIssue: true,
-        };
-      }
-
-      if (
-        code <= JSON_RPC_ERROR_CODES.IMPLEMENTATION_DEFINED_START &&
-        code >= JSON_RPC_ERROR_CODES.IMPLEMENTATION_DEFINED_END
-      ) {
-        // Other implementation-defined errors are usually retryable
-        return {
-          behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
-          reason: "provider_error",
-          isProviderIssue: true,
-        };
-      }
-
-      // Standard JSON-RPC errors (default: client-side)
-      if (code <= -32000 && code >= -32768) {
-        return {
-          behavior: ErrorBehavior.DO_NOT_RETRY,
-          reason: "json_rpc_error",
-          isProviderIssue: false,
-        };
-      }
+      return {
+        behavior: ErrorBehavior.DO_NOT_RETRY,
+        reason: "client_error",
+        isProviderIssue: false,
+      };
     }
 
-    // Network errors
+    if (invalidBody) {
+      return {
+        behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+        reason: "invalid_json_response",
+        isProviderIssue: true,
+      };
+    }
+
+    return {
+      behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+      reason: "provider_error",
+      isProviderIssue: true,
+    };
+  }
+
+  /**
+   * Classify errors based on decoded JSON-RPC semantics first, then transport.
+   */
+  private classifyError(error: Error): ErrorClassification {
+    if (error instanceof JsonRpcError) {
+      if (error.source === "provider_jsonrpc") {
+        const { code } = error;
+
+        // A decoded provider error has more information than any HTTP wrapper.
+        if (code === JSON_RPC_ERROR_CODES.INVALID_REQUEST || code === JSON_RPC_ERROR_CODES.PARSE_ERROR) {
+          return {
+            behavior: ErrorBehavior.DO_NOT_RETRY,
+            reason: code === JSON_RPC_ERROR_CODES.INVALID_REQUEST ? "invalid_request" : "parse_error",
+            isProviderIssue: false,
+          };
+        }
+
+        if (code === JSON_RPC_ERROR_CODES.INVALID_PARAMS) {
+          return {
+            behavior: ErrorBehavior.DO_NOT_RETRY,
+            reason: "invalid_params",
+            isProviderIssue: false,
+          };
+        }
+
+        if (isDeterministicExecutionRevert(code, error.message)) {
+          return {
+            behavior: ErrorBehavior.BLOCKCHAIN_ERROR,
+            reason: "execution_reverted",
+            isProviderIssue: false,
+          };
+        }
+
+        if (
+          code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND ||
+          code === JSON_RPC_ERROR_CODES.METHOD_NOT_SUPPORTED
+        ) {
+          return {
+            behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
+            reason: "method_not_supported",
+            isProviderIssue: false,
+            methodUnsupported: true,
+          };
+        }
+
+        if (code === JSON_RPC_ERROR_CODES.LIMIT_EXCEEDED) {
+          return {
+            behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
+            reason: "limit_exceeded",
+            isProviderIssue: true,
+          };
+        }
+      }
+
+      return this.classifyTransportStatus(error.httpStatus, error.source === "invalid_body");
+    }
+
     if (error.name === "AbortError") {
       return {
         behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
@@ -504,7 +528,6 @@ export class Permit2RpcManager {
       };
     }
 
-    // Default: assume it's retryable
     return {
       behavior: ErrorBehavior.RETRY_DIFFERENT_RPC,
       reason: "unknown_error",
@@ -556,15 +579,25 @@ export class Permit2RpcManager {
   }
 
   /**
+   * Background diagnostics must not consume a foreground recovery opportunity.
+   * An expired backoff marker represents a half-open endpoint until a foreground
+   * request acquires and resolves its recovery lease.
+   */
+  private isRpcDiagnosticEligible(rpcUrl: string): boolean {
+    const state = this.rpcHealthStates.get(rpcUrl);
+    return state?.temporaryUnavailableUntil === undefined &&
+      state?.recoveryProbeToken === undefined &&
+      this.circuitBreaker.getState(rpcUrl) === "closed";
+  }
+
+  /**
    * Acquires the single half-open probe permitted for an endpoint after backoff.
    */
   private acquireRpcAttempt(rpcUrl: string): RpcAttemptLease | null {
     const state = this.getHealthState(rpcUrl);
     const backoffUntil = state.temporaryUnavailableUntil;
 
-    // The expired backoff marker is consumed when a recovery probe begins, so
-    // this guard must be independent of that marker while the probe is active.
-    if (state.recoveryProbeInFlight) {
+    if (state.recoveryProbeToken) {
       return null;
     }
 
@@ -575,59 +608,64 @@ export class Permit2RpcManager {
     // A completed backoff window is half-open: exactly one request may test
     // the endpoint, regardless of how many failures started that backoff.
     if (typeof backoffUntil === "number" && backoffUntil > 0) {
-      state.recoveryProbeInFlight = true;
-      state.temporaryUnavailableUntil = undefined;
+      const token = `${this.recoveryLeaseOwner}:${++this.recoveryLeaseSequence}`;
+      state.recoveryProbeToken = token;
       this._log("debug", `[HEALTH] Admitting recovery probe for ${getRpcEndpointId(rpcUrl)}`);
-      return { recoveryProbe: true };
+      return { kind: "recovery", token, expiredBackoffUntil: backoffUntil };
     }
 
-    return { recoveryProbe: false };
+    return { kind: "normal" };
   }
 
-  private releaseRpcAttempt(rpcUrl: string, lease: RpcAttemptLease): void {
-    if (!lease.recoveryProbe) return;
+  private releaseRpcAttempt(
+    rpcUrl: string,
+    lease: RpcAttemptLease,
+    outcome: "completed" | "cancelled" = "completed",
+  ): void {
+    if (lease.kind !== "recovery" || !lease.token) return;
 
     const state = this.getHealthState(rpcUrl);
-    state.recoveryProbeInFlight = false;
+    // A stale lease must never modify a newer recovery window.
+    if (state.recoveryProbeToken !== lease.token) return;
+
+    state.recoveryProbeToken = undefined;
+
+    if (outcome === "cancelled") {
+      // Keep the expired marker intact so a foreground request can retry the
+      // half-open probe. A failure may have opened a fresh backoff meanwhile.
+      return;
+    }
+
+    // A completed probe consumes only the exact expired window it acquired. A
+    // success clears the marker and a failed probe installs a newer backoff.
+    if (state.temporaryUnavailableUntil === lease.expiredBackoffUntil) {
+      state.temporaryUnavailableUntil = undefined;
+    }
   }
 
   /**
    * Record a successful RPC call
    */
-  private async recordSuccess(chainId: number, rpcUrl: string): Promise<void> {
+  private recordSuccess(rpcUrl: string): void {
     const state = this.getHealthState(rpcUrl);
-    const hadFailures = state.lastFailureTime > 0;
 
     state.consecutiveFailures = 0;
     state.lastFailureTime = 0;
     state.lastSuccessTime = Date.now();
     state.temporaryUnavailableUntil = undefined;
-    state.recoveryProbeInFlight = false;
     state.failureReasons.clear();
 
     this._log("debug", `[HEALTH] RPC ${getRpcEndpointId(rpcUrl)} marked healthy`);
-
-    // Update KV if we had failures before
-    if (hadFailures) {
-      try {
-        const kv = await Deno.openKv();
-        const failureKey = ["rpc_failures", chainId, rpcUrl];
-        await kv.delete(failureKey);
-      } catch (error) {
-        this._log("error", `Failed to clear RPC failures in KV:`, error);
-      }
-    }
   }
 
   /**
    * Record a failed RPC call
    */
-  private async recordFailure(chainId: number, rpcUrl: string, classification: ErrorClassification): Promise<void> {
+  private recordFailure(rpcUrl: string, classification: ErrorClassification): void {
     const state = this.getHealthState(rpcUrl);
 
     state.consecutiveFailures++;
     state.lastFailureTime = Date.now();
-    state.recoveryProbeInFlight = false;
 
     // Track failure reasons
     const count = state.failureReasons.get(classification.reason) || 0;
@@ -658,20 +696,6 @@ export class Permit2RpcManager {
               .join(", ")
           }`,
       );
-    }
-
-    // Persist to KV for recovery after restart
-    try {
-      const kv = await Deno.openKv();
-      const failureKey = ["rpc_failures", chainId, rpcUrl];
-      await kv.set(failureKey, {
-        consecutiveFailures: state.consecutiveFailures,
-        lastFailureTime: state.lastFailureTime,
-        failureReasons: Object.fromEntries(state.failureReasons),
-        temporaryUnavailableUntil: state.temporaryUnavailableUntil,
-      });
-    } catch (error) {
-      this._log("error", `Failed to persist RPC failure to KV:`, error);
     }
   }
 
@@ -716,6 +740,90 @@ export class Permit2RpcManager {
     });
   }
 
+  private isHedgeCancellation(signal: AbortSignal | undefined): boolean {
+    return Boolean(signal?.aborted && signal.reason === HEDGE_ABORT_REASON);
+  }
+
+  private isNonRetryableError(error: Error): boolean {
+    const classification = this.classifyError(error);
+    return classification.behavior === ErrorBehavior.DO_NOT_RETRY ||
+      classification.behavior === ErrorBehavior.BLOCKCHAIN_ERROR;
+  }
+
+  /**
+   * Execute one already-admitted candidate. Every execution mode goes through
+   * this method so capability, health, scorer, throttle, circuit, and metrics
+   * accounting cannot drift apart.
+   */
+  private async executeCandidate<T>(
+    chainId: number,
+    method: string,
+    params: unknown[],
+    rpcUrl: string,
+    lease: RpcAttemptLease,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<T> {
+    let releaseOutcome: "completed" | "cancelled" = "completed";
+    const startTime = Date.now();
+
+    try {
+      const result = await this.executeRpcCall<T>(rpcUrl, method, params, options);
+
+      // A losing hedge can resolve despite aborting its fetch. It never becomes
+      // a success signal or consumes a half-open recovery window.
+      if (this.isHedgeCancellation(options.signal)) {
+        releaseOutcome = "cancelled";
+        throw new Error("Hedged request cancelled");
+      }
+
+      const responseTime = Date.now() - startTime;
+      this.recordSuccess(rpcUrl);
+      this.rpcMethodCapabilities.markSupported(chainId, rpcUrl, method);
+      this.rpcMetrics.recordSuccess({ chainId, rpcUrl, method }, responseTime);
+      this.rpcScorer.updateScore(rpcUrl, true, responseTime);
+      this.circuitBreaker.recordResult(rpcUrl, undefined, true);
+      this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
+
+      return result;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+
+      if (this.isHedgeCancellation(options.signal)) {
+        releaseOutcome = "cancelled";
+        throw err;
+      }
+
+      const classification = this.classifyError(err);
+      if (classification.methodUnsupported) {
+        this.rpcMethodCapabilities.markUnsupported(chainId, rpcUrl, method, err.message, this.capabilityTtlMs);
+      }
+
+      this._log(
+        "warn",
+        `[SEND] RPC ${getRpcEndpointId(rpcUrl)} failed: ${classification.reason} ` +
+          `(behavior: ${ErrorBehavior[classification.behavior]})`,
+      );
+
+      if (
+        classification.behavior === ErrorBehavior.DO_NOT_RETRY ||
+        classification.behavior === ErrorBehavior.BLOCKCHAIN_ERROR ||
+        classification.methodUnsupported
+      ) {
+        // Request-deterministic errors and endpoint-method capability misses
+        // must not degrade the endpoint or any of its method-independent scores.
+        throw err;
+      }
+
+      this.rpcMetrics.recordFailure({ chainId, rpcUrl, method }, classification);
+      this.recordFailure(rpcUrl, classification);
+      this.rpcScorer.updateScore(rpcUrl, false);
+      this.circuitBreaker.recordResult(rpcUrl, classification, false);
+      throw err;
+    } finally {
+      this.releaseRpcAttempt(rpcUrl, lease, releaseOutcome);
+    }
+  }
+
   /**
    * Internal send implementation (after deduplication)
    */
@@ -740,7 +848,8 @@ export class Permit2RpcManager {
 
     if (this.headSampling.enabled) {
       try {
-        await this.headTracker.maybeSampleHeads(chainId, availableRpcs);
+        const diagnosticRpcs = availableRpcs.filter((rpcUrl) => this.isRpcDiagnosticEligible(rpcUrl));
+        await this.headTracker.maybeSampleHeads(chainId, diagnosticRpcs);
       } catch (error) {
         this._log("debug", `[HEAD] Head sampling failed for chain ${chainId}`, error);
       }
@@ -881,68 +990,46 @@ export class Permit2RpcManager {
       this.consensus.methods.includes(normalizedMethod) && orderedRpcs.length > 1;
 
     if (consensusEnabled) {
+      const participantTarget = Math.min(Math.max(1, this.consensus.participants), orderedRpcs.length);
+      const preAcquiredLeases = new Map<string, RpcAttemptLease>();
+
+      // Scan beyond a busy half-open endpoint so consensus has as many
+      // participants as configured without violating its recovery lease.
+      for (const rpcUrl of orderedRpcs) {
+        const lease = this.acquireRpcAttempt(rpcUrl);
+        if (!lease) continue;
+        preAcquiredLeases.set(rpcUrl, lease);
+        if (preAcquiredLeases.size >= participantTarget) break;
+      }
+
+      if (preAcquiredLeases.size === 0) {
+        throw this.allRpcsFailedError(chainId, attemptedRpcs, lastError);
+      }
+
+      const consensusParticipants = [...preAcquiredLeases.keys()];
+      const usedParticipants = new Set<string>();
       try {
         return await this.consensusExecutor.execute<T>(
           chainId,
           method,
-          orderedRpcs,
+          consensusParticipants,
           async (rpcUrl) => {
-            const attemptLease = this.acquireRpcAttempt(rpcUrl);
-            if (!attemptLease) {
-              throw new RpcAttemptUnavailableError();
-            }
+            const attemptLease = preAcquiredLeases.get(rpcUrl);
+            if (!attemptLease) throw new RpcAttemptUnavailableError();
 
+            usedParticipants.add(rpcUrl);
             attemptedRpcs.push(rpcUrl);
-            this._log("info", `[SEND] (consensus) Trying ${rpcUrl} for ${method} on chain ${chainId}`);
-
-            const startTime = Date.now();
             try {
-              const result = await this.executeRpcCall<T>(rpcUrl, method, params);
-              const responseTime = Date.now() - startTime;
-
-              await this.recordSuccess(chainId, rpcUrl);
-              this.rpcMetrics.recordSuccess({ chainId, rpcUrl, method }, responseTime);
-              this.rpcScorer.updateScore(rpcUrl, true, responseTime);
-              this.circuitBreaker.recordResult(rpcUrl, undefined, true);
-              this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
-
-              return result;
+              this._log(
+                "info",
+                `[SEND] (consensus) Trying ${getRpcEndpointId(rpcUrl)} for ${method} on chain ${chainId}`,
+              );
+              return await this.executeCandidate<T>(chainId, method, params, rpcUrl, attemptLease);
             } catch (error) {
               const err = error instanceof Error ? error : new Error(String(error));
               lastError = err;
-
-              if (err instanceof JsonRpcError && err.code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND) {
-                this.rpcMethodCapabilities.markUnsupported(chainId, rpcUrl, method, err.message, this.capabilityTtlMs);
-              }
-
-              const classification = this.classifyError(err);
-              const circuitClassification = classification.reason === "method_not_found"
-                ? { ...classification, isProviderIssue: false }
-                : classification;
-
-              this._log(
-                "warn",
-                `[SEND] RPC ${rpcUrl} failed: ${classification.reason} ` +
-                  `(behavior: ${ErrorBehavior[classification.behavior]})`,
-              );
-
-              if (
-                classification.behavior === ErrorBehavior.DO_NOT_RETRY ||
-                classification.behavior === ErrorBehavior.BLOCKCHAIN_ERROR
-              ) {
-                this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
-                throw err;
-              }
-
-              this.rpcMetrics.recordFailure({ chainId, rpcUrl, method }, classification);
-              if (classification.reason !== "method_not_found") {
-                await this.recordFailure(chainId, rpcUrl, classification);
-                this.rpcScorer.updateScore(rpcUrl, false);
-              }
-              this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
+              if (this.isNonRetryableError(err)) throw new ConsensusNonRetryableError(err);
               throw err;
-            } finally {
-              this.releaseRpcAttempt(rpcUrl, attemptLease);
             }
           },
           this.consensus,
@@ -959,6 +1046,12 @@ export class Permit2RpcManager {
         }
 
         throw this.allRpcsFailedError(chainId, attemptedRpcs, lastError ?? err);
+      } finally {
+        for (const [rpcUrl, lease] of preAcquiredLeases) {
+          if (!usedParticipants.has(rpcUrl)) {
+            this.releaseRpcAttempt(rpcUrl, lease, "cancelled");
+          }
+        }
       }
     }
 
@@ -994,72 +1087,20 @@ export class Permit2RpcManager {
           orderedRpcs,
           async (rpcUrl, signal) => {
             const attemptLease = this.acquireRpcAttempt(rpcUrl);
-            if (!attemptLease) {
-              throw new RpcAttemptUnavailableError();
-            }
+            if (!attemptLease) throw new RpcAttemptUnavailableError();
 
             attemptedRpcs.push(rpcUrl);
-            this._log("info", `[SEND] (hedged) Trying ${rpcUrl} for ${method} on chain ${chainId}`);
-
-            const startTime = Date.now();
             try {
-              const result = await this.executeRpcCall<T>(rpcUrl, method, params, { signal });
-              const responseTime = Date.now() - startTime;
-
-              await this.recordSuccess(chainId, rpcUrl);
-              this.rpcMetrics.recordSuccess({ chainId, rpcUrl, method }, responseTime);
-              this.rpcScorer.updateScore(rpcUrl, true, responseTime);
-              this.circuitBreaker.recordResult(rpcUrl, undefined, true);
-              this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
-
-              return result;
+              this._log(
+                "info",
+                `[SEND] (hedged) Trying ${getRpcEndpointId(rpcUrl)} for ${method} on chain ${chainId}`,
+              );
+              return await this.executeCandidate<T>(chainId, method, params, rpcUrl, attemptLease, { signal });
             } catch (error) {
               const err = error instanceof Error ? error : new Error(String(error));
-
-              if (signal.aborted && signal.reason === HEDGE_ABORT_REASON) {
-                throw err;
-              }
-
-              lastError = err;
-
-              if (err instanceof JsonRpcError && err.code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND) {
-                this.rpcMethodCapabilities.markUnsupported(chainId, rpcUrl, method, err.message, this.capabilityTtlMs);
-              }
-
-              const classification = this.classifyError(err);
-              const circuitClassification = classification.reason === "method_not_found"
-                ? { ...classification, isProviderIssue: false }
-                : classification;
-
-              this._log(
-                "warn",
-                `[SEND] RPC ${rpcUrl} failed: ${classification.reason} ` +
-                  `(behavior: ${ErrorBehavior[classification.behavior]})`,
-              );
-
-              if (
-                classification.behavior === ErrorBehavior.DO_NOT_RETRY ||
-                classification.behavior === ErrorBehavior.BLOCKCHAIN_ERROR
-              ) {
-                this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
-                this._log(
-                  "info",
-                  `[SEND] Error type ${ErrorBehavior[classification.behavior]} detected. ` +
-                    `Not recording as RPC failure to prevent cascade.`,
-                );
-                throw new HedgedNonRetryableError(err);
-              }
-
-              this.rpcMetrics.recordFailure({ chainId, rpcUrl, method }, classification);
-              if (classification.reason !== "method_not_found") {
-                await this.recordFailure(chainId, rpcUrl, classification);
-                this.rpcScorer.updateScore(rpcUrl, false);
-              }
-              this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
-
+              if (!this.isHedgeCancellation(signal)) lastError = err;
+              if (this.isNonRetryableError(err)) throw new HedgedNonRetryableError(err);
               throw err;
-            } finally {
-              this.releaseRpcAttempt(rpcUrl, attemptLease);
             }
           },
           { maxHedges: this.hedgeConfig.maxHedges, delayMs: hedgeDelayMs },
@@ -1088,67 +1129,12 @@ export class Permit2RpcManager {
       attemptedRpcs.push(rpcUrl);
 
       try {
-        this._log("info", `[SEND] Trying ${rpcUrl} for ${method} on chain ${chainId}`);
-
-        const startTime = Date.now();
-        const result = await this.executeRpcCall<T>(rpcUrl, method, params);
-        const responseTime = Date.now() - startTime;
-
-        // Record success metrics
-        await this.recordSuccess(chainId, rpcUrl);
-        this.rpcMetrics.recordSuccess({ chainId, rpcUrl, method }, responseTime);
-        this.rpcScorer.updateScore(rpcUrl, true, responseTime);
-        this.circuitBreaker.recordResult(rpcUrl, undefined, true);
-        this.adaptiveTimeout.recordResponseTime(rpcUrl, responseTime);
-
-        return result;
+        this._log("info", `[SEND] Trying ${getRpcEndpointId(rpcUrl)} for ${method} on chain ${chainId}`);
+        return await this.executeCandidate<T>(chainId, method, params, rpcUrl, attemptLease);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-
-        if (lastError instanceof JsonRpcError && lastError.code === JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND) {
-          this.rpcMethodCapabilities.markUnsupported(chainId, rpcUrl, method, lastError.message, this.capabilityTtlMs);
-        }
-
-        // Classify the error
-        const classification = this.classifyError(lastError);
-        const circuitClassification = classification.reason === "method_not_found"
-          ? { ...classification, isProviderIssue: false }
-          : classification;
-
-        this._log(
-          "warn",
-          `[SEND] RPC ${rpcUrl} failed: ${classification.reason} ` +
-            `(behavior: ${ErrorBehavior[classification.behavior]})`,
-        );
-
-        // Decide if we should continue trying other RPCs
-        switch (classification.behavior) {
-          case ErrorBehavior.DO_NOT_RETRY:
-          case ErrorBehavior.BLOCKCHAIN_ERROR:
-            this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
-            // These are client/request errors that will be the same on all RPCs
-            // Don't record as failures to prevent cascading health issues
-            this._log(
-              "info",
-              `[SEND] Error type ${ErrorBehavior[classification.behavior]} detected. ` +
-                `Not recording as RPC failure to prevent cascade.`,
-            );
-            throw lastError;
-
-          case ErrorBehavior.RETRY_WITH_BACKOFF:
-          case ErrorBehavior.RETRY_DIFFERENT_RPC:
-            this.rpcMetrics.recordFailure({ chainId, rpcUrl, method }, classification);
-            if (classification.reason !== "method_not_found") {
-              // These are RPC-specific issues that should count toward health
-              await this.recordFailure(chainId, rpcUrl, classification);
-              this.rpcScorer.updateScore(rpcUrl, false);
-            }
-            this.circuitBreaker.recordResult(rpcUrl, circuitClassification, false);
-            // Continue to next RPC
-            continue;
-        }
-      } finally {
-        this.releaseRpcAttempt(rpcUrl, attemptLease);
+        if (this.isNonRetryableError(lastError)) throw lastError;
+        continue;
       }
     }
 
@@ -1206,20 +1192,28 @@ export class Permit2RpcManager {
       if (externalSignal) externalSignal.removeEventListener("abort", abortListener);
 
       // Parse response regardless of HTTP status
-      let responseData: any;
+      let responseData: unknown;
       try {
         responseData = await response.json();
       } catch (_jsonError) {
         throw new InvalidJsonResponseError(response.status);
       }
 
-      // Check for JSON-RPC error
-      if (responseData.error) {
+      if (!isJsonRpcResponseEnvelope(responseData)) {
+        throw new InvalidJsonResponseError(response.status);
+      }
+
+      // Only an actual decoded JSON-RPC error gets semantic precedence over an
+      // HTTP wrapper. Synthesized transport/invalid-body errors do not.
+      if (hasOwn(responseData, "error") && isJsonRpcErrorObject(responseData.error)) {
+        const errorCode = responseData.error.code;
+        const errorMessage = responseData.error.message;
         throw new JsonRpcError(
-          responseData.error.code || JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
-          responseData.error.message || "RPC error",
+          errorCode,
+          errorMessage,
           responseData.error.data,
           response.status,
+          "provider_jsonrpc",
         );
       }
 
@@ -1230,6 +1224,7 @@ export class Permit2RpcManager {
           `HTTP error ${response.status} ${response.statusText}`,
           undefined,
           response.status,
+          "transport",
         );
       }
 
@@ -1276,7 +1271,7 @@ export class Permit2RpcManager {
    * Emergency fallback: Reset all RPC health states for a given chain
    * This is called when no healthy RPCs are available to prevent permanent failures
    */
-  private async resetAllRpcHealthStates(chainId: number, rpcUrls: string[]): Promise<void> {
+  private resetAllRpcHealthStates(chainId: number, rpcUrls: string[]): void {
     this._log("warn", `[HEALTH RESET] Resetting health states for ${rpcUrls.length} RPCs on chain ${chainId}`);
 
     for (const rpcUrl of rpcUrls) {
@@ -1289,20 +1284,8 @@ export class Permit2RpcManager {
         lastFailureTime: -1,
         lastSuccessTime: Date.now(),
         temporaryUnavailableUntil: undefined,
-        recoveryProbeInFlight: false,
         failureReasons: new Map(),
       });
-
-      // Also clear from KV store to prevent persistence of bad state
-      try {
-        const kv = await Deno.openKv();
-        const failureKey = ["rpc_failures", chainId, rpcUrl];
-        await kv.delete(failureKey);
-
-        this._log("debug", `[HEALTH RESET] Cleared KV state for ${getRpcEndpointId(rpcUrl)}`);
-      } catch (error) {
-        this._log("error", `[HEALTH RESET] Failed to clear KV state for ${getRpcEndpointId(rpcUrl)}:`, error);
-      }
     }
 
     this._log("info", `[HEALTH RESET] Successfully reset health states for all RPCs on chain ${chainId}`);
@@ -1372,7 +1355,7 @@ export class Permit2RpcManager {
             rpcInfo.consecutiveFailures = healthState.consecutiveFailures;
             rpcInfo.lastFailureTime = healthState.lastFailureTime > 0 ? healthState.lastFailureTime : null;
             rpcInfo.lastSuccessTime = healthState.lastSuccessTime > 0 ? healthState.lastSuccessTime : null;
-            rpcInfo.recoveryProbeInFlight = Boolean(healthState.recoveryProbeInFlight);
+            rpcInfo.recoveryProbeInFlight = Boolean(healthState.recoveryProbeToken);
 
             // Check if eliminated
             if (healthState.consecutiveFailures >= this.maxConsecutiveFailures) {

@@ -15,6 +15,23 @@
 | Upstream dates          | 2025-12-17 through 2026-07-23                                                                                                                               |
 | GitHub comparison       | [Compare the exact audited range](https://github.com/erpc/erpc/compare/a698f1d4350e43c960c6f8a2ed18b85c226b7a8e...8459b05354b0834e0e140621e54a9233d2abb790) |
 
+## Post-implementation correction and resolution
+
+The audit text below is retained as the historical review record. Its references
+to `-32004/-32005` as quota codes and to an unqualified recovery-probe guarantee
+are superseded by this correction:
+
+- `-32004` is `METHOD_NOT_SUPPORTED`, not a quota code. Together with `-32601`
+  (`METHOD_NOT_FOUND`), it is an endpoint/method capability result: fail over
+  where another endpoint may support the method, without a health, scorer,
+  throttle, or circuit penalty.
+- `-32005` is `LIMIT_EXCEEDED`. It fails over with backoff and throttle
+  accounting.
+- Recovery-lease exclusivity is per `Permit2RpcManager` instance within its
+  isolate, using an opaque lease token. It provides no coordination across
+  manager instances or isolates, and no Deno KV admission check is performed on
+  the request path.
+
 ## Executive Summary
 
 The eRPC research submodule is pinned at `a698f1d4`, while eRPC's `main` branch is
