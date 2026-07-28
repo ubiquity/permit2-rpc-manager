@@ -1,4 +1,5 @@
 import type { Permit2RpcManager } from "../core/permit2-rpc-manager.ts";
+import { redactRpcDiagnostic } from "../core/rpc-endpoint-id.ts";
 import { buildRpcParams } from "./ethereum-rpc-params.ts";
 import { getEthereumTools } from "./ethereum-tools.ts";
 
@@ -23,7 +24,9 @@ export function isMcpRequest(body: unknown): boolean {
   if (typeof body === "object" && body !== null && "method" in body) {
     const method = (body as any).method;
     return (
-      typeof method === "string" && (method === "initialize" || method.startsWith("tools/") || method.startsWith("resources/") || method.startsWith("prompts/"))
+      typeof method === "string" &&
+      (method === "initialize" || method.startsWith("tools/") || method.startsWith("resources/") ||
+        method.startsWith("prompts/"))
     );
   }
   return false;
@@ -32,7 +35,7 @@ export function isMcpRequest(body: unknown): boolean {
 export async function handleMcpRequest(options: {
   requestBody: unknown;
   pathParts: string[];
-  manager: Permit2RpcManager;
+  manager: Pick<Permit2RpcManager, "send">;
   corsHeaders: Record<string, string>;
 }): Promise<Response> {
   const mcpRequest = options.requestBody as any;
@@ -88,7 +91,7 @@ export async function handleMcpRequest(options: {
         mcpResponse = {
           error: {
             code: -32603,
-            message: error.message,
+            message: redactRpcDiagnostic(error.message),
           },
         };
       }
@@ -114,6 +117,6 @@ export async function handleMcpRequest(options: {
     {
       status: 200,
       headers: { ...options.corsHeaders, "Content-Type": "application/json" },
-    }
+    },
   );
 }

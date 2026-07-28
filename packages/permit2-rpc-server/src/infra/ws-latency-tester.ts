@@ -1,5 +1,6 @@
 /// <reference lib="deno.ns" />
 import PERMIT2_BYTECODE_PREFIX from "../fixtures/permit2-bytecode.ts";
+import { getRpcEndpointId, redactRpcDiagnostic } from "../core/rpc-endpoint-id.ts";
 import type { LatencyTestResult } from "./latency-tester.ts";
 
 interface JsonRpcRequest {
@@ -94,7 +95,7 @@ class WsJsonRpcClient {
       try {
         parsed = JSON.parse(raw);
       } catch (error) {
-        this.log("debug", "WS JSON-RPC parse error", error);
+        this.log("debug", "WS JSON-RPC parse error", redactRpcDiagnostic(error));
         return;
       }
       if (!parsed || typeof parsed !== "object" || !("id" in parsed)) return;
@@ -166,35 +167,41 @@ export class WsLatencyTester {
       ws = await openWs(url, this.timeoutMs);
       const client = new WsJsonRpcClient(ws, this.timeoutMs, this.log);
 
-      const [getCodeResponse, syncingResponse] = await Promise.all([client.call("eth_getCode", [PERMIT2_ADDRESS, "latest"]), client.call("eth_syncing", [])]);
+      const [getCodeResponse, syncingResponse] = await Promise.all([
+        client.call("eth_getCode", [PERMIT2_ADDRESS, "latest"]),
+        client.call("eth_syncing", []),
+      ]);
 
       const latency = Date.now() - startTime;
 
       if (getCodeResponse?.error) {
         const errMsg = `eth_getCode RPC error ${getCodeResponse.error.code} - ${getCodeResponse.error.message}`;
-        this.log("warn", `WS latency test failed for ${url}: ${errMsg}`);
-        return { url, latency: Infinity, status: "rpc_error", error: errMsg };
+        this.log("warn", `WS latency test failed for ${getRpcEndpointId(url)}: ${redactRpcDiagnostic(errMsg)}`);
+        return { url, latency: Infinity, status: "rpc_error", error: redactRpcDiagnostic(errMsg) };
       }
       if (syncingResponse?.error) {
         const errMsg = `eth_syncing RPC error ${syncingResponse.error.code} - ${syncingResponse.error.message}`;
-        this.log("warn", `WS latency test failed for ${url}: ${errMsg}`);
-        return { url, latency: Infinity, status: "rpc_error", error: errMsg };
+        this.log("warn", `WS latency test failed for ${getRpcEndpointId(url)}: ${redactRpcDiagnostic(errMsg)}`);
+        return { url, latency: Infinity, status: "rpc_error", error: redactRpcDiagnostic(errMsg) };
       }
 
       if (syncingResponse?.result !== false) {
         const errMsg = `Node is not synced (eth_syncing returned ${JSON.stringify(syncingResponse?.result)})`;
-        this.log("warn", `WS RPC ${url} is syncing: ${errMsg}`);
-        return { url, latency, status: "syncing", error: errMsg };
+        this.log("warn", `WS RPC ${getRpcEndpointId(url)} is syncing: ${redactRpcDiagnostic(errMsg)}`);
+        return { url, latency, status: "syncing", error: redactRpcDiagnostic(errMsg) };
       }
 
       if (typeof getCodeResponse?.result !== "string") {
         const errMsg = `Invalid bytecode response type: ${typeof getCodeResponse?.result}`;
-        this.log("warn", `WS RPC ${url} returned invalid bytecode: ${errMsg}`);
-        return { url, latency, status: "wrong_bytecode", error: errMsg };
+        this.log("warn", `WS RPC ${getRpcEndpointId(url)} returned invalid bytecode: ${redactRpcDiagnostic(errMsg)}`);
+        return { url, latency, status: "wrong_bytecode", error: redactRpcDiagnostic(errMsg) };
       }
 
       this.log("debug", `\nExpected Permit2 prefix (first 100 chars): ${PERMIT2_BYTECODE_PREFIX.slice(0, 100)}`);
-      this.log("debug", `Received bytecode (first 100 chars): ${getCodeResponse.result.slice(0, 100)}`);
+      this.log(
+        "debug",
+        `Received bytecode (first 100 chars): ${redactRpcDiagnostic(getCodeResponse.result.slice(0, 100))}`,
+      );
 
       if (!getCodeResponse.result.startsWith(PERMIT2_BYTECODE_PREFIX)) {
         let commonPrefixLength = 0;
@@ -206,18 +213,21 @@ export class WsLatencyTester {
           commonPrefixLength++;
         }
         const errMsg = `Bytecode mismatch at position ${commonPrefixLength}`;
-        this.log("warn", `WS RPC ${url} has incorrect bytecode: ${errMsg}`);
-        return { url, latency, status: "wrong_bytecode", error: errMsg };
+        this.log("warn", `WS RPC ${getRpcEndpointId(url)} has incorrect bytecode: ${redactRpcDiagnostic(errMsg)}`);
+        return { url, latency, status: "wrong_bytecode", error: redactRpcDiagnostic(errMsg) };
       }
 
-      this.log("debug", `WS RPC ${url} passed all checks (${latency}ms)`);
+      this.log("debug", `WS RPC ${getRpcEndpointId(url)} passed all checks (${latency}ms)`);
       return { url, latency, status: "ok" };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       const status = err.message.toLowerCase().includes("timed out") ? "timeout" : "network_error";
       const logLevel = status === "network_error" ? "debug" : "warn";
-      this.log(logLevel, `WS latency test failed for ${url}: ${status} - ${err.message}`);
-      return { url, latency: Infinity, status, error: err.message };
+      this.log(
+        logLevel,
+        `WS latency test failed for ${getRpcEndpointId(url)}: ${status} - ${redactRpcDiagnostic(err.message)}`,
+      );
+      return { url, latency: Infinity, status, error: redactRpcDiagnostic(err.message) };
     } finally {
       try {
         ws?.close();
@@ -243,12 +253,18 @@ export class WsLatencyTester {
       if (result.status === "fulfilled") {
         resultMap[url] = result.value;
       } else {
-        this.log("error", `Unexpected rejection during WS latency test promise for ${url}:`, result.reason);
+        this.log(
+          "error",
+          `Unexpected rejection during WS latency test promise for ${getRpcEndpointId(url)}:`,
+          redactRpcDiagnostic(result.reason),
+        );
         resultMap[url] = {
           url,
           latency: Infinity,
           status: "network_error",
-          error: result.reason?.message || "Unknown rejection",
+          error: redactRpcDiagnostic(
+            result.reason instanceof Error ? result.reason.message : String(result.reason ?? "Unknown rejection"),
+          ),
         };
       }
     });

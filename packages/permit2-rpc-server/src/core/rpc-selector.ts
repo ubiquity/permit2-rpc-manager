@@ -1,5 +1,6 @@
 import { CacheManager } from "../infra/cache-manager.ts";
 import { LatencyTestResult } from "../infra/latency-tester.ts";
+import { getRpcEndpointId, redactRpcDiagnostic } from "./rpc-endpoint-id.ts";
 
 // Define a logger type
 type LoggerFn = (
@@ -26,7 +27,12 @@ export class RpcSelector {
   private log: LoggerFn;
   private ongoingLatencyTests = new Map<number, Promise<Record<string, LatencyTestResult>>>();
 
-  constructor(dataSource: RpcDataSourceLike, cacheManager: CacheManager, latencyTester: LatencyTesterLike, logger?: LoggerFn) {
+  constructor(
+    dataSource: RpcDataSourceLike,
+    cacheManager: CacheManager,
+    latencyTester: LatencyTesterLike,
+    logger?: LoggerFn,
+  ) {
     this.dataSource = dataSource;
     this.cacheManager = cacheManager;
     this.latencyTester = latencyTester;
@@ -66,7 +72,12 @@ export class RpcSelector {
       !ACCEPTABLE_STATUSES.includes(latencyMap[fastestCachedRpc].status)
     ) {
       if (fastestCachedRpc && latencyMap) {
-        this.log("info", `Cached fastest RPC ${fastestCachedRpc} for chain ${chainId} is no longer valid or missing in map. Re-testing.`);
+        this.log(
+          "info",
+          `Cached fastest RPC ${
+            getRpcEndpointId(fastestCachedRpc)
+          } for chain ${chainId} is no longer valid or missing in map. Re-testing.`,
+        );
       } else {
         this.log("info", `No valid cache for chain ${chainId}. Performing latency tests...`);
       }
@@ -88,12 +99,22 @@ export class RpcSelector {
           const newFastest = this._findFastestInMap(latencyMap);
           await this.cacheManager.updateChainCache(chainId, latencyMap, newFastest?.url ?? null);
           if (newFastest) {
-            this.log("info", `Selected fastest RPC for chain ${chainId}: ${newFastest.url} (${newFastest.latency}ms, status: ${newFastest.status})`);
+            this.log(
+              "info",
+              `Selected fastest RPC for chain ${chainId}: ${
+                getRpcEndpointId(newFastest.url)
+              } (${newFastest.latency}ms, status: ${newFastest.status})`,
+            );
           } else {
-            this.log("warn", `No responsive RPCs found meeting criteria (${ACCEPTABLE_STATUSES.join(" > ")}) for chain ${chainId} after testing.`);
+            this.log(
+              "warn",
+              `No responsive RPCs found meeting criteria (${
+                ACCEPTABLE_STATUSES.join(" > ")
+              }) for chain ${chainId} after testing.`,
+            );
           }
         } catch (error) {
-          this.log("error", `Latency test failed for chain ${chainId}`, error);
+          this.log("error", `Latency test failed for chain ${chainId}`, redactRpcDiagnostic(error));
           latencyMap = {}; // Set empty map on error
         } finally {
           this.ongoingLatencyTests.delete(chainId); // Remove promise once done
@@ -107,7 +128,7 @@ export class RpcSelector {
 
     // Filter and sort the results from the (potentially updated) latency map
     const rankedList = this._rankResults(latencyMap, allowedUrls);
-    this.log("debug", `Ranked RPC list for chain ${chainId}:`, rankedList);
+    this.log("debug", `Ranked RPC list for chain ${chainId}:`, redactRpcDiagnostic(rankedList));
     return rankedList;
   }
 
@@ -163,11 +184,11 @@ export class RpcSelector {
       if (invalidated && healthStatus === "eliminated") {
         // Check if it's time to retry
         if (nextRetryAt && Date.now() >= nextRetryAt) {
-          this.log("debug", `RPC ${result.url} eligible for retry after elimination period`);
+          this.log("debug", `RPC ${getRpcEndpointId(result.url)} eligible for retry after elimination period`);
           // Allow retry by including it
           return true;
         }
-        this.log("debug", `Excluding eliminated RPC: ${result.url}`);
+        this.log("debug", `Excluding eliminated RPC: ${getRpcEndpointId(result.url)}`);
         return false;
       }
 
