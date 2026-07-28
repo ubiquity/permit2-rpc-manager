@@ -1,6 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { CacheManager } from "../infra/cache-manager.ts";
 import type { LatencyTestResult } from "../infra/latency-tester.ts";
+import { getRpcEndpointId } from "./rpc-endpoint-id.ts";
 import { RpcSelector } from "./rpc-selector.ts";
 
 class MemoryCacheManager extends CacheManager {
@@ -10,16 +11,21 @@ class MemoryCacheManager extends CacheManager {
     super({ disableCache: true });
   }
 
-  override async getFastestRpc(chainId: number): Promise<string | null> {
-    return this.store.get(chainId)?.fastestRpc ?? null;
+  override getFastestRpc(chainId: number): Promise<string | null> {
+    return Promise.resolve(this.store.get(chainId)?.fastestRpc ?? null);
   }
 
-  override async getLatencyMap(chainId: number): Promise<Record<string, LatencyTestResult> | null> {
-    return this.store.get(chainId)?.latencyMap ?? null;
+  override getLatencyMap(chainId: number): Promise<Record<string, LatencyTestResult> | null> {
+    return Promise.resolve(this.store.get(chainId)?.latencyMap ?? null);
   }
 
-  override async updateChainCache(chainId: number, latencyMap: Record<string, LatencyTestResult>, fastestRpc: string | null): Promise<void> {
+  override updateChainCache(
+    chainId: number,
+    latencyMap: Record<string, LatencyTestResult>,
+    fastestRpc: string | null,
+  ): Promise<void> {
     this.store.set(chainId, { fastestRpc, latencyMap });
+    return Promise.resolve();
   }
 }
 
@@ -86,4 +92,44 @@ Deno.test("RpcSelector: ignores cached fastest RPC not in data source", async ()
   const ranked = await selector.getRankedRpcList(chainId);
 
   assertEquals(ranked, [okRpc]);
+});
+
+Deno.test("RpcSelector: redacts RPC URLs from selector diagnostics", async () => {
+  const chainId = 1;
+  const rpcUrl = "https://user:super-secret@rpc.example/rpc?apiKey=very-secret";
+  const diagnostics: unknown[][] = [];
+  const dataSource = { getRpcUrls: () => [rpcUrl] };
+  const cacheManager = new CacheManager({ disableCache: true });
+  const latencyTester = {
+    testRpcUrls: (): Promise<Record<string, LatencyTestResult>> =>
+      Promise.resolve({ [rpcUrl]: { url: rpcUrl, latency: 10, status: "ok" } }),
+  };
+
+  const selector = new RpcSelector(dataSource, cacheManager, latencyTester, (...args) => diagnostics.push(args));
+  await selector.getRankedRpcList(chainId);
+
+  const logged = JSON.stringify(diagnostics);
+  assertEquals(logged.includes(rpcUrl), false);
+  assertEquals(logged.includes("super-secret"), false);
+  assertEquals(logged.includes(getRpcEndpointId(rpcUrl)), true);
+});
+
+Deno.test("RpcSelector: redacts URLs in latency-test errors", async () => {
+  const chainId = 1;
+  const rpcUrl = "https://user:super-secret@rpc.example/rpc?apiKey=very-secret";
+  const diagnostics: unknown[][] = [];
+  const dataSource = { getRpcUrls: () => [rpcUrl] };
+  const cacheManager = new CacheManager({ disableCache: true });
+  const latencyTester = {
+    testRpcUrls: (): Promise<Record<string, LatencyTestResult>> =>
+      Promise.reject(new Error(`Latency probe failed for ${rpcUrl}`)),
+  };
+
+  const selector = new RpcSelector(dataSource, cacheManager, latencyTester, (...args) => diagnostics.push(args));
+  await selector.getRankedRpcList(chainId);
+
+  const logged = JSON.stringify(diagnostics);
+  assertEquals(logged.includes(rpcUrl), false);
+  assertEquals(logged.includes("super-secret"), false);
+  assertEquals(logged.includes(getRpcEndpointId(rpcUrl)), true);
 });

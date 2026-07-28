@@ -1,4 +1,5 @@
 /// <reference lib="deno.ns" />
+import { getRpcEndpointId, redactRpcDiagnostic } from "../core/rpc-endpoint-id.ts";
 import type { LatencyTestResult } from "./latency-tester.ts";
 
 // Define a logger type
@@ -72,7 +73,7 @@ export class CacheManager {
       } catch (e) {
         // Catch as unknown
         const error = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
-        this.log("error", "CacheManager (Deno): Failed to open Deno KV store:", error);
+        this.log("error", "CacheManager (Deno): Failed to open Deno KV store:", redactRpcDiagnostic(error));
         throw new Error(`Failed to open Deno KV store: ${error.message}`);
       }
     }
@@ -83,7 +84,10 @@ export class CacheManager {
     if (this.disabled || this.cacheLoaded) return; // Skip if disabled
 
     // --- Deno KV Implementation ---
-    this.log("debug", `CacheManager (Deno): Attempting to load cache from Deno KV (key: ${this.cacheKey})`);
+    this.log(
+      "debug",
+      `CacheManager (Deno): Attempting to load cache from Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`,
+    );
     try {
       const kv = await this.ensureKvOpen();
       // Use a single key to store the entire cache object
@@ -91,15 +95,25 @@ export class CacheManager {
 
       if (result.value !== null) {
         this.cache = result.value;
-        this.log("debug", `CacheManager (Deno): Loaded cache from Deno KV (key: ${this.cacheKey})`);
+        this.log(
+          "debug",
+          `CacheManager (Deno): Loaded cache from Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`,
+        );
       } else {
-        this.log("debug", `CacheManager (Deno): No cache found in Deno KV (key: ${this.cacheKey})`);
+        this.log(
+          "debug",
+          `CacheManager (Deno): No cache found in Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`,
+        );
         this.cache = {}; // Initialize empty if not found
       }
     } catch (e) {
       // Catch as unknown
       const error = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
-      this.log("error", `CacheManager (Deno): Failed to load cache from Deno KV (key: ${this.cacheKey}):`, error);
+      this.log(
+        "error",
+        `CacheManager (Deno): Failed to load cache from Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)}):`,
+        redactRpcDiagnostic(error),
+      );
       this.cache = {}; // Initialize empty on error
     }
     // --- End Deno KV ---
@@ -120,15 +134,22 @@ export class CacheManager {
     }
 
     // --- Deno KV Implementation ---
-    this.log("debug", `CacheManager (Deno): Attempting to save cache to Deno KV (key: ${this.cacheKey})`);
+    this.log(
+      "debug",
+      `CacheManager (Deno): Attempting to save cache to Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`,
+    );
     try {
       const kv = await this.ensureKvOpen();
       await kv.set([this.cacheKey], this.cache);
-      this.log("debug", `CacheManager (Deno): Saved cache to Deno KV (key: ${this.cacheKey})`);
+      this.log("debug", `CacheManager (Deno): Saved cache to Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`);
     } catch (e) {
       // Catch as unknown
       const error = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
-      this.log("error", `CacheManager (Deno): Failed to save cache to Deno KV (key: ${this.cacheKey}):`, error);
+      this.log(
+        "error",
+        `CacheManager (Deno): Failed to save cache to Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)}):`,
+        redactRpcDiagnostic(error),
+      );
     }
     // --- End Deno KV ---
   }
@@ -153,14 +174,18 @@ export class CacheManager {
     return null;
   }
 
-  async updateChainCache(chainId: number, latencyMap: Record<string, LatencyTestResult>, fastestRpc: string | null): Promise<void> {
+  async updateChainCache(
+    chainId: number,
+    latencyMap: Record<string, LatencyTestResult>,
+    fastestRpc: string | null,
+  ): Promise<void> {
     if (this.disabled) {
       this.log("debug", `CacheManager: Caching disabled, skipping cache update for chainId ${chainId}`);
       return; // Do nothing if disabled
     }
     await this.loadCache(); // Ensure loaded before update
     this.log("debug", `CacheManager: Updating cache for chainId ${chainId}`, {
-      fastestRpc,
+      fastestRpc: fastestRpc ? getRpcEndpointId(fastestRpc) : null,
       latencyMapCount: Object.keys(latencyMap || {}).length,
     });
     this.cache[chainId] = {
@@ -187,7 +212,7 @@ export class CacheManager {
    */
   async invalidateRpcInCache(chainId: number, rpcUrl: string, healthStatus: "eliminated"): Promise<void> {
     if (this.disabled) {
-      this.log("debug", `CacheManager: Caching disabled, skipping RPC invalidation for ${rpcUrl}`);
+      this.log("debug", `CacheManager: Caching disabled, skipping RPC invalidation for ${getRpcEndpointId(rpcUrl)}`);
       return;
     }
 
@@ -195,7 +220,7 @@ export class CacheManager {
     const chainCache = this.cache[chainId];
 
     if (!chainCache || !chainCache.latencyMap[rpcUrl]) {
-      this.log("warn", `CacheManager: Cannot invalidate RPC ${rpcUrl} - not found in cache`);
+      this.log("warn", `CacheManager: Cannot invalidate RPC ${getRpcEndpointId(rpcUrl)} - not found in cache`);
       return;
     }
 
@@ -223,7 +248,7 @@ export class CacheManager {
     }
 
     await this.saveCache();
-    this.log("info", `CacheManager: Marked RPC ${rpcUrl} as ${healthStatus} in cache`);
+    this.log("info", `CacheManager: Marked RPC ${getRpcEndpointId(rpcUrl)} as ${healthStatus} in cache`);
   }
 
   /**

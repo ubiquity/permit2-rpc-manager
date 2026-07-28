@@ -18,21 +18,23 @@ export const multicall3Addresses = deployments.reduce(
     acc[deployment.chainId] = deployment.address ? deployment.address : "0xcA11bde05977b3631167028862bE2a173976CA11";
     return acc;
   },
-  {} as Record<number, string>
+  {} as Record<number, string>,
 );
 
-const senderSensitiveSelectors = new Set([
+export const senderSensitiveSelectors = [
   "0x30f28b7a", // permitTransferFrom(((address,uint256),uint256,uint256),(address,uint256),address,bytes)
   "0x6700a7c5", // batchPermitTransferFrom(((address,uint256),uint256,uint256)[],(address,uint256)[],address[],bytes[])
   "0x32d88955", // permitWitnessTransferFrom(((address,uint256),uint256,uint256),(address,uint256),address,bytes,bytes32)
   "0xbba8c6d5", // batchPermitWitnessTransferFrom(((address,uint256),uint256,uint256)[],(address,uint256)[],address[],bytes[],bytes32)
-]);
+] as const;
+
+const senderSensitiveSelectorSet = new Set<string>(senderSensitiveSelectors);
 
 const isSenderSensitiveCall = (data: string): boolean => {
   if (!data.startsWith("0x") || data.length < 10) {
     return false;
   }
-  return senderSensitiveSelectors.has(data.slice(0, 10).toLowerCase());
+  return senderSensitiveSelectorSet.has(data.slice(0, 10).toLowerCase());
 };
 
 export function getMulticall3Address(chainId: number): string | null {
@@ -40,7 +42,10 @@ export function getMulticall3Address(chainId: number): string | null {
 }
 
 export const isMulticall3Request = (chainId: number, req: JsonRpcRequest): req is Multicall3Request => {
-  if (!req.params || !Array.isArray(req.params) || req.params.length !== 2 || typeof req.params[0] !== "object" || req.params[0] === null) {
+  if (
+    !req.params || !Array.isArray(req.params) || req.params.length !== 2 || typeof req.params[0] !== "object" ||
+    req.params[0] === null
+  ) {
     return false;
   }
 

@@ -1,6 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import type { JsonRpcRequest } from "../core/types.ts";
-import { isMulticall3Request } from "./multicall3.ts";
+import { isMulticall3Request, senderSensitiveSelectors } from "./multicall3.ts";
 
 const chainId = 100;
 const baseCall = { to: "0x0000000000000000000000000000000000000000", data: "0x1234" };
@@ -39,10 +39,17 @@ Deno.test("isMulticall3Request: rejects eth_call with value set", () => {
   assertEquals(isMulticall3Request(chainId, withValue as JsonRpcRequest), false);
 });
 
-Deno.test("isMulticall3Request: rejects sender-sensitive selectors", () => {
-  const permitCall = {
-    ...baseRequest,
-    params: [{ ...baseCall, data: "0x30f28b7a00" }, "latest"],
-  } satisfies JsonRpcRequest;
-  assertEquals(isMulticall3Request(chainId, permitCall as JsonRpcRequest), false);
+Deno.test("isMulticall3Request: accepts ID 0", () => {
+  const idZeroRequest = { ...baseRequest, id: 0 } satisfies JsonRpcRequest;
+  assertEquals(isMulticall3Request(chainId, idZeroRequest), true);
+});
+
+Deno.test("isMulticall3Request: rejects every sender-sensitive Permit2 selector", () => {
+  for (const selector of senderSensitiveSelectors) {
+    const permitCall = {
+      ...baseRequest,
+      params: [{ ...baseCall, data: `${selector}00` }, "latest"],
+    } satisfies JsonRpcRequest;
+    assertEquals(isMulticall3Request(chainId, permitCall as JsonRpcRequest), false, selector);
+  }
 });
