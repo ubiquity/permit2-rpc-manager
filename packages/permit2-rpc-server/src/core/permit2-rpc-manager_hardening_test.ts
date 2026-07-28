@@ -60,34 +60,39 @@ function markRpcHalfOpen(manager: Permit2RpcManager, rpcUrl: string): void {
   });
 }
 
-for (const quotaCode of [-32004, -32005]) {
-  Deno.test(`quota code ${quotaCode} fails over to a healthy endpoint`, async () => {
-    const quotaRpc = "https://quota.example";
-    const healthyRpc = "https://healthy.example";
-    const manager = createManager([quotaRpc, healthyRpc]);
-    const restoreOpenKv = installOpenKvMock();
-    const originalFetch = globalThis.fetch;
-    const calls: string[] = [];
+for (const httpStatus of [200, 400, 404]) {
+  for (const quotaCode of [-32004, -32005]) {
+    Deno.test(`quota code ${quotaCode} with HTTP ${httpStatus} fails over to a healthy endpoint`, async () => {
+      const quotaRpc = "https://quota.example";
+      const healthyRpc = "https://healthy.example";
+      const manager = createManager([quotaRpc, healthyRpc]);
+      const restoreOpenKv = installOpenKvMock();
+      const originalFetch = globalThis.fetch;
+      const calls: string[] = [];
 
-    globalThis.fetch = ((input) => {
-      const url = inputUrl(input);
-      calls.push(url);
-      if (url === quotaRpc) {
-        return Promise.resolve(
-          jsonResponse({ jsonrpc: "2.0", id: 1, error: { code: quotaCode, message: "quota exhausted" } }),
-        );
+      globalThis.fetch = ((input) => {
+        const url = inputUrl(input);
+        calls.push(url);
+        if (url === quotaRpc) {
+          return Promise.resolve(
+            jsonResponse(
+              { jsonrpc: "2.0", id: 1, error: { code: quotaCode, message: "quota exhausted" } },
+              { status: httpStatus },
+            ),
+          );
+        }
+        return Promise.resolve(jsonResponse({ jsonrpc: "2.0", id: 1, result: "healthy-result" }));
+      }) as typeof fetch;
+
+      try {
+        assert.equal(await manager.send(1, "eth_blockNumber"), "healthy-result");
+        assert.deepEqual(calls, [quotaRpc, healthyRpc]);
+      } finally {
+        globalThis.fetch = originalFetch;
+        restoreOpenKv();
       }
-      return Promise.resolve(jsonResponse({ jsonrpc: "2.0", id: 1, result: "healthy-result" }));
-    }) as typeof fetch;
-
-    try {
-      assert.equal(await manager.send(1, "eth_blockNumber"), "healthy-result");
-      assert.deepEqual(calls, [quotaRpc, healthyRpc]);
-    } finally {
-      globalThis.fetch = originalFetch;
-      restoreOpenKv();
-    }
-  });
+    });
+  }
 }
 
 for (const status of [400, 404]) {

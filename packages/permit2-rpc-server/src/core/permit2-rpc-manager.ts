@@ -385,6 +385,16 @@ export class Permit2RpcManager {
         }
 
         if (httpStatus >= 400 && httpStatus <= 499) {
+          // A structured quota code is more specific than a provider's generic
+          // 4xx wrapper, so preserve healthy-endpoint failover.
+          if (code === JSON_RPC_ERROR_CODES.QUOTA_EXCEEDED || code === JSON_RPC_ERROR_CODES.REQUEST_LIMIT) {
+            return {
+              behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
+              reason: "quota_exceeded",
+              isProviderIssue: true,
+            };
+          }
+
           // The HTTP status is client-facing, but a body we could not decode
           // cannot establish that the caller made a bad JSON-RPC request.
           if (error instanceof InvalidJsonResponseError) {
