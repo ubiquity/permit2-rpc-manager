@@ -136,3 +136,12 @@ The Deno Deploy token should be available in the environment as `DENO_DEPLOY_TOK
 - `packages/permit2-rpc-client/src/index.ts` - Client SDK entry point
 - `.github/workflows/update-whitelist.yml` - Automated whitelist updates
 - `.github/workflows/deno-deploy.yml` - Deployment pipeline
+
+## VPS hosting (2026-10-12)
+
+`rpc.ubq.fi` runs on the VPS, not Deno Deploy: `deploy/ubiquity-rpc.service`
+runs `packages/permit2-rpc-server/src/deno-server.ts` on 127.0.0.1:8020 and
+Caddy terminates TLS for `rpc.ubq.fi` (DNS-only A record, no Deno hop). HTTP,
+websockets, and the same-origin `/rpc/:chainId` router path are verified. Deno
+Deploy shuts down in April 2027, so the Deno app `rpc-ubq-fi` is no longer the
+production target.

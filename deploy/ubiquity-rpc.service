@@ -1,0 +1,20 @@
+# rpc.ubq.fi on the VPS (2026-10-12): replaces the Deno Deploy app rpc-ubq-fi.
+# Install: sudo cp deploy/ubiquity-rpc.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now ubiquity-rpc.service
+# Caddy site (rpc.ubq.fi) reverse-proxies 127.0.0.1:8020 with websocket support.
+[Unit]
+Description=Ubiquity Permit2 RPC proxy (rpc.ubq.fi)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=codex
+Group=codex
+WorkingDirectory=/home/codex/repos/ubiquity/permit2-rpc-manager/packages/permit2-rpc-server
+Environment=PORT=8020
+ExecStart=/usr/local/bin/deno run --unstable-kv --allow-net --allow-read --allow-env --allow-sys=loadavg src/deno-server.ts
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
