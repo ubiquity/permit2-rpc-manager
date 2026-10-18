@@ -9,7 +9,6 @@
   "preview_urls": true,
   "routes": [],
   "triggers": { "crons": [] },
-  "limits": { "subrequests": 50 },
   "assets": {
     "directory": "packages/permit2-rpc-server/static",
     "binding": "ASSETS",
