@@ -1,6 +1,30 @@
 import { assertEquals, assertMatch } from "jsr:@std/assert@1";
 import { getRpcEndpointId, redactRpcDiagnostic } from "./rpc-endpoint-id.ts";
 
+Deno.test("RPC endpoint identifier memoization preserves normalized FNV identity through eviction and oversized input", () => {
+  const referenceId = (url: string) => {
+    const normalized = url.trim().replace(/\/$/, "");
+    let hash = 0xcbf29ce484222325n;
+    for (let index = 0; index < normalized.length; index++) {
+      hash = ((hash ^ BigInt(normalized.charCodeAt(index))) * 0x100000001b3n) & 0xffffffffffffffffn;
+    }
+    return `rpc-${hash.toString(16).padStart(16, "0")}`;
+  };
+  const endpoint = "https://user:secret@[2001:db8::1]/rpc?token=unicode-\u4e2d\ud83d\ude80";
+  const expected = referenceId(endpoint);
+  assertEquals(getRpcEndpointId(endpoint), expected);
+  assertEquals(getRpcEndpointId(`  ${endpoint}/  `), expected);
+  for (let index = 0; index < 600; index++) {
+    const other = `https://eviction-${index}.example/rpc`;
+    assertEquals(getRpcEndpointId(other), referenceId(other));
+  }
+  assertEquals(getRpcEndpointId(endpoint), expected);
+  const oversized = `https://private.example/rpc?token=${"secret".repeat(700)}`;
+  assertEquals(getRpcEndpointId(oversized), referenceId(oversized));
+  assertEquals(redactRpcDiagnostic(`(${oversized}),`), `(${referenceId(oversized)}),`);
+  assertEquals(getRpcEndpointId("  "), referenceId(""));
+});
+
 Deno.test("RPC endpoint diagnostics are stable and redact nested URL values", () => {
   const endpoint = "https://user:secret@rpc.example/private?token=token-value";
   const endpointId = getRpcEndpointId(endpoint);

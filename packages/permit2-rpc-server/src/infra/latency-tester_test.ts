@@ -7,6 +7,42 @@ function makeJsonRpcResponse(id: unknown, result: unknown) {
   return { jsonrpc: "2.0", id, result };
 }
 
+Deno.test("LatencyTester: suppressed debug formatting preserves checks and legacy redacted callbacks", async () => {
+  const endpoint = "https://user:secret@rpc.example/rpc?token=secret";
+  for (const debugEnabled of [false, undefined]) {
+    const logs: Array<{ level: string; message: string }> = [];
+    const methods: string[] = [];
+    const logger = (level: string, message: string) => logs.push({ level, message });
+    if (debugEnabled === false) Object.assign(logger, { debugEnabled });
+    const tester = new LatencyTester(250, logger, {
+      fetcher: (_input, init) => {
+        const call = JSON.parse(String(init?.body));
+        methods.push(call.method);
+        const result = call.method === "eth_getCode"
+          ? PERMIT2_BYTECODE_PREFIX
+          : call.method === "eth_syncing"
+          ? false
+          : "0x1";
+        return Promise.resolve(Response.json(makeJsonRpcResponse(call.id, result)));
+      },
+    });
+    const results = await tester.testRpcUrls(1, [endpoint]);
+    assertEquals(results[endpoint].status, "ok");
+    assertEquals(methods.sort(), ["eth_chainId", "eth_getCode", "eth_syncing"]);
+    const debug = logs.filter((entry) => entry.level === "debug");
+    assertEquals(debug.length, debugEnabled === false ? 0 : 3);
+    if (debugEnabled !== false) {
+      assertEquals(
+        debug[0].message,
+        `\nExpected Permit2 prefix (first 100 chars): ${PERMIT2_BYTECODE_PREFIX.slice(0, 100)}`,
+      );
+      assertEquals(debug[1].message, `Received bytecode (first 100 chars): ${PERMIT2_BYTECODE_PREFIX.slice(0, 100)}`);
+      assertEquals(debug[2].message.includes(getRpcEndpointId(endpoint)), true);
+    }
+    assertEquals(JSON.stringify(logs).includes("secret"), false);
+  }
+});
+
 Deno.test("LatencyTester: eth_chainId mismatch returns wrong_chain_id", async () => {
   const realFetch = globalThis.fetch;
 

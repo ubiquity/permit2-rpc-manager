@@ -63,11 +63,15 @@ export default { async fetch(request,env,ctx) {
  if(request.headers.get('upgrade')==='websocket') {
   upgrades++;
   if(mode==='ws-fallback' && request.url.replace(/^http/,'ws')===firstWs) return new Response('unavailable',{status:503});
+  if(mode==='ws-handshake-timeout' && request.url.replace(/^http/,'ws')===firstWs) {
+   await new Promise(resolve=>setTimeout(resolve,10000));
+   return new Response('handshake stalled',{status:503});
+  }
   const pair=new WebSocketPair(); pair[1].binaryType='arraybuffer'; pair[1].accept();
   pair[1].addEventListener('message',event=>{
    if(typeof event.data!=='string'){pair[1].send(event.data);return;}
    const call=JSON.parse(event.data);pair[1].send(JSON.stringify(call.method==='eth_subscribe'?{jsonrpc:'2.0',id:call.id,result:'fixture-subscription'}:result(call)));
-   if(call.method==='eth_subscribe')ctx.waitUntil(new Promise(resolve=>setTimeout(()=>{try{pair[1].send(JSON.stringify({jsonrpc:'2.0',method:'eth_subscription',params:{subscription:'fixture-subscription',result:{number:'0x1234'}}}));}finally{resolve();}},30)));
+   if(call.method==='eth_subscribe')ctx.waitUntil(new Promise(resolve=>setTimeout(()=>{try{pair[1].send(JSON.stringify({jsonrpc:'2.0',method:'eth_subscription',params:{subscription:'fixture-subscription',result:{number:'0x1234'}}}));}finally{resolve();}},mode==='ws-fallback'?6500:30)));
   });
   pair[1].addEventListener('close',()=>{try{pair[1].close();}catch{}});
   return new Response(null,{status:101,webSocket:pair[0]});
@@ -130,12 +134,12 @@ export default { async fetch(request,env,ctx) {
     return (await (await mf.getWorker("upstream")).fetch("https://metrics.test/__metrics")).json();
   }
   const call = (method = "eth_chainId", id = 1, params = []) => ({ jsonrpc: "2.0", method, id, params });
-  const message = (socket, predicate = () => true) =>
+  const message = (socket, predicate = () => true, timeoutMs = 5000) =>
     new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         socket.removeEventListener("message", listener);
         reject(new Error("WebSocket fixture deadline"));
-      }, 5000);
+      }, timeoutMs);
       const listener = (event) => {
         if (!predicate(event.data)) return;
         clearTimeout(timeout);
@@ -252,11 +256,16 @@ export default { async fetch(request,env,ctx) {
       check(JSON.parse(await chain).result, "0x1");
       console.log(JSON.stringify({ scenario: "websocket-chain-response" }));
       const subscribed = message(socket, (data) => typeof data === "string" && JSON.parse(data).id === 2);
-      const event = message(socket, (data) => typeof data === "string" && JSON.parse(data).method === "eth_subscription");
+      const event = message(socket, (data) => typeof data === "string" && JSON.parse(data).method === "eth_subscription", 10000);
+      const subscriptionStarted = Date.now();
       socket.send(JSON.stringify(call("eth_subscribe", 2, ["newHeads"])));
       check(JSON.parse(await subscribed).result, "fixture-subscription");
       check(JSON.parse(await event).params.result.number, "0x1234");
-      console.log(JSON.stringify({ scenario: "websocket-subscription-event" }));
+      const eventDelayMs = Date.now() - subscriptionStarted;
+      assert.ok(eventDelayMs >= 6000, `Expected a subscription event after the handshake timeout, received at ${eventDelayMs}ms`);
+      assertions++;
+      check(socket.readyState, 1);
+      console.log(JSON.stringify({ scenario: "websocket-subscription-event-after-handshake-timeout", eventDelayMs }));
       const binary = message(socket, (data) => typeof data !== "string");
       socket.send(new Uint8Array([1, 2, 3]));
       const payload = await binary;
@@ -273,7 +282,41 @@ export default { async fetch(request,env,ctx) {
         JSON.stringify({ runtime: "workerd", scenario: "websocket-ranked-fallback-queue-subscription-binary", externalUpgrades: native.upgrades, assertions })
       );
     } finally {
-      socket.close();
+      const closed = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("WebSocket normal close deadline")), 2000);
+        socket.addEventListener(
+          "close",
+          (event) => {
+            clearTimeout(timer);
+            resolve(event);
+          },
+          { once: true }
+        );
+      });
+      socket.close(1000, "native test complete");
+      check((await closed).code, 1000);
+    }
+  });
+  await withRuntime("ws-handshake-timeout", 1, async (mf) => {
+    const started = Date.now();
+    const response = await mf.dispatchFetch("https://rpc.test/1", { headers: { Upgrade: "websocket" } });
+    check(response.status, 101);
+    const socket = response.webSocket;
+    assert.ok(socket);
+    socket.accept();
+    try {
+      const chain = message(socket, () => true, 12000);
+      socket.send(JSON.stringify(call()));
+      check(JSON.parse(await chain).result, "0x1");
+      const elapsedMs = Date.now() - started;
+      assert.ok(elapsedMs >= 4500 && elapsedMs < 9000, `Expected 5000ms handshake timeout and ranked fallback, completed at ${elapsedMs}ms`);
+      assertions++;
+      check((await metrics(mf)).upgrades, 3);
+      console.log(
+        JSON.stringify({ runtime: "workerd", scenario: "stalled-websocket-handshake-times-out-and-ranked-fallback-succeeds", elapsedMs, assertions })
+      );
+    } finally {
+      socket.close(1000, "handshake control complete");
     }
   });
   console.log(JSON.stringify({ outcome: "passed", assertions, runtime: "actual workerd", cpuLimitEnforced: false }));

@@ -3,11 +3,13 @@ import { LatencyTestResult } from "../infra/latency-tester.ts";
 import { getRpcEndpointId, redactRpcDiagnostic } from "./rpc-endpoint-id.ts";
 
 // Define a logger type
-type LoggerFn = (
-  level: "debug" | "info" | "warn" | "error",
-  message: string,
-  ...optionalParams: unknown[] // Changed any[] to unknown[]
-) => void;
+type LoggerFn =
+  & ((
+    level: "debug" | "info" | "warn" | "error",
+    message: string,
+    ...optionalParams: unknown[] // Changed any[] to unknown[]
+  ) => void)
+  & { readonly debugEnabled?: boolean };
 
 type RpcDataSourceLike = {
   getRpcUrls(chainId: number): string[];
@@ -164,7 +166,9 @@ export class RpcSelector {
       }
     }
 
-    this.log("debug", `Ranked RPC list for chain ${chainId}:`, redactRpcDiagnostic(rankedList));
+    if (this.log.debugEnabled !== false) {
+      this.log("debug", `Ranked RPC list for chain ${chainId}:`, redactRpcDiagnostic(rankedList));
+    }
     return rankedList;
   }
 

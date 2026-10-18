@@ -129,17 +129,23 @@ export class WorkerTransport {
   }
 
   async openWebSocket(url: string, timeoutMs: number): Promise<SocketPeer> {
-    const response = await this.fetch(url.replace(/^ws:/, "http:").replace(/^wss:/, "https:"), {
-      headers: { Upgrade: "websocket" },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const socket = response.webSocket;
-    if (response.status !== 101 || !socket) {
-      await response.body?.cancel();
-      throw new Error(`Upstream WebSocket upgrade failed (${response.status}).`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error("Upstream WebSocket connection timed out.")), timeoutMs);
+    try {
+      const response = await this.fetch(url.replace(/^ws:/, "http:").replace(/^wss:/, "https:"), {
+        headers: { Upgrade: "websocket" },
+        signal: controller.signal,
+      });
+      const socket = response.webSocket;
+      if (response.status !== 101 || !socket) {
+        await response.body?.cancel();
+        throw new Error(`Upstream WebSocket upgrade failed (${response.status}).`);
+      }
+      socket.binaryType = "arraybuffer";
+      socket.accept();
+      return new SocketPeer(socket);
+    } finally {
+      clearTimeout(timer);
     }
-    socket.binaryType = "arraybuffer";
-    socket.accept();
-    return new SocketPeer(socket);
   }
 }

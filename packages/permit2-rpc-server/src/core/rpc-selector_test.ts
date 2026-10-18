@@ -29,6 +29,33 @@ class MemoryCacheManager extends CacheManager {
   }
 }
 
+Deno.test("RpcSelector: debug metadata skips ranked redaction without changing rank or legacy callbacks", async () => {
+  const endpoint = "https://user:secret@rpc.example/rpc?token=secret";
+  const cache = new MemoryCacheManager();
+  await cache.updateChainCache(1, { [endpoint]: { url: endpoint, latency: 10, status: "ok" } }, endpoint);
+  for (const debugEnabled of [false, undefined]) {
+    const logs: Array<{ level: string; message: string; optionalParams: unknown[] }> = [];
+    const logger = (level: string, message: string, ...optionalParams: unknown[]) =>
+      logs.push({ level, message, optionalParams });
+    if (debugEnabled === false) Object.assign(logger, { debugEnabled });
+    const selector = new RpcSelector(
+      { getRpcUrls: () => [endpoint] },
+      cache,
+      {
+        testRpcUrls: () => {
+          throw new Error("Fresh diagnostics must not run for the cached control");
+        },
+      },
+      logger,
+    );
+    assertEquals(await selector.getRankedRpcList(1), [endpoint]);
+    const rankedLogs = logs.filter((entry) => entry.message === "Ranked RPC list for chain 1:");
+    assertEquals(rankedLogs.length, debugEnabled === false ? 0 : 1);
+    if (debugEnabled !== false) assertEquals(rankedLogs[0].optionalParams, [[getRpcEndpointId(endpoint)]]);
+    assertEquals(JSON.stringify(logs).includes("secret"), false);
+  }
+});
+
 Deno.test("RpcSelector: excludes wrong_chain_id endpoints", async () => {
   const chainId = 1;
   const wrongRpc = "https://wrong.example/rpc";

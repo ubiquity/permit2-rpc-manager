@@ -301,7 +301,8 @@ export class Permit2RpcManager {
     this.fetcher = options.fetcher ?? ((input, init) => fetch(input, init));
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
     this.configuredLogLevelValue = LOG_LEVEL_HIERARCHY[this.logLevel];
-    const logger = this._log.bind(this);
+    // Consumers can skip suppressed debug formatting; plain callbacks retain their existing behavior.
+    const logger = Object.assign(this._log.bind(this), { debugEnabled: this.logLevel === "debug" });
 
     this.dataSource = new ChainlistDataSource(logger, options.initialRpcData);
     this.cacheManager = new CacheManager({
