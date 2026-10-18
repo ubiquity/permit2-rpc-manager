@@ -63,7 +63,7 @@ export default{async fetch(request){
  return Response.json(Array.isArray(body)?body.map(result):result(body));
 }};`;
 
-  async function runtime(mode, action) {
+  async function runtime(mode, action, bindings = {}) {
     let version = randomUUID();
     const options = () =>
       convertV4MiniflareOptions({
@@ -78,7 +78,7 @@ export default{async fetch(request){
             compatibilityDate: "2026-10-12",
             compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
             outboundService: "upstream",
-            bindings: { VERSION_METADATA: { id: version } },
+            bindings: { ...bindings, VERSION_METADATA: { id: version } },
             durableObjects: {
               HTTP_DIAGNOSTICS: {
                 className: mode === "unknown" ? "UnknownReceiptObject" : mode === "invalid-receipt" ? "InvalidReceiptObject" : "HttpDiagnosticsObject",
@@ -245,6 +245,47 @@ export default{async fetch(request){
       })
     );
   });
+
+  for (const [rawValidate, expectedValidate] of [
+    ["n", false],
+    [" N ", false],
+    ["no", false],
+    ["0", false],
+    ["false", false],
+    ["off", false],
+    ["y", true],
+    [" Y ", true],
+    ["yes", true],
+    ["1", true],
+    ["true", true],
+    ["on", true],
+    ["", true],
+  ]) {
+    await runtime(
+      "batch",
+      async ({ mf, rpc, metrics, inspect }) => {
+        const cold = await rpc();
+        check(cold.body.result, "0x1");
+        const stored = await inspect();
+        check(stored.length, 1);
+        check(stored[0].rows.length, 1);
+        check(stored[0].rows[0].fingerprint.includes(`:1:${expectedValidate}:5000:`), true);
+        const callsBeforeHealth = (await metrics()).calls;
+        const health = await mf.dispatchFetch("https://rpc.test/health");
+        check(health.status, 200);
+        check((await metrics()).calls, callsBeforeHealth);
+        check(Number(health.headers.get("x-uos-sql-rows-written")), 0);
+        const report = await health.json();
+        assert.ok(Number.isFinite(report.chains["1"]?.lastTested));
+        assertions++;
+        assert.ok(typeof report.chains["1"]?.fastestRpc === "string" && report.chains["1"].fastestRpc.length > 0);
+        assertions++;
+        check(report.chains["1"].healthyRpcs, whitelist.rpcs["1"].length);
+      },
+      { RPC_VALIDATE_CHAIN_ID: rawValidate }
+    );
+  }
+  console.log(JSON.stringify({ scenario: "boolean-parsing-parity-refresh-and-health", aliasesChecked: 13 }));
 
   await runtime("batch", async ({ direct }) => {
     const count = whitelist.rpcs["1"].length,

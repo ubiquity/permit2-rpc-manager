@@ -1,5 +1,19 @@
 import { expect, test } from "bun:test";
 import { startBunServer } from "../packages/permit2-rpc-server/src/bun-server.ts";
+import { parseBooleanEnv } from "../packages/permit2-rpc-server/src/runtime.ts";
+
+test("parseBooleanEnv parses all supported true/false aliases and case/whitespace variants consistently", () => {
+  for (const raw of ["1", "true", "yes", "y", "on", " TRUE ", " Y ", "Yes", "ON"]) {
+    expect(parseBooleanEnv(raw)).toBe(true);
+  }
+  for (const raw of ["0", "false", "no", "n", "off", " FALSE ", " N ", "No", "OFF"]) {
+    expect(parseBooleanEnv(raw)).toBe(false);
+  }
+  for (const raw of [undefined, null, "", "   ", "invalid", 1, false]) {
+    expect(parseBooleanEnv(raw)).toBeUndefined();
+    expect(parseBooleanEnv(raw) ?? true).toBe(true);
+  }
+});
 
 test("Bun listener serves assets, health, CORS and MCP without a Deno runtime", async () => {
   const server = startBunServer({ port: 0 });
