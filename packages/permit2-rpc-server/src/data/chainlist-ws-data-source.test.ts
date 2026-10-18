@@ -31,7 +31,7 @@ Deno.test("ChainlistWsDataSource: prefers explicit WS URLs over derived", () => 
   };
 
   const urls = withEnv("WS_DERIVE_FROM_HTTP", undefined, () => {
-    const ds = new ChainlistWsDataSource(() => {}, data);
+    const ds = new ChainlistWsDataSource(() => {}, data, { deriveFromHttp: Deno.env.get("WS_DERIVE_FROM_HTTP") });
     return ds.getRpcUrls(1);
   });
 
@@ -47,7 +47,7 @@ Deno.test("ChainlistWsDataSource: derives WS URLs when explicit list missing", (
   };
 
   const urls = withEnv("WS_DERIVE_FROM_HTTP", undefined, () => {
-    const ds = new ChainlistWsDataSource(() => {}, data);
+    const ds = new ChainlistWsDataSource(() => {}, data, { deriveFromHttp: Deno.env.get("WS_DERIVE_FROM_HTTP") });
     return ds.getRpcUrls(1);
   });
 
@@ -65,7 +65,7 @@ Deno.test("ChainlistWsDataSource: can force include derived WS URLs", () => {
   };
 
   const urls = withEnv("WS_DERIVE_FROM_HTTP", "always", () => {
-    const ds = new ChainlistWsDataSource(() => {}, data);
+    const ds = new ChainlistWsDataSource(() => {}, data, { deriveFromHttp: Deno.env.get("WS_DERIVE_FROM_HTTP") });
     return ds.getRpcUrls(1);
   });
 

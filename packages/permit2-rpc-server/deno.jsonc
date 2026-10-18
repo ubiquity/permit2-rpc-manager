@@ -1,4 +1,8 @@
 {
+  "imports": {
+    "viem": "npm:viem@2.9.30",
+    "@modelcontextprotocol/sdk/types.js": "npm:@modelcontextprotocol/sdk@1.0.4/types.js"
+  },
   "tasks": {
     "start": "deno run --unstable-kv --allow-net --allow-read --allow-env --allow-sys=loadavg src/deno-server.ts", // Use --unstable-kv
     "dev": "deno run --unstable-kv --watch --allow-net --allow-read --allow-env --allow-sys=loadavg src/deno-server.ts", // Use --unstable-kv
@@ -7,27 +11,29 @@
     "fmt": "deno fmt",
     "test": "deno test --unstable-kv --allow-net --allow-read --allow-env", // Use --unstable-kv
     "mempool:preview": "deno run --allow-net --allow-env src/cli/mempool-preview.ts",
-    "permit:claim-e2e": "deno run --allow-net --allow-read --allow-write src/cli/permit-claim-e2e.ts",
+    "permit:claim-e2e": "deno run --allow-net --allow-read --allow-write src/cli/permit-claim-e2e.ts"
   },
   "lint": {
     // Use newer include/exclude directly
     "include": ["src/"],
+    "exclude": ["src/worker-configuration.d.ts"],
     // "exclude": ["optional/exclude/patterns"],
     "rules": {
       "tags": ["recommended"],
-      "exclude": ["no-explicit-any"], // Example: adjust rules as needed
-    },
+      "exclude": ["no-explicit-any"] // Example: adjust rules as needed
+    }
   },
   "fmt": {
     // Use newer include/exclude directly
     "include": ["src/"],
+    "exclude": ["src/worker-configuration.d.ts"],
     // "exclude": ["optional/exclude/patterns"],
     // Use flat options
     "useTabs": false,
     "lineWidth": 120,
     "indentWidth": 2,
     "singleQuote": false, // Deno fmt default
-    "proseWrap": "preserve",
-  },
+    "proseWrap": "preserve"
+  }
   // Add compilerOptions or importMap if needed later
 }

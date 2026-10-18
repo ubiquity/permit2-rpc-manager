@@ -4,6 +4,8 @@ import { getRpcEndpointId, redactRpcDiagnostic } from "./rpc-endpoint-id.ts";
 type LoggerFn = (level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]) => void;
 
 export interface HeadSamplingOptions {
+  fetcher?: typeof fetch;
+  lastSampleAtByChain?: Map<number, number>;
   now?: () => number;
   sampleIntervalMs?: number;
   maxRpcsPerSample?: number;
@@ -32,24 +34,31 @@ function median(values: number[]): number | undefined {
 }
 
 export class HeadTracker {
+  private readonly fetcher: typeof fetch;
   private readonly now: () => number;
   private readonly sampleIntervalMs: number;
   private readonly maxRpcsPerSample: number;
   private readonly timeoutMs: number;
   private readonly log: LoggerFn;
 
-  private lastSampleAtByChain = new Map<number, number>();
+  private lastSampleAtByChain: Map<number, number>;
   private inflightByChain = new Map<number, Promise<void>>();
 
   constructor(
     private readonly metrics: RpcMetricsRegistry,
     options: HeadSamplingOptions = {},
   ) {
+    this.lastSampleAtByChain = options.lastSampleAtByChain ?? new Map<number, number>();
+    this.fetcher = options.fetcher ?? ((input, init) => fetch(input, init));
     this.now = options.now ?? Date.now;
     this.sampleIntervalMs = options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS;
     this.maxRpcsPerSample = options.maxRpcsPerSample ?? DEFAULT_MAX_RPCS_PER_SAMPLE;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.log = options.logger ?? (() => {});
+  }
+
+  getSampleState() {
+    return this.lastSampleAtByChain;
   }
 
   maybeSampleHeads(chainId: number, rpcUrls: string[]): Promise<void> {
@@ -107,7 +116,7 @@ export class HeadTracker {
     };
 
     try {
-      const response = await fetch(rpcUrl, {
+      const response = await this.fetcher(rpcUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),

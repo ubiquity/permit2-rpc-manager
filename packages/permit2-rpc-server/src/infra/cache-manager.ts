@@ -1,4 +1,3 @@
-/// <reference lib="deno.ns" />
 import { getRpcEndpointId, redactRpcDiagnostic } from "../core/rpc-endpoint-id.ts";
 import type { LatencyTestResult } from "./latency-tester.ts";
 
@@ -10,16 +9,22 @@ type LoggerFn = (
 ) => void;
 
 // Define the structure for cached data per chain
-interface ChainCache {
+export interface ChainCache {
+  diagnosticsComplete?: boolean;
   fastestRpc: string | null;
   latencyMap: Record<string, LatencyTestResult>;
   lastTested: number;
 }
 
 // Define the overall cache structure
-type CacheData = Record<number, ChainCache>;
+export type CacheData = Record<number, ChainCache>;
 
-// Environment check removed, assuming Deno environment with KV access
+export interface CacheStore {
+  load(key: string): Promise<CacheData | null>;
+  loadChain?(key: string, chainId: number): Promise<ChainCache | null>;
+  reserveWrite?(key: string, chainId: number): void;
+  save(key: string, value: CacheData, chainId: number): Promise<void>;
+}
 
 // KV Optimization: Increased from 1 hour to 4 hours to reduce cache writes by 75%
 // This reduces cache update frequency from ~264/day to ~66/day across all chains
@@ -28,6 +33,7 @@ const DEFAULT_LOCAL_STORAGE_KEY = "permit2RpcManagerCache";
 
 // Options for CacheManager constructor
 interface CacheManagerOptions {
+  store?: CacheStore;
   cacheTtlMs?: number;
   // nodeCachePath is no longer used in this base class
   localStorageKey?: string; // Used as KV key prefix
@@ -42,15 +48,19 @@ interface CacheManagerOptions {
 export class CacheManager {
   private cache: CacheData = {};
   private cacheLoaded = false;
+  private cacheLoading?: Promise<void>;
+  private loadedChains = new Set<number>();
+  private chainLoads = new Map<number, Promise<void>>();
   private cacheKey: string; // Used as KV key prefix/identifier
   // nodeCachePath removed
   private cacheTtlMs: number;
   private log: LoggerFn;
   // Deno KV instance placeholder
-  private kv: Deno.Kv | null = null;
+  private cacheStore?: CacheStore;
   private disabled: boolean; // Cache disabled flag
 
   constructor(options: CacheManagerOptions = {}) {
+    this.cacheStore = options.store;
     this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     // Keep option name localStorageKey for now, but use it as KV key
     this.cacheKey = options.localStorageKey ?? DEFAULT_LOCAL_STORAGE_KEY;
@@ -62,101 +72,69 @@ export class CacheManager {
     // No Node path determination needed here
   }
 
-  // Helper to ensure KV is open
-  private async ensureKvOpen(): Promise<Deno.Kv> {
-    if (!this.kv) {
-      this.log("debug", "CacheManager (Deno): Opening Deno KV store...");
-      try {
-        // Deno Deploy automatically provides the path. For local dev, it uses default.
-        this.kv = await Deno.openKv();
-        this.log("debug", "CacheManager (Deno): Deno KV store opened.");
-      } catch (e) {
-        // Catch as unknown
-        const error = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
-        this.log("error", "CacheManager (Deno): Failed to open Deno KV store:", redactRpcDiagnostic(error));
-        throw new Error(`Failed to open Deno KV store: ${error.message}`);
-      }
-    }
-    return this.kv;
-  }
-
   private async loadCache(): Promise<void> {
-    if (this.disabled || this.cacheLoaded) return; // Skip if disabled
-
-    // --- Deno KV Implementation ---
-    this.log(
-      "debug",
-      `CacheManager (Deno): Attempting to load cache from Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`,
-    );
-    try {
-      const kv = await this.ensureKvOpen();
-      // Use a single key to store the entire cache object
-      const result = await kv.get<CacheData>([this.cacheKey]);
-
-      if (result.value !== null) {
-        this.cache = result.value;
-        this.log(
-          "debug",
-          `CacheManager (Deno): Loaded cache from Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`,
-        );
-      } else {
-        this.log(
-          "debug",
-          `CacheManager (Deno): No cache found in Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`,
-        );
-        this.cache = {}; // Initialize empty if not found
+    if (this.disabled || this.cacheLoaded) return;
+    this.cacheLoading ??= (async () => {
+      try {
+        await Promise.all(this.chainLoads.values());
+        this.cache = { ...await this.cacheStore?.load(this.cacheKey) ?? {}, ...this.cache };
+      } catch (error) {
+        this.log("error", "CacheManager: Cache read failed", redactRpcDiagnostic(error));
+        this.cache = {};
       }
-    } catch (e) {
-      // Catch as unknown
-      const error = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
-      this.log(
-        "error",
-        `CacheManager (Deno): Failed to load cache from Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)}):`,
-        redactRpcDiagnostic(error),
-      );
-      this.cache = {}; // Initialize empty on error
-    }
-    // --- End Deno KV ---
-
-    this.cacheLoaded = true;
+      this.cacheLoaded = true;
+    })();
+    await this.cacheLoading;
   }
 
-  private async saveCache(): Promise<void> {
-    if (this.disabled || !this.cacheLoaded) {
-      // Skip if disabled
-      // Log if attempting to save while disabled, but don't warn if just not loaded yet
-      if (this.disabled) {
-        this.log("debug", "CacheManager: Caching disabled, skipping save.");
-      } else {
-        this.log("warn", "CacheManager: Attempted to save cache before loading.");
-      }
+  private async loadChainCache(chainId: number): Promise<void> {
+    if (this.disabled || this.cacheLoaded || this.loadedChains.has(chainId)) return;
+    if (this.cacheLoading) {
+      await this.cacheLoading;
       return;
     }
-
-    // --- Deno KV Implementation ---
-    this.log(
-      "debug",
-      `CacheManager (Deno): Attempting to save cache to Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`,
-    );
-    try {
-      const kv = await this.ensureKvOpen();
-      await kv.set([this.cacheKey], this.cache);
-      this.log("debug", `CacheManager (Deno): Saved cache to Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)})`);
-    } catch (e) {
-      // Catch as unknown
-      const error = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
-      this.log(
-        "error",
-        `CacheManager (Deno): Failed to save cache to Deno KV (key: ${redactRpcDiagnostic(this.cacheKey)}):`,
-        redactRpcDiagnostic(error),
-      );
+    const loadChain = this.cacheStore?.loadChain?.bind(this.cacheStore);
+    if (!loadChain) {
+      await this.loadCache();
+      return;
     }
-    // --- End Deno KV ---
+    let loading = this.chainLoads.get(chainId);
+    if (!loading) {
+      loading = (async () => {
+        try {
+          const value = await loadChain(this.cacheKey, chainId);
+          if (value) this.cache[chainId] = value;
+        } catch (error) {
+          this.log("error", "CacheManager: Chain cache read failed", redactRpcDiagnostic(error));
+        }
+        this.loadedChains.add(chainId);
+      })();
+      this.chainLoads.set(chainId, loading);
+    }
+    await loading;
+  }
+
+  reserveChainUpdate(chainId: number): void {
+    if (!this.disabled) this.cacheStore?.reserveWrite?.(this.cacheKey, chainId);
+  }
+
+  private async saveCache(chainId: number): Promise<void> {
+    if (this.disabled || (!this.cacheLoaded && !this.loadedChains.has(chainId))) return;
+    try {
+      await this.cacheStore?.save(this.cacheKey, this.cache, chainId);
+    } catch (error) {
+      this.log("error", "CacheManager: Cache write failed", redactRpcDiagnostic(error));
+    }
+  }
+
+  async getDiagnosticsProgress(chainId: number): Promise<ChainCache | null> {
+    const chain = await this.getRawChainCache(chainId);
+    return chain?.diagnosticsComplete === false && Date.now() - chain.lastTested < this.cacheTtlMs ? chain : null;
   }
 
   // Internal helper remains largely the same, relies on loadCache
   private async getRawChainCache(chainId: number): Promise<ChainCache | null> {
-    await this.loadCache();
+    await this.loadChainCache(chainId);
     return this.cache[chainId] ?? null;
   }
 
@@ -167,7 +145,9 @@ export class CacheManager {
       return null; // Always return null (cache miss) if disabled
     }
     const chainCache = await this.getRawChainCache(chainId);
-    if (chainCache && Date.now() - chainCache.lastTested < this.cacheTtlMs) {
+    if (
+      chainCache && chainCache.diagnosticsComplete !== false && Date.now() - chainCache.lastTested < this.cacheTtlMs
+    ) {
       return chainCache;
     }
     this.log("debug", `CacheManager: Cache miss or expired for chainId ${chainId}`);
@@ -178,22 +158,24 @@ export class CacheManager {
     chainId: number,
     latencyMap: Record<string, LatencyTestResult>,
     fastestRpc: string | null,
+    diagnosticsComplete = true,
   ): Promise<void> {
     if (this.disabled) {
       this.log("debug", `CacheManager: Caching disabled, skipping cache update for chainId ${chainId}`);
       return; // Do nothing if disabled
     }
-    await this.loadCache(); // Ensure loaded before update
+    await this.loadChainCache(chainId); // Ensure loaded before update
     this.log("debug", `CacheManager: Updating cache for chainId ${chainId}`, {
       fastestRpc: fastestRpc ? getRpcEndpointId(fastestRpc) : null,
       latencyMapCount: Object.keys(latencyMap || {}).length,
     });
     this.cache[chainId] = {
       fastestRpc,
+      diagnosticsComplete,
       latencyMap: latencyMap || {},
       lastTested: Date.now(),
     };
-    await this.saveCache();
+    await this.saveCache(chainId);
   }
 
   async getFastestRpc(chainId: number): Promise<string | null> {
@@ -216,7 +198,7 @@ export class CacheManager {
       return;
     }
 
-    await this.loadCache();
+    await this.loadChainCache(chainId);
     const chainCache = this.cache[chainId];
 
     if (!chainCache || !chainCache.latencyMap[rpcUrl]) {
@@ -247,7 +229,7 @@ export class CacheManager {
       this.log("info", `CacheManager: Cleared fastest RPC for chain ${chainId} as it was invalidated`);
     }
 
-    await this.saveCache();
+    await this.saveCache(chainId);
     this.log("info", `CacheManager: Marked RPC ${getRpcEndpointId(rpcUrl)} as ${healthStatus} in cache`);
   }
 

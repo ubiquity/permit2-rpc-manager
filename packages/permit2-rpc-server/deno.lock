@@ -136,5 +136,11 @@
     "zod@3.25.67": {
       "integrity": "sha512-idA2YXwpCdqUSKRCACDE6ItZD9TZzy3OZMtpfLoh6oPR47lipysRrJfjzMqFxQ3uJuUPyUeWe1r9vLH33xO/Qw=="
     }
+  },
+  "workspace": {
+    "dependencies": [
+      "npm:@modelcontextprotocol/sdk@1.0.4",
+      "npm:viem@2.9.30"
+    ]
   }
 }

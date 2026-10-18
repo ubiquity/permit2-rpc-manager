@@ -32,7 +32,8 @@ type LatencyTestStatus =
   | "timeout"
   | "http_error"
   | "rpc_error"
-  | "network_error";
+  | "network_error"
+  | "deferred";
 
 export interface LatencyTestResult {
   url: string;
@@ -58,9 +59,15 @@ export class LatencyTester {
   private timeoutMs: number;
   private log: LoggerFn;
   private validateChainId: boolean;
+  private readonly fetcher: typeof fetch;
 
-  constructor(timeoutMs: number = DEFAULT_TIMEOUT_MS, logger?: LoggerFn, options: { validateChainId?: boolean } = {}) {
+  constructor(
+    timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    logger?: LoggerFn,
+    options: { validateChainId?: boolean; fetcher?: typeof fetch } = {},
+  ) {
     this.timeoutMs = timeoutMs;
+    this.fetcher = options.fetcher ?? ((input, init) => fetch(input, init));
     this.validateChainId = options.validateChainId ?? true;
     // Use provided logger or a no-op function if none is given
     this.log = logger || (() => {});
@@ -81,7 +88,7 @@ export class LatencyTester {
     };
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await this.fetcher(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -127,6 +134,9 @@ export class LatencyTester {
       // Catch as unknown
       const err = e instanceof Error ? e : new Error(String(e)); // Ensure Error type
       // error = err; // Assign if needed, currently unused
+      if (err.name === "RpcBudgetExceeded") {
+        return { url, latency: Infinity, status: "deferred" };
+      }
       if (err.name === "AbortError") {
         status = "timeout";
       } else {

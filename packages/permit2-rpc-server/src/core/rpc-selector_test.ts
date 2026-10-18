@@ -29,6 +29,55 @@ class MemoryCacheManager extends CacheManager {
   }
 }
 
+Deno.test("RpcSelector: private diagnostics retain full status rank, eligibility and request-local lookup sharing", async () => {
+  const urls = ["ok-slow", "syncing", "wrong-bytecode", "ok-fast", "wrong-chain", "network-error", "deferred-health"]
+    .map((name) => `https://${name}.example/rpc`);
+  const latencyMap: Record<string, LatencyTestResult> = {
+    [urls[0]]: { url: urls[0], latency: 30, status: "ok" },
+    [urls[1]]: { url: urls[1], latency: 1, status: "syncing" },
+    [urls[2]]: { url: urls[2], latency: 2, status: "wrong_bytecode" },
+    [urls[3]]: { url: urls[3], latency: 10, status: "ok" },
+    [urls[4]]: { url: urls[4], latency: 0, status: "wrong_chain_id" },
+    [urls[5]]: { url: urls[5], latency: Infinity, status: "network_error" },
+    [urls[6]]: { url: urls[6], latency: 0, status: "ok" },
+  };
+  let lookups = 0;
+  const selector = new RpcSelector(
+    { getRpcUrls: () => urls },
+    new MemoryCacheManager(),
+    {
+      testRpcUrls: () => {
+        throw new Error("Front Worker must not execute HTTP diagnostics");
+      },
+    },
+    undefined,
+    (url) => url !== urls[6],
+    true,
+    (_chainId, eligible) => {
+      lookups++;
+      assertEquals(eligible, urls.slice(0, 6));
+      return Promise.resolve({ lastTested: Date.now(), fastestRpc: urls[3], latencyMap, diagnosticsComplete: true });
+    },
+  );
+  const ranked = [urls[3], urls[0], urls[2], urls[1], urls[6]];
+  assertEquals(await Promise.all([selector.getRankedRpcList(1), selector.getRankedRpcList(1)]), [ranked, ranked]);
+  assertEquals(lookups, 1);
+  const deferredSelector = new RpcSelector(
+    { getRpcUrls: () => urls },
+    new MemoryCacheManager(),
+    {
+      testRpcUrls: () => {
+        throw new Error("Health-deferred endpoints must not be probed");
+      },
+    },
+    undefined,
+    () => false,
+    true,
+    () => Promise.resolve({ lastTested: Date.now(), fastestRpc: null, latencyMap: {}, diagnosticsComplete: false }),
+  );
+  assertEquals(await deferredSelector.getRankedRpcList(1), urls);
+});
+
 Deno.test("RpcSelector: excludes wrong_chain_id endpoints", async () => {
   const chainId = 1;
   const wrongRpc = "https://wrong.example/rpc";

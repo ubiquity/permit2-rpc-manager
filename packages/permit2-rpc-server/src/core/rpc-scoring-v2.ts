@@ -145,7 +145,7 @@ export class RpcScorerV2 {
 
   constructor(
     private metrics: RpcMetricsProvider,
-    config: Partial<ScoringConfig> = {}
+    config: Partial<ScoringConfig> = {},
   ) {
     this.config = { ...DEFAULT_SCORING_CONFIG, ...config };
   }
@@ -157,7 +157,7 @@ export class RpcScorerV2 {
   rankWithDetails(
     chainId: number,
     method: string,
-    candidates: string[]
+    candidates: string[],
   ): {
     ranked: string[];
     details: Map<string, RpcScoreDetails>;
@@ -227,7 +227,9 @@ export class RpcScorerV2 {
 
     for (const rpcUrl of rpcUrls) {
       const requestsTotal = requestsByRpc.get(rpcUrl) ?? 0;
-      const confidence = this.config.minSamplesForConfidence <= 0 ? 1 : clamp01(requestsTotal / this.config.minSamplesForConfidence);
+      const confidence = this.config.minSamplesForConfidence <= 0
+        ? 1
+        : clamp01(requestsTotal / this.config.minSamplesForConfidence);
       confidenceByRpc.set(rpcUrl, confidence);
 
       const latency = rawLatencyQByRpc.get(rpcUrl) ?? baselineLatency;
@@ -289,7 +291,9 @@ export class RpcScorerV2 {
       instant -= this.config.wMisbehavior * normalizedMisbehavior;
 
       const prev = this.previousScores.get(scoreKey(chainId, method, rpcUrl));
-      const smoothed = typeof prev === "number" ? this.config.emaPrevWeight * prev + (1 - this.config.emaPrevWeight) * instant : instant;
+      const smoothed = typeof prev === "number"
+        ? this.config.emaPrevWeight * prev + (1 - this.config.emaPrevWeight) * instant
+        : instant;
 
       this.previousScores.set(scoreKey(chainId, method, rpcUrl), smoothed);
 

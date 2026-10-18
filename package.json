@@ -29,11 +29,23 @@
     "test:client:local": "cd packages/permit2-rpc-client && DISABLE_RPC_CACHE=true TEST_TARGET_URL=http://localhost:8000 bun test",
     "test": "bun run test:client:remote",
     "deploy:manual": "bash ./scripts/manual-deploy.sh",
-    "perf:test": "bun run ./scripts/perf-test.mjs"
+    "perf:test": "bun run ./scripts/perf-test.mjs",
+    "dev:bun": "bun --no-env-file run packages/permit2-rpc-server/src/bun-server.ts",
+    "dev:worker": "wrangler dev --local",
+    "deploy:types": "wrangler types packages/permit2-rpc-server/src/worker-configuration.d.ts && bun --no-env-file -e \"const typesPath='packages/permit2-rpc-server/src/worker-configuration.d.ts'; await Bun.write(typesPath,(await Bun.file(typesPath).text()).replace(/[ \\t]+$/gm,''));\"",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "check:worker": "tsc --project packages/permit2-rpc-server/tsconfig.worker.json",
+    "test:workers": "node scripts/test-workers.mjs && node scripts/test-workers-review.mjs && node scripts/test-workers-diagnostics.mjs",
+    "test:workers:review": "node scripts/test-workers-review.mjs",
+    "test:bun": "bun --no-env-file test tests/bun-server.test.ts"
   },
   "devDependencies": {
     "prettier": "^3.5.3",
-    "puppeteer": "^22.15.0"
+    "puppeteer": "^22.15.0",
+    "wrangler": "4.151.1",
+    "miniflare": "5.20261012.1-beta",
+    "typescript": "5.9.3",
+    "@modelcontextprotocol/sdk": "1.0.4"
   },
   "engines": {
     "node": ">=20.10.0"
@@ -41,5 +53,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ubiquity/permit2-rpc-manager.git"
-  }
+  },
+  "dependencies": {
+    "viem": "2.9.30"
+  },
+  "packageManager": "bun@1.4.0"
 }

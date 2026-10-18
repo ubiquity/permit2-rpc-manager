@@ -37,12 +37,18 @@ export class ChainlistWsDataSource {
   private candidateLimit: number | null;
   private deriveFromHttp: DeriveWsMode;
 
-  constructor(logger?: LoggerFn, initialData?: RpcWhitelist, options: { candidateLimit?: number } = {}) {
+  constructor(
+    logger?: LoggerFn,
+    initialData?: RpcWhitelist,
+    options: { candidateLimit?: number; deriveFromHttp?: string } = {},
+  ) {
     this.log = logger || (() => {});
     const limit = options.candidateLimit;
     this.candidateLimit = Number.isFinite(limit) && (limit ?? 0) > 0 ? limit! : null;
-    const deriveModeRaw = Deno.env.get("WS_DERIVE_FROM_HTTP")?.trim().toLowerCase();
-    this.deriveFromHttp = deriveModeRaw === "always" || deriveModeRaw === "never" ? (deriveModeRaw as DeriveWsMode) : "if_missing";
+    const deriveModeRaw = options.deriveFromHttp?.trim().toLowerCase();
+    this.deriveFromHttp = deriveModeRaw === "always" || deriveModeRaw === "never"
+      ? (deriveModeRaw as DeriveWsMode)
+      : "if_missing";
     const sourceData = initialData || fallbackJsonData;
     this.loadData(sourceData);
   }
@@ -65,12 +71,13 @@ export class ChainlistWsDataSource {
             .map((u) => normalizeWsUrl(u))
             .filter((u): u is string => typeof u === "string");
 
-          const includeDerived = this.deriveFromHttp === "always" || (this.deriveFromHttp === "if_missing" && explicit.length === 0);
+          const includeDerived = this.deriveFromHttp === "always" ||
+            (this.deriveFromHttp === "if_missing" && explicit.length === 0);
           const derived = includeDerived
             ? (rpcs[chainIdStr] ?? [])
-                .filter((u): u is string => typeof u === "string")
-                .map((u) => deriveWsUrl(u))
-                .filter((u): u is string => typeof u === "string")
+              .filter((u): u is string => typeof u === "string")
+              .map((u) => deriveWsUrl(u))
+              .filter((u): u is string => typeof u === "string")
             : [];
 
           return {
