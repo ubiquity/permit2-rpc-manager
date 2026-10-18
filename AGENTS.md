@@ -6,6 +6,21 @@ This is a monorepo for the Permit2 RPC ecosystem that provides an intelligent, C
 
 ### Development
 
+**Portable server and Workers candidate (root, Bun 1.4.0):**
+
+```bash
+bun install --frozen-lockfile --ignore-scripts
+bun run dev:bun
+bun run dev:worker
+bun run deploy:types
+bun run check:worker
+bun run test:bun
+bun run test:workers
+bun run deploy:dry-run
+```
+
+Workers tests execute actual workerd with isolated native upstream services; Node 24.20.0 or later is used only for Cloudflare tooling. Read `docs/DECISIONS.md` before changing runtime, cache, free-tier budgets, or deployment ownership. The existing Deno VPS adapter remains supported.
+
 **Server package (Deno):**
 
 ```bash
@@ -63,7 +78,7 @@ bun run deploy:manual     # Manually deploy to Deno Deploy
 **CacheManager** (`packages/permit2-rpc-server/src/infra/cache-manager.ts`)
 
 - Handles caching of RPC test results and responses
-- Uses Deno KV for persistent storage in production
+- Uses the explicit Deno KV adapter on the VPS, in-memory storage for Bun local development, and version-scoped Cache API diagnostics on Workers
 
 **ChainlistDataSource** (`packages/permit2-rpc-server/src/data/chainlist-data-source.ts`)
 
@@ -94,12 +109,13 @@ The server implements Model Context Protocol (MCP) compliance:
 
 - Exposes Ethereum JSON-RPC methods as MCP tools
 - Handles both standard JSON-RPC and MCP-formatted requests
-- Located in `packages/permit2-rpc-server/src/deno-server.ts`
+- Portable dispatch is in `packages/permit2-rpc-server/src/server.ts`
 
 ## Deployment
 
-- **Production**: Automatically deployed to Deno Deploy via GitHub Actions on push to main
-- **Preview**: Pull requests trigger preview deployments
+- **Production**: `rpc.ubq.fi` remains on the unchanged VPS service
+- **Workers candidate**: `.github/workflows/workers-deploy.yml` checks PRs and deploys `uos-rpc-candidate` from main with no canonical routes or cron
+- **Legacy Deno recovery**: `.github/workflows/deno-deploy.yml` is manual-only
 - **Whitelist Updates**: Automated weekly updates via GitHub Actions workflow
 - **Manual Deploy**: Use `bun run deploy:manual` from root
 
@@ -107,7 +123,7 @@ The server implements Model Context Protocol (MCP) compliance:
 
 ### Viewing Deno Deploy Logs
 
-Use the Deno 2 CLI to access production logs:
+Use the Deno 2 CLI to access the retained recovery application's logs; these are not VPS production logs:
 
 ```bash
 # View live logs
@@ -125,6 +141,8 @@ The Deno Deploy token should be available in the environment as `DENO_DEPLOY_TOK
 ## Testing Approach
 
 - Server tests use Deno's built-in test runner
+- The server delivery gate is `deno task build`, `deno task test`, `deno lint`, and `deno fmt --check` from `packages/permit2-rpc-server`, plus the root Worker/Bun commands above
+- Root `bun run test` invokes live remote client tests; it is not the portable server gate
 - Client tests use Bun's test runner
 - Performance testing via Puppeteer (`scripts/perf-test.mjs`)
 - Whitelist validation via `scripts/test-whitelist.mjs`

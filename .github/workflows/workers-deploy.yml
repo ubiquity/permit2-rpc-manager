@@ -1,0 +1,79 @@
+name: Workers candidate deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/permit2-rpc-server/**"
+      - "scripts/test-workers.mjs"
+      - "scripts/test-workers-review.mjs"
+      - "tests/bun-server.test.ts"
+      - "package.json"
+      - "bun.lock"
+      - "wrangler.jsonc"
+      - ".github/workflows/workers-deploy.yml"
+  pull_request:
+    paths:
+      - "packages/permit2-rpc-server/**"
+      - "scripts/test-workers.mjs"
+      - "scripts/test-workers-review.mjs"
+      - "tests/bun-server.test.ts"
+      - "package.json"
+      - "bun.lock"
+      - "wrangler.jsonc"
+      - ".github/workflows/workers-deploy.yml"
+  workflow_dispatch:
+  # Keep the existing whitelist bot event; it no longer releases legacy Deno.
+  repository_dispatch:
+    types: [trigger-deno-deploy]
+
+concurrency:
+  group: workers-candidate-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.3
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.20.0"
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "v2.9.7"
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run deploy:types && git diff --exit-code -- packages/permit2-rpc-server/src/worker-configuration.d.ts
+        env:
+          WRANGLER_LOG_PATH: ${{ runner.temp }}/wrangler-types.log
+      - run: bun run check:worker
+      - run: deno task build && deno task test && deno lint && deno fmt --check
+        working-directory: packages/permit2-rpc-server
+      - run: bun --no-env-file run test:bun
+      - run: bun --no-env-file run test:workers
+      - run: bun --no-env-file run deploy:dry-run
+        env:
+          WRANGLER_LOG_PATH: ${{ runner.temp }}/wrangler-dry-run.log
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.3
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.20.0"
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bunx --no-install wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_WORKERS_DEPLOY_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          WRANGLER_LOG_PATH: ${{ runner.temp }}/wrangler-deploy.log

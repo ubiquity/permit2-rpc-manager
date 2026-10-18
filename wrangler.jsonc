@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uos-rpc-candidate",
+  "account_id": "5c0228bee348f4cf48829ffe21b61fe9",
+  "main": "packages/permit2-rpc-server/src/worker.ts",
+  "compatibility_date": "2026-10-18",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public", "no_cots_on_external_fetch"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "routes": [],
+  "triggers": { "crons": [] },
+  "limits": { "subrequests": 50 },
+  "assets": {
+    "directory": "packages/permit2-rpc-server/static",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+  },
+  "version_metadata": { "binding": "VERSION_METADATA" },
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 },
+  },
+}

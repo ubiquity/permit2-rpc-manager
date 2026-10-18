@@ -23,3 +23,6 @@ tmp/
 
 # Perplexity CLI session logs (when HOME is redirected into the repo)
 .perplexity_sessions/
+
+# Local Workers runtime state
+.wrangler/

@@ -33,6 +33,7 @@ export class RpcSelector {
     latencyTester: LatencyTesterLike,
     logger?: LoggerFn,
     private readonly isDiagnosticEligible: (url: string) => boolean = () => true,
+    private readonly resumeDiagnostics = false,
   ) {
     this.dataSource = dataSource;
     this.cacheManager = cacheManager;
@@ -59,8 +60,11 @@ export class RpcSelector {
 
     const allowedUrls = new Set(rpcUrls);
     const deferredUrls = new Set(rpcUrls.filter((url) => !this.isDiagnosticEligible(url)));
-    const diagnosticUrls = rpcUrls.filter((url) => !deferredUrls.has(url));
-    const diagnosticUrlSet = new Set(diagnosticUrls);
+    const progress = this.resumeDiagnostics ? await this.cacheManager.getDiagnosticsProgress(chainId) : null;
+    const diagnosticUrls = rpcUrls.filter((url) =>
+      !deferredUrls.has(url) && (!progress?.latencyMap[url] || progress.latencyMap[url].status === "deferred")
+    );
+    const diagnosticUrlSet = new Set(rpcUrls.filter((url) => !deferredUrls.has(url)));
 
     let latencyMap = await this.cacheManager.getLatencyMap(chainId);
     // Use const as this variable is not reassigned before the next block
@@ -101,12 +105,22 @@ export class RpcSelector {
         latencyMap = this.mergeLatencyMaps(await testPromise, latencyMap, allowedUrls, deferredUrls);
       } else if (diagnosticUrls.length > 0) {
         // Create the promise, store it, run the test, then remove it
+        this.cacheManager.reserveChainUpdate(chainId);
         testPromise = this.latencyTester.testRpcUrls(chainId, diagnosticUrls);
         this.ongoingLatencyTests.set(chainId, testPromise);
         this.log("debug", `Initiated latency test for chain ${chainId}.`);
 
         try {
           latencyMap = this.mergeLatencyMaps(await testPromise, latencyMap, allowedUrls, deferredUrls);
+          if (progress) latencyMap = { ...progress.latencyMap, ...latencyMap };
+          if (this.resumeDiagnostics && Object.values(latencyMap).some((result) => result.status === "deferred")) {
+            await this.cacheManager.updateChainCache(chainId, latencyMap, null, false);
+            const pending = new Error(
+              "RPC diagnostics are incomplete within the free request budget; retry to resume.",
+            );
+            pending.name = "RpcDiagnosticsPending";
+            throw Object.assign(pending, { code: -32005 });
+          }
           // Find the new fastest based on the fresh test results
           const newFastest = this._findFastestInMap(latencyMap, diagnosticUrlSet);
           await this.cacheManager.updateChainCache(chainId, latencyMap, newFastest?.url ?? null);
@@ -126,6 +140,7 @@ export class RpcSelector {
             );
           }
         } catch (error) {
+          if (error instanceof Error && error.name === "RpcDiagnosticsPending") throw error;
           this.log("error", `Latency test failed for chain ${chainId}`, redactRpcDiagnostic(error));
           latencyMap = {}; // Set empty map on error
         } finally {

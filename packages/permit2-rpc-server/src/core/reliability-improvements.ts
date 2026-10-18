@@ -107,7 +107,10 @@ export class SmartBatcher {
   /**
    * Split large batches into smaller chunks
    */
-  async processBatch<T>(items: Array<{ method: string; params: unknown[] }>, processor: (batch: typeof items) => Promise<T[]>): Promise<T[]> {
+  async processBatch<T>(
+    items: Array<{ method: string; params: unknown[] }>,
+    processor: (batch: typeof items) => Promise<T[]>,
+  ): Promise<T[]> {
     const results: T[] = [];
 
     // Process in chunks

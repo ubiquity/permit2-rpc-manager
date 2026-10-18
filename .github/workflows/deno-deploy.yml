@@ -1,18 +1,7 @@
 name: Deno Deploy
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "packages/permit2-rpc-server/**"
-      - ".github/workflows/deno-deploy.yml"
-  pull_request:
-    paths:
-      - "packages/permit2-rpc-server/**"
-      - ".github/workflows/deno-deploy.yml"
   workflow_dispatch:
-  repository_dispatch:
-    types: [trigger-deno-deploy]
 
 concurrency:
   group: deno-deploy-${{ github.repository }}

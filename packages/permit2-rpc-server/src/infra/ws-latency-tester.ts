@@ -1,4 +1,4 @@
-/// <reference lib="deno.ns" />
+import { openWebSocket, type SocketPeer } from "./websocket.ts";
 import PERMIT2_BYTECODE_PREFIX from "../fixtures/permit2-bytecode.ts";
 import { getRpcEndpointId, redactRpcDiagnostic } from "../core/rpc-endpoint-id.ts";
 import type { LatencyTestResult } from "./latency-tester.ts";
@@ -34,56 +34,14 @@ function normalizeWsMessageData(data: unknown): string | null {
   return null;
 }
 
-function openWs(url: string, timeoutMs: number): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-
-    const timer = setTimeout(() => {
-      try {
-        ws.close();
-      } catch {
-        // ignore
-      }
-      reject(new Error("WebSocket connection timed out"));
-    }, timeoutMs);
-
-    const cleanup = () => {
-      clearTimeout(timer);
-      ws.onopen = null;
-      ws.onerror = null;
-      ws.onclose = null;
-    };
-
-    ws.onopen = () => {
-      cleanup();
-      resolve(ws);
-    };
-
-    ws.onerror = () => {
-      cleanup();
-      try {
-        ws.close();
-      } catch {
-        // ignore
-      }
-      reject(new Error("WebSocket connection error"));
-    };
-
-    ws.onclose = () => {
-      cleanup();
-      reject(new Error("WebSocket closed before opening"));
-    };
-  });
-}
-
 class WsJsonRpcClient {
-  private ws: WebSocket;
+  private ws: SocketPeer;
   private timeoutMs: number;
   private log: LoggerFn;
   private nextId = 1;
   private pending = new Map<number, { resolve: (value: JsonRpcResponse) => void; reject: (error: Error) => void }>();
 
-  constructor(ws: WebSocket, timeoutMs: number, logger: LoggerFn) {
+  constructor(ws: SocketPeer, timeoutMs: number, logger: LoggerFn) {
     this.ws = ws;
     this.timeoutMs = timeoutMs;
     this.log = logger;
@@ -154,17 +112,17 @@ export class WsLatencyTester {
   private timeoutMs: number;
   private log: LoggerFn;
 
-  constructor(timeoutMs: number = DEFAULT_TIMEOUT_MS, logger?: LoggerFn) {
+  constructor(timeoutMs: number = DEFAULT_TIMEOUT_MS, logger?: LoggerFn, private readonly openSocket = openWebSocket) {
     this.timeoutMs = timeoutMs;
     this.log = logger || (() => {});
   }
 
   private async testSingleRpc(url: string): Promise<LatencyTestResult> {
     const startTime = Date.now();
-    let ws: WebSocket | null = null;
+    let ws: SocketPeer | null = null;
 
     try {
-      ws = await openWs(url, this.timeoutMs);
+      ws = await this.openSocket(url, this.timeoutMs);
       const client = new WsJsonRpcClient(ws, this.timeoutMs, this.log);
 
       const [getCodeResponse, syncingResponse] = await Promise.all([

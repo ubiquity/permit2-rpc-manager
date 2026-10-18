@@ -1,4 +1,4 @@
-import type { Tool } from "npm:@modelcontextprotocol/sdk@1.0.4/types.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 export function getEthereumTools(): Tool[] {
   return [

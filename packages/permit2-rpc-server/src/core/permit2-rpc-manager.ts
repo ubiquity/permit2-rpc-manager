@@ -1,5 +1,5 @@
-import { CacheManager } from "../infra/cache-manager.ts";
-import { decodeFunctionResult, encodeFunctionData } from "npm:viem@2.9.30";
+import { CacheManager, type CacheStore } from "../infra/cache-manager.ts";
+import { decodeFunctionResult, encodeFunctionData } from "viem";
 import { ChainlistDataSource } from "../data/chainlist-data-source.ts";
 import { LatencyTester } from "../infra/latency-tester.ts";
 import { RpcSelector } from "./rpc-selector.ts";
@@ -200,7 +200,14 @@ interface HeadSamplingConfig {
   timeoutMs?: number;
 }
 
+export type RpcManagerState = ReturnType<Permit2RpcManager["getState"]>;
+
 export interface Permit2RpcManagerOptions {
+  state?: RpcManagerState;
+  cacheStore?: CacheStore;
+  fetcher?: typeof fetch;
+  diagnosticFetch?: typeof fetch;
+  resumeDiagnostics?: boolean;
   cacheTtlMs?: number;
   latencyTimeoutMs?: number;
   requestTimeoutMs?: number;
@@ -247,6 +254,7 @@ const LOG_LEVEL_HIERARCHY: Record<NonNullable<Permit2RpcManagerOptions["logLevel
 };
 
 export class Permit2RpcManager {
+  private readonly fetcher: typeof fetch;
   private dataSource: ChainlistDataSource;
   private cacheManager: CacheManager;
   private latencyTester: LatencyTester;
@@ -290,25 +298,31 @@ export class Permit2RpcManager {
   private consensus: ConsensusConfig;
 
   constructor(options: Permit2RpcManagerOptions = {}) {
+    this.fetcher = options.fetcher ?? ((input, init) => fetch(input, init));
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
     this.configuredLogLevelValue = LOG_LEVEL_HIERARCHY[this.logLevel];
     const logger = this._log.bind(this);
 
     this.dataSource = new ChainlistDataSource(logger, options.initialRpcData);
     this.cacheManager = new CacheManager({
+      store: options.cacheStore,
       cacheTtlMs: options.cacheTtlMs,
       localStorageKey: options.localStorageKey,
       logger: logger,
       disableCache: options.disableCache,
     });
     this.validateChainId = options.validateChainId ?? true;
-    this.latencyTester = new LatencyTester(options.latencyTimeoutMs, logger, { validateChainId: this.validateChainId });
+    this.latencyTester = new LatencyTester(options.latencyTimeoutMs, logger, {
+      validateChainId: this.validateChainId,
+      fetcher: options.diagnosticFetch ?? this.fetcher,
+    });
     this.rpcSelector = new RpcSelector(
       this.dataSource,
       this.cacheManager,
       this.latencyTester,
       logger,
       (rpcUrl) => this.isRpcDiagnosticEligible(rpcUrl),
+      options.resumeDiagnostics,
     );
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
@@ -354,6 +368,7 @@ export class Permit2RpcManager {
       maxRpcsPerSample: this.headSampling.maxRpcsPerSample,
       timeoutMs: this.headSampling.timeoutMs,
       logger,
+      fetcher: this.fetcher,
     });
 
     const consensusOptions = options.consensus ?? {};
@@ -364,7 +379,38 @@ export class Permit2RpcManager {
       agreementThreshold: Math.max(1, consensusOptions.agreementThreshold ?? 2),
       preferNonEmpty: consensusOptions.preferNonEmpty ?? false,
     };
+    if (options.state) {
+      this.rpcHealthStates = options.state.rpcHealthStates;
+      this.rpcIndexMap = options.state.rpcIndexMap;
+      this.adaptiveTimeout = options.state.adaptiveTimeout;
+      this.rpcScorer = options.state.rpcScorer;
+      this.circuitBreaker = options.state.circuitBreaker;
+      this.rpcMethodCapabilities = options.state.rpcMethodCapabilities;
+      this.rpcMetrics = options.state.rpcMetrics;
+      this.rpcScorerV2 = options.state.rpcScorerV2;
+      this.headTracker = new HeadTracker(this.rpcMetrics, {
+        ...this.headSampling,
+        fetcher: this.fetcher,
+        logger,
+        lastSampleAtByChain: options.state.headLastSampleAtByChain,
+      });
+    }
     this.consensusExecutor = new ConsensusExecutor(this.rpcMetrics);
+  }
+
+  /** Pure advisory state may survive an isolate; request I/O and promises never do. */
+  getState() {
+    return {
+      rpcHealthStates: this.rpcHealthStates,
+      rpcIndexMap: this.rpcIndexMap,
+      adaptiveTimeout: this.adaptiveTimeout,
+      rpcScorer: this.rpcScorer,
+      circuitBreaker: this.circuitBreaker,
+      rpcMethodCapabilities: this.rpcMethodCapabilities,
+      rpcMetrics: this.rpcMetrics,
+      rpcScorerV2: this.rpcScorerV2,
+      headLastSampleAtByChain: this.headTracker.getSampleState(),
+    };
   }
 
   private _log(level: "debug" | "info" | "warn" | "error", message: string, ...optionalParams: unknown[]): void {
@@ -793,6 +839,7 @@ export class Permit2RpcManager {
         throw err;
       }
 
+      if (err.name === "RpcBudgetExceeded") throw err;
       const classification = this.classifyError(err);
       if (classification.methodUnsupported) {
         this.rpcMethodCapabilities.markUnsupported(chainId, rpcUrl, method, err.message, this.capabilityTtlMs);
@@ -1028,7 +1075,9 @@ export class Permit2RpcManager {
             } catch (error) {
               const err = error instanceof Error ? error : new Error(String(error));
               lastError = err;
-              if (this.isNonRetryableError(err)) throw new ConsensusNonRetryableError(err);
+              if (err.name === "RpcBudgetExceeded" || this.isNonRetryableError(err)) {
+                throw new ConsensusNonRetryableError(err);
+              }
               throw err;
             }
           },
@@ -1036,6 +1085,7 @@ export class Permit2RpcManager {
         );
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
+        if (err.name === "RpcBudgetExceeded") throw err;
         const classification = this.classifyError(err);
 
         if (
@@ -1099,7 +1149,9 @@ export class Permit2RpcManager {
             } catch (error) {
               const err = error instanceof Error ? error : new Error(String(error));
               if (!this.isHedgeCancellation(signal)) lastError = err;
-              if (this.isNonRetryableError(err)) throw new HedgedNonRetryableError(err);
+              if (err.name === "RpcBudgetExceeded" || this.isNonRetryableError(err)) {
+                throw new HedgedNonRetryableError(err);
+              }
               throw err;
             }
           },
@@ -1107,6 +1159,7 @@ export class Permit2RpcManager {
         );
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
+        if (err.name === "RpcBudgetExceeded") throw err;
         const classification = this.classifyError(err);
 
         if (
@@ -1133,7 +1186,7 @@ export class Permit2RpcManager {
         return await this.executeCandidate<T>(chainId, method, params, rpcUrl, attemptLease);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        if (this.isNonRetryableError(lastError)) throw lastError;
+        if (lastError.name === "RpcBudgetExceeded" || this.isNonRetryableError(lastError)) throw lastError;
         continue;
       }
     }
@@ -1181,7 +1234,7 @@ export class Permit2RpcManager {
     };
 
     try {
-      const response = await fetch(url, {
+      const response = await this.fetcher(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -1381,7 +1434,9 @@ export class Permit2RpcManager {
             }
 
             if (rpcInfo.status === "unknown") {
-              if (latencyData.status === "ok") {
+              if (latencyData.status === "deferred") {
+                rpcInfo.status = "unknown";
+              } else if (latencyData.status === "ok") {
                 rpcInfo.status = "healthy";
                 rpcInfo.healthy = true;
                 chainData.healthyRpcs++;
@@ -1550,9 +1605,11 @@ export class Permit2RpcManager {
       const error = e instanceof Error ? e : new Error(String(e));
       this._log("error", `Error processing multicall3 batch for chain ${chainId}:`, error);
 
-      const code = error.name === "JsonRpcError" && "code" in error && typeof error.code === "number"
-        ? error.code
-        : -32603;
+      const code =
+        ["JsonRpcError", "RpcBudgetExceeded", "RpcDiagnosticsPending"].includes(error.name) && "code" in error &&
+          typeof error.code === "number"
+          ? error.code
+          : -32603;
       const data = "data" in error ? error.data : undefined;
 
       return requests.map((req) => ({
