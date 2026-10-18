@@ -1,10 +1,6 @@
 const FNV_64_OFFSET_BASIS = 0xcbf29ce484222325n;
 const FNV_64_PRIME = 0x100000001b3n;
 const FNV_64_MASK = 0xffffffffffffffffn;
-const MAX_ENDPOINT_IDS = 512;
-const MAX_CACHED_ENDPOINT_LENGTH = 2048;
-// Pure, synchronous identifiers only; never retain unbounded provider strings.
-const endpointIds = new Map<string, string>();
 // Quotes and common diagnostic wrappers terminate URL tokens. Brackets,
 // semicolons, and URL punctuation stay in the token because they are legal
 // URL characters (notably for IPv6 authorities and query strings).
@@ -73,9 +69,6 @@ function redactUrlString(value: string): string {
  */
 export function getRpcEndpointId(url: string): string {
   const normalized = normalizeEndpoint(url);
-  const cacheable = normalized.length <= MAX_CACHED_ENDPOINT_LENGTH;
-  const cached = cacheable ? endpointIds.get(normalized) : undefined;
-  if (cached !== undefined) return cached;
   let hash = FNV_64_OFFSET_BASIS;
 
   for (let index = 0; index < normalized.length; index++) {
@@ -83,15 +76,7 @@ export function getRpcEndpointId(url: string): string {
     hash = (hash * FNV_64_PRIME) & FNV_64_MASK;
   }
 
-  const endpointId = `rpc-${hash.toString(16).padStart(16, "0")}`;
-  if (cacheable) {
-    if (endpointIds.size >= MAX_ENDPOINT_IDS) {
-      const oldest = endpointIds.keys().next().value;
-      if (oldest !== undefined) endpointIds.delete(oldest);
-    }
-    endpointIds.set(normalized, endpointId);
-  }
-  return endpointId;
+  return `rpc-${hash.toString(16).padStart(16, "0")}`;
 }
 
 export function redactRpcDiagnostic(value: string): string;

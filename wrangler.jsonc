@@ -15,6 +15,10 @@
     "run_worker_first": true,
   },
   "version_metadata": { "binding": "VERSION_METADATA" },
+  "durable_objects": {
+    "bindings": [{ "name": "HTTP_DIAGNOSTICS", "class_name": "HttpDiagnosticsObject" }],
+  },
+  "migrations": [{ "tag": "http-diagnostics-v1", "new_sqlite_classes": ["HttpDiagnosticsObject"] }],
   "observability": {
     "enabled": true,
     "traces": { "enabled": true, "head_sampling_rate": 0.01 },

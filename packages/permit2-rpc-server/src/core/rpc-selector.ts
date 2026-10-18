@@ -1,15 +1,13 @@
-import { CacheManager } from "../infra/cache-manager.ts";
+import { CacheManager, type ChainCache } from "../infra/cache-manager.ts";
 import { LatencyTestResult } from "../infra/latency-tester.ts";
 import { getRpcEndpointId, redactRpcDiagnostic } from "./rpc-endpoint-id.ts";
 
 // Define a logger type
-type LoggerFn =
-  & ((
-    level: "debug" | "info" | "warn" | "error",
-    message: string,
-    ...optionalParams: unknown[] // Changed any[] to unknown[]
-  ) => void)
-  & { readonly debugEnabled?: boolean };
+type LoggerFn = (
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  ...optionalParams: unknown[] // Changed any[] to unknown[]
+) => void;
 
 type RpcDataSourceLike = {
   getRpcUrls(chainId: number): string[];
@@ -22,12 +20,15 @@ type LatencyTesterLike = {
   testRpcUrls(chainId: number, urls: string[]): Promise<Record<string, LatencyTestResult>>;
 };
 
+export type DiagnosticsResolver = (chainId: number, eligibleUrls: string[]) => Promise<ChainCache>;
+
 export class RpcSelector {
   private dataSource: RpcDataSourceLike;
   private cacheManager: CacheManager;
   private latencyTester: LatencyTesterLike;
   private log: LoggerFn;
   private ongoingLatencyTests = new Map<number, Promise<Record<string, LatencyTestResult>>>();
+  private resolvedDiagnostics = new Map<number, Promise<ChainCache>>();
 
   constructor(
     dataSource: RpcDataSourceLike,
@@ -36,6 +37,7 @@ export class RpcSelector {
     logger?: LoggerFn,
     private readonly isDiagnosticEligible: (url: string) => boolean = () => true,
     private readonly resumeDiagnostics = false,
+    private readonly diagnosticsResolver?: DiagnosticsResolver,
   ) {
     this.dataSource = dataSource;
     this.cacheManager = cacheManager;
@@ -62,6 +64,17 @@ export class RpcSelector {
 
     const allowedUrls = new Set(rpcUrls);
     const deferredUrls = new Set(rpcUrls.filter((url) => !this.isDiagnosticEligible(url)));
+    if (this.diagnosticsResolver) {
+      let resolved = this.resolvedDiagnostics.get(chainId);
+      if (!resolved) {
+        resolved = this.diagnosticsResolver(chainId, rpcUrls.filter((url) => !deferredUrls.has(url)));
+        this.resolvedDiagnostics.set(chainId, resolved);
+      }
+      const snapshot = await resolved;
+      const ranked = this.rankResults(snapshot.latencyMap, new Set(rpcUrls.filter((url) => !deferredUrls.has(url))));
+      for (const url of rpcUrls) if (deferredUrls.has(url) && !ranked.includes(url)) ranked.push(url);
+      return ranked;
+    }
     const progress = this.resumeDiagnostics ? await this.cacheManager.getDiagnosticsProgress(chainId) : null;
     const diagnosticUrls = rpcUrls.filter((url) =>
       !deferredUrls.has(url) && (!progress?.latencyMap[url] || progress.latencyMap[url].status === "deferred")
@@ -156,7 +169,7 @@ export class RpcSelector {
     }
 
     // Filter and sort the results from the (potentially updated) latency map
-    const rankedList = this._rankResults(latencyMap, diagnosticUrlSet);
+    const rankedList = this.rankResults(latencyMap, diagnosticUrlSet);
     const rankedUrls = new Set(rankedList);
 
     for (const url of rpcUrls) {
@@ -166,9 +179,7 @@ export class RpcSelector {
       }
     }
 
-    if (this.log.debugEnabled !== false) {
-      this.log("debug", `Ranked RPC list for chain ${chainId}:`, redactRpcDiagnostic(rankedList));
-    }
+    this.log("debug", `Ranked RPC list for chain ${chainId}:`, redactRpcDiagnostic(rankedList));
     return rankedList;
   }
 
@@ -233,7 +244,7 @@ export class RpcSelector {
    * Helper to filter and rank RPC results based on status and latency.
    * Also considers invalidation metadata from adaptive pool management.
    */
-  private _rankResults(latencyMap: Record<string, LatencyTestResult> | null, allowedUrls: Set<string>): string[] {
+  rankResults(latencyMap: Record<string, LatencyTestResult> | null, allowedUrls: Set<string>): string[] {
     if (!latencyMap) return [];
 
     // Filter results: exclude eliminated RPCs, include acceptable statuses

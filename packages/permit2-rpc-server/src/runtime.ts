@@ -152,7 +152,7 @@ export function createRuntime(env: (name: string) => string | undefined, options
   const manager = new Permit2RpcManager({
     ...buildPermit2RpcManagerOptionsFromEnv(rpcWhitelist, shouldDisableCache),
     ...options.managerOptions,
-    cacheStore: options.cacheStore,
+    cacheStore: options.managerOptions?.cacheStore ?? options.cacheStore,
   });
 
   type WsLogLevel = "debug" | "info" | "warn" | "error";

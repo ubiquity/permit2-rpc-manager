@@ -16,9 +16,13 @@ const check = (actual, expected) => {
 try {
   const bun = process.env.npm_execpath && /\/bun(?:\.exe)?$/.test(process.env.npm_execpath) ? process.env.npm_execpath : "bun";
   check(spawnSync(bun, ["--version"], { encoding: "utf8" }).stdout.trim(), "1.4.0");
-  const build = spawnSync(bun, ["build", "packages/permit2-rpc-server/src/worker.ts", "--target=browser", `--outfile=${artifact}/worker.mjs`], {
-    stdio: "inherit",
-  });
+  const build = spawnSync(
+    bun,
+    ["build", "packages/permit2-rpc-server/src/worker.ts", "--target=browser", "--external=cloudflare:workers", `--outfile=${artifact}/worker.mjs`],
+    {
+      stdio: "inherit",
+    }
+  );
   check(build.status, 0);
   const script = await readFile(`${artifact}/worker.mjs`, "utf8");
   const whitelist = JSON.parse(await readFile("packages/permit2-rpc-server/rpc-whitelist.json", "utf8"));
@@ -52,6 +56,7 @@ export default {async fetch(request){
             compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public", "no_cots_on_external_fetch"],
             outboundService: "upstream",
             versionMetadata: "VERSION_METADATA",
+            durableObjects: { HTTP_DIAGNOSTICS: { className: "HttpDiagnosticsObject", useSQLite: true } },
             bindings,
           },
           { name: "upstream", modules: true, script: upstream(mode), compatibilityDate: "2026-10-12", compatibilityFlags: ["nodejs_compat"] },
@@ -76,9 +81,10 @@ export default {async fetch(request){
       body: await response.json(),
       external: Number(response.headers.get("x-uos-external-subrequests")),
       cache: Number(response.headers.get("x-uos-cache-subrequests") ?? "0"),
+      binding: Number(response.headers.get("x-uos-binding-subrequests") ?? "0"),
       total: Number(response.headers.get("x-uos-budget-subrequests") ?? response.headers.get("x-uos-external-subrequests")),
     };
-    check(result.external + result.cache, result.total);
+    check(result.external + result.cache + result.binding, result.total);
     assert.ok(result.total <= 50);
     assertions++;
     return result;
@@ -102,11 +108,11 @@ export default {async fetch(request){
       );
       check(
         cold.map((result) => result.cache),
-        [2, 2]
+        [0, 0]
       );
       check(
         cold.map((result) => result.total),
-        [35, 34]
+        [34, 33]
       );
       const warm = await Promise.all([rpc(mf, 1, call()), rpc(mf, 56, call())]);
       check(
@@ -115,10 +121,11 @@ export default {async fetch(request){
       );
       check(
         warm.map((result) => result.cache),
-        [1, 1]
+        [0, 0]
       );
       const health = await mf.dispatchFetch("https://rpc.test/health");
-      check(Number(health.headers.get("x-uos-cache-subrequests")), Object.keys(whitelist.rpcs).length);
+      check(Number(health.headers.get("x-uos-cache-subrequests")), 0);
+      check(Number(health.headers.get("x-uos-binding-subrequests")), Object.keys(whitelist.rpcs).length);
       check(Number(health.headers.get("x-uos-budget-subrequests")), Object.keys(whitelist.rpcs).length);
       const report = await health.json();
       assert.ok(report.chains["1"].lastTested && report.chains["56"].lastTested);
@@ -133,7 +140,8 @@ export default {async fetch(request){
       for (let attempt = 0; attempt < 8; attempt++) {
         const response = await rpc(mf, 1, call());
         attempts.push(response);
-        check(response.cache, 2);
+        check(response.cache, 0);
+        check(response.binding, 1);
         assert.ok(response.total <= 50);
         assertions++;
         if (response.body.result === "0x1") {
@@ -171,7 +179,8 @@ export default {async fetch(request){
         assert.ok(response.total <= 50);
         assertions++;
         const errors = response.body.filter((entry) => entry.error);
-        check(response.cache, 1);
+        check(response.cache, 0);
+        check(response.binding, 1);
         check(response.total, 50);
         assert.ok(errors.length > 0);
         assertions++;

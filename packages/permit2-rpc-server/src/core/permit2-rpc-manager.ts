@@ -207,6 +207,11 @@ export interface Permit2RpcManagerOptions {
   cacheStore?: CacheStore;
   fetcher?: typeof fetch;
   diagnosticFetch?: typeof fetch;
+  diagnosticsResolver?: (
+    chainId: number,
+    eligibleUrls: string[],
+    settings: { validateChainId: boolean; timeoutMs: number; disableCache: boolean },
+  ) => Promise<import("../infra/cache-manager.ts").ChainCache>;
   resumeDiagnostics?: boolean;
   cacheTtlMs?: number;
   latencyTimeoutMs?: number;
@@ -301,8 +306,7 @@ export class Permit2RpcManager {
     this.fetcher = options.fetcher ?? ((input, init) => fetch(input, init));
     this.logLevel = options.logLevel ?? DEFAULT_LOG_LEVEL;
     this.configuredLogLevelValue = LOG_LEVEL_HIERARCHY[this.logLevel];
-    // Consumers can skip suppressed debug formatting; plain callbacks retain their existing behavior.
-    const logger = Object.assign(this._log.bind(this), { debugEnabled: this.logLevel === "debug" });
+    const logger = this._log.bind(this);
 
     this.dataSource = new ChainlistDataSource(logger, options.initialRpcData);
     this.cacheManager = new CacheManager({
@@ -324,6 +328,14 @@ export class Permit2RpcManager {
       logger,
       (rpcUrl) => this.isRpcDiagnosticEligible(rpcUrl),
       options.resumeDiagnostics,
+      options.diagnosticsResolver
+        ? (chainId, eligibleUrls) =>
+          options.diagnosticsResolver!(chainId, eligibleUrls, {
+            validateChainId: this.validateChainId,
+            timeoutMs: options.latencyTimeoutMs ?? 5000,
+            disableCache: options.disableCache ?? false,
+          })
+        : undefined,
     );
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 

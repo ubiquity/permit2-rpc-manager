@@ -19,7 +19,7 @@ bun run test:workers
 bun run deploy:dry-run
 ```
 
-Workers tests execute actual workerd with isolated native upstream services; Node 24.20.0 or later is used only for Cloudflare tooling. Read `docs/DECISIONS.md` before changing runtime, cache, free-tier budgets, or deployment ownership. The existing Deno VPS adapter remains supported.
+Workers tests execute actual workerd with isolated native upstream services and SQLite Durable Objects; Node 24.20.0 or later is used only for Cloudflare tooling. The diagnostics suite inspects only isolated local storage. Read `docs/DECISIONS.md` before changing runtime, cache, free-tier budgets, or deployment ownership. The existing Deno VPS adapter remains supported.
 
 **Server package (Deno):**
 
@@ -78,7 +78,7 @@ bun run deploy:manual     # Manually deploy to Deno Deploy
 **CacheManager** (`packages/permit2-rpc-server/src/infra/cache-manager.ts`)
 
 - Handles caching of RPC test results and responses
-- Uses the explicit Deno KV adapter on the VPS, in-memory storage for Bun local development, and version-scoped Cache API diagnostics on Workers
+- Uses the explicit Deno KV adapter on the VPS, in-memory storage for Bun local development, private advisory SQLite HTTP diagnostics on Workers, and separate version-scoped Cache API WebSocket diagnostics
 
 **ChainlistDataSource** (`packages/permit2-rpc-server/src/data/chainlist-data-source.ts`)
 

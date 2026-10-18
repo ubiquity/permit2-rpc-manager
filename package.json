@@ -35,7 +35,7 @@
     "deploy:types": "wrangler types packages/permit2-rpc-server/src/worker-configuration.d.ts && bun --no-env-file -e \"const typesPath='packages/permit2-rpc-server/src/worker-configuration.d.ts'; await Bun.write(typesPath,(await Bun.file(typesPath).text()).replace(/[ \\t]+$/gm,''));\"",
     "deploy:dry-run": "wrangler deploy --dry-run",
     "check:worker": "tsc --project packages/permit2-rpc-server/tsconfig.worker.json",
-    "test:workers": "node scripts/test-workers.mjs && node scripts/test-workers-review.mjs",
+    "test:workers": "node scripts/test-workers.mjs && node scripts/test-workers-review.mjs && node scripts/test-workers-diagnostics.mjs",
     "test:workers:review": "node scripts/test-workers-review.mjs",
     "test:bun": "bun --no-env-file test tests/bun-server.test.ts"
   },

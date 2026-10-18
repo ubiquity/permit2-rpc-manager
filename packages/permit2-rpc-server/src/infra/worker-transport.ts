@@ -12,6 +12,13 @@ export class RpcBudgetExceeded extends Error {
 export class WorkerTransport {
   used = 0;
   cacheUsed = 0;
+  bindingUsed = 0;
+  childUsed = 0;
+  unverifiedChildren = 0;
+  sqlRowsRead = 0;
+  sqlRowsWritten = 0;
+  diagnosticsWallMs = 0;
+  diagnosticRequestIds: string[] = [];
   private reservedCacheWrites = new Set<string>();
   private pending = new Map<
     string,
@@ -24,7 +31,31 @@ export class WorkerTransport {
   ) {}
 
   get totalUsed(): number {
-    return this.used + this.cacheUsed;
+    return this.used + this.childUsed + this.cacheUsed + this.bindingUsed;
+  }
+
+  countBindingCall(): void {
+    this.checkBudget();
+    this.bindingUsed++;
+  }
+
+  /** Charge the hop and full child allowance before RPC; retain one foreground slot. */
+  reserveDiagnostics(): { maxExternalCalls: number; settle: (used: number) => void } {
+    const maxExternalCalls = this.limit - this.totalUsed - this.reservedCacheWrites.size - 2;
+    if (maxExternalCalls < 0) throw new RpcBudgetExceeded();
+    this.bindingUsed++;
+    this.childUsed += maxExternalCalls;
+    this.unverifiedChildren++;
+    let settled = false;
+    return {
+      maxExternalCalls,
+      settle: (used) => {
+        if (settled || !Number.isInteger(used) || used < 0 || used > maxExternalCalls) throw new RpcBudgetExceeded();
+        settled = true;
+        this.childUsed -= maxExternalCalls - used;
+        this.unverifiedChildren--;
+      },
+    };
   }
 
   private checkBudget(): void {

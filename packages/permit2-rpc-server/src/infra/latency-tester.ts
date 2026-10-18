@@ -44,13 +44,11 @@ export interface LatencyTestResult {
 }
 
 // Define a logger type (can be shared or defined per file)
-type LoggerFn =
-  & ((
-    level: "debug" | "info" | "warn" | "error",
-    message: string,
-    ...optionalParams: unknown[] // Changed any[] to unknown[]
-  ) => void)
-  & { readonly debugEnabled?: boolean };
+type LoggerFn = (
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  ...optionalParams: unknown[] // Changed any[] to unknown[]
+) => void;
 
 // --- Constants ---
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -227,13 +225,11 @@ export class LatencyTester {
     }
 
     // Log first 100 chars of both expected and received for debugging (use debug level)
-    if (this.log.debugEnabled !== false) {
-      this.log("debug", `\nExpected Permit2 prefix (first 100 chars): ${PERMIT2_BYTECODE_PREFIX.slice(0, 100)}`);
-      this.log(
-        "debug",
-        `Received bytecode (first 100 chars): ${redactRpcDiagnostic(getCodeResponse.result.slice(0, 100))}`,
-      );
-    }
+    this.log("debug", `\nExpected Permit2 prefix (first 100 chars): ${PERMIT2_BYTECODE_PREFIX.slice(0, 100)}`);
+    this.log(
+      "debug",
+      `Received bytecode (first 100 chars): ${redactRpcDiagnostic(getCodeResponse.result.slice(0, 100))}`,
+    );
 
     if (!getCodeResponse.result.startsWith(PERMIT2_BYTECODE_PREFIX)) {
       status = "wrong_bytecode";
@@ -254,9 +250,7 @@ export class LatencyTester {
 
     // All checks passed - node is synced and has correct bytecode
     status = "ok";
-    if (this.log.debugEnabled !== false) {
-      this.log("debug", `RPC ${getRpcEndpointId(url)} passed all checks (${latency}ms)`);
-    }
+    this.log("debug", `RPC ${getRpcEndpointId(url)} passed all checks (${latency}ms)`);
     return { url, latency, status };
   }
 

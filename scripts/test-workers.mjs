@@ -13,9 +13,13 @@ try {
   const bunVersion = spawnSync(bun, ["--version"], { encoding: "utf8" });
   assert.equal(bunVersion.status, 0);
   assert.equal(bunVersion.stdout.trim(), "1.4.0", "Use the repository-pinned Bun 1.4.0 for Worker bundling");
-  const build = spawnSync(bun, ["build", "packages/permit2-rpc-server/src/worker.ts", "--target=browser", `--outfile=${artifact}/worker.mjs`], {
-    stdio: "inherit",
-  });
+  const build = spawnSync(
+    bun,
+    ["build", "packages/permit2-rpc-server/src/worker.ts", "--target=browser", "--external=cloudflare:workers", `--outfile=${artifact}/worker.mjs`],
+    {
+      stdio: "inherit",
+    }
+  );
   if (build.status !== 0) process.exit(build.status ?? 1);
   const script = await readFile(`${artifact}/worker.mjs`, "utf8");
   const prefix = JSON.parse((await readFile("packages/permit2-rpc-server/src/fixtures/permit2-bytecode.ts", "utf8")).match(/export default (".*");/)[1]);
@@ -97,6 +101,7 @@ export default { async fetch(request,env,ctx) {
           compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public", "no_cots_on_external_fetch"],
           outboundService: "upstream",
           versionMetadata: "VERSION_METADATA",
+          durableObjects: { HTTP_DIAGNOSTICS: { className: "HttpDiagnosticsObject", useSQLite: true } },
           assets: {
             directory: resolve("packages/permit2-rpc-server/static"),
             binding: "ASSETS",
@@ -124,11 +129,12 @@ export default { async fetch(request,env,ctx) {
     });
     const used = Number(response.headers.get("x-uos-external-subrequests"));
     const cache = Number(response.headers.get("x-uos-cache-subrequests"));
+    const binding = Number(response.headers.get("x-uos-binding-subrequests"));
     const total = Number(response.headers.get("x-uos-budget-subrequests"));
-    check(total, used + cache);
+    check(total, used + cache + binding);
     assert.ok(total <= 50, `Fetch and Cache API budget exceeded: ${total}`);
     assertions++;
-    return { response, body: response.status === 204 ? undefined : await response.json(), used, cache, total };
+    return { response, body: response.status === 204 ? undefined : await response.json(), used, cache, binding, total };
   }
   async function metrics(mf) {
     return (await (await mf.getWorker("upstream")).fetch("https://metrics.test/__metrics")).json();
@@ -157,8 +163,10 @@ export default { async fetch(request,env,ctx) {
       check((await metrics(mf)).calls, first.used);
       const cached = await rpc(mf, chainId, call());
       check(cached.used, 1);
-      check(first.cache, 2);
-      check(cached.cache, 1);
+      check(first.cache, 0);
+      check(cached.cache, 0);
+      check(first.binding, 1);
+      check(cached.binding, 1);
       console.log(
         JSON.stringify({
           runtime: "workerd",
@@ -166,6 +174,7 @@ export default { async fetch(request,env,ctx) {
           chainId,
           externalSubrequests: first.used,
           cacheSubrequests: first.cache,
+          bindingSubrequests: first.binding,
           totalSubrequests: first.total,
           cachedSubrequests: cached.total,
         })
@@ -238,13 +247,15 @@ export default { async fetch(request,env,ctx) {
       Array.from({ length: 100 }, (_, index) => call("eth_getBalance", index, [`0x${index.toString(16).padStart(40, "0")}`, "latest"]))
     );
     check(bounded.used, 49);
-    check(bounded.cache, 1);
+    check(bounded.cache, 0);
+    check(bounded.binding, 1);
     check(bounded.total, 50);
     check(bounded.body.length, 100);
     check(bounded.body.filter((entry) => entry.error?.code === -32005).length, 51);
     console.log(JSON.stringify({ runtime: "workerd", scenario: "http-mcp-assets-cors-fallback-filter-and-concurrency", assertions }));
   });
   await withRuntime("ws-fallback", 1, async (mf) => {
+    check(await mf.listDurableObjectIds("HTTP_DIAGNOSTICS", "rpc"), []);
     const response = await mf.dispatchFetch("https://rpc.test/1", { headers: { Upgrade: "websocket" } });
     check(response.status, 101);
     const socket = response.webSocket;
@@ -296,6 +307,7 @@ export default { async fetch(request,env,ctx) {
       socket.close(1000, "native test complete");
       check((await closed).code, 1000);
     }
+    check(await mf.listDurableObjectIds("HTTP_DIAGNOSTICS", "rpc"), []);
   });
   await withRuntime("ws-handshake-timeout", 1, async (mf) => {
     const started = Date.now();

@@ -2,9 +2,12 @@ import { createHandler } from "./server.ts";
 import { createRuntime } from "./runtime.ts";
 import { SocketPeer } from "./infra/websocket.ts";
 import { WorkerTransport } from "./infra/worker-transport.ts";
+import { createHttpDiagnostics } from "./infra/worker-diagnostics-client.ts";
 import type { RpcManagerState } from "./core/permit2-rpc-manager.ts";
 import type { CacheData, CacheStore, ChainCache } from "./infra/cache-manager.ts";
 import rpcWhitelist from "../rpc-whitelist.json" with { type: "json" };
+
+export { HttpDiagnosticsObject } from "./infra/worker-diagnostics-object.ts";
 
 // Only synchronous advisory maps/statistics are shared; no request, socket, store, or promise.
 let advisoryState: RpcManagerState | undefined;
@@ -48,12 +51,25 @@ export default {
   async fetch(request, env, ctx) {
     const transport = new WorkerTransport();
     const configuration = new Map<string, unknown>(Object.entries(env));
+    const validateSetting = configuration.get("RPC_VALIDATE_CHAIN_ID");
+    const validateChainId = typeof validateSetting !== "string" ||
+      !["false", "0", "no", "off"].includes(validateSetting.trim().toLowerCase());
+    const diagnostics = createHttpDiagnostics(
+      env.HTTP_DIAGNOSTICS,
+      env.VERSION_METADATA.id,
+      typeof request.cf?.colo === "string" ? request.cf.colo : "local",
+      transport,
+      validateChainId,
+      configuration.get("DISABLE_RPC_CACHE") === "true" || configuration.get("DISABLE_RPC_CACHE") === "1",
+    );
     const runtime = createRuntime((name) => {
       const value = configuration.get(name);
       return typeof value === "string" ? value : undefined;
     }, {
       cacheStore: createCacheStore(env.VERSION_METADATA.id, transport),
       managerOptions: {
+        cacheStore: diagnostics.store,
+        diagnosticsResolver: diagnostics.resolver,
         state: advisoryState,
         fetcher: transport.fetch,
         diagnosticFetch: transport.diagnosticFetch,
@@ -79,7 +95,15 @@ export default {
     response.headers.set("x-uos-runtime", "cloudflare-workers");
     response.headers.set("x-uos-deployment-id", env.VERSION_METADATA.id);
     if (response.status !== 101) {
-      response.headers.set("x-uos-external-subrequests", String(transport.used));
+      response.headers.set("x-uos-external-subrequests", String(transport.used + transport.childUsed));
+      response.headers.set("x-uos-front-subrequests", String(transport.used));
+      response.headers.set("x-uos-child-subrequests", String(transport.childUsed));
+      response.headers.set("x-uos-binding-subrequests", String(transport.bindingUsed));
+      response.headers.set("x-uos-unverified-children", String(transport.unverifiedChildren));
+      response.headers.set("x-uos-sql-rows-read", String(transport.sqlRowsRead));
+      response.headers.set("x-uos-sql-rows-written", String(transport.sqlRowsWritten));
+      response.headers.set("x-uos-diagnostics-wall-ms", String(transport.diagnosticsWallMs));
+      response.headers.set("x-uos-diagnostic-request-ids", transport.diagnosticRequestIds.join(","));
       response.headers.set("x-uos-cache-subrequests", String(transport.cacheUsed));
       response.headers.set("x-uos-budget-subrequests", String(transport.totalUsed));
     }
