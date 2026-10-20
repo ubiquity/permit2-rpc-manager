@@ -1,5 +1,5 @@
 import { createHandler } from "./server.ts";
-import { createRuntime } from "./runtime.ts";
+import { createRuntime, parseBooleanSetting } from "./runtime.ts";
 import { SocketPeer } from "./infra/websocket.ts";
 import { WorkerTransport } from "./infra/worker-transport.ts";
 import { createHttpDiagnostics } from "./infra/worker-diagnostics-client.ts";
@@ -51,9 +51,7 @@ export default {
   async fetch(request, env, ctx) {
     const transport = new WorkerTransport();
     const configuration = new Map<string, unknown>(Object.entries(env));
-    const validateSetting = configuration.get("RPC_VALIDATE_CHAIN_ID");
-    const validateChainId = typeof validateSetting !== "string" ||
-      !["false", "0", "no", "off"].includes(validateSetting.trim().toLowerCase());
+    const validateChainId = parseBooleanSetting(configuration.get("RPC_VALIDATE_CHAIN_ID")) ?? true;
     const diagnostics = createHttpDiagnostics(
       env.HTTP_DIAGNOSTICS,
       env.VERSION_METADATA.id,

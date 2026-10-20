@@ -63,7 +63,7 @@ export default{async fetch(request){
  return Response.json(Array.isArray(body)?body.map(result):result(body));
 }};`;
 
-  async function runtime(mode, action) {
+  async function runtime(mode, action, extraBindings = {}) {
     let version = randomUUID();
     const options = () =>
       convertV4MiniflareOptions({
@@ -78,7 +78,7 @@ export default{async fetch(request){
             compatibilityDate: "2026-10-12",
             compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
             outboundService: "upstream",
-            bindings: { VERSION_METADATA: { id: version } },
+            bindings: { VERSION_METADATA: { id: version }, ...extraBindings },
             durableObjects: {
               HTTP_DIAGNOSTICS: {
                 className: mode === "unknown" ? "UnknownReceiptObject" : mode === "invalid-receipt" ? "InvalidReceiptObject" : "HttpDiagnosticsObject",
@@ -327,6 +327,22 @@ export default{async fetch(request){
       JSON.stringify({ scenario: "native-status-priority-and-foreground-frontier", statuses: urls.slice(0, 3).map((url) => snapshot.latencyMap[url].status) })
     );
   });
+
+  await runtime(
+    "mixed",
+    async ({ rpc, inspect, metrics }) => {
+      const response = await rpc({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] });
+      check(response.body.result, "0x1234");
+      const snapshot = JSON.parse((await inspect())[0].rows[0].snapshot);
+      const urls = whitelist.rpcs["1"];
+      check(snapshot.latencyMap[urls[0]].status, "wrong_bytecode");
+      check(snapshot.latencyMap[urls[1]].status, "syncing");
+      check(snapshot.latencyMap[urls[2]].status, "ok");
+      const native = await metrics();
+      for (const url of urls) check(native.checks[new URL(url).href], ["eth_getCode", "eth_syncing"]);
+    },
+    { RPC_VALIDATE_CHAIN_ID: "n" }
+  );
 
   for (const mode of ["per-item-reject", "redirect"])
     await runtime(mode, async ({ rpc }) => {
