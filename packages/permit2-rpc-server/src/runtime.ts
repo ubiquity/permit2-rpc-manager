@@ -17,6 +17,14 @@ export interface RuntimeOptions {
   waitUntil?: (promise: Promise<unknown>) => void;
 }
 
+export function parseBooleanSetting(raw: unknown): boolean | undefined {
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(value)) return true;
+  if (["0", "false", "no", "n", "off"].includes(value)) return false;
+  return undefined;
+}
+
 export function createRuntime(env: (name: string) => string | undefined, options: RuntimeOptions) {
   // Check environment variable to potentially disable cache
   const disableCacheEnv = env("DISABLE_RPC_CACHE");
@@ -27,12 +35,7 @@ export function createRuntime(env: (name: string) => string | undefined, options
   }
 
   function parseBoolEnv(name: string): boolean | undefined {
-    const raw = env(name);
-    if (raw === undefined) return undefined;
-    const value = raw.trim().toLowerCase();
-    if (["1", "true", "yes", "y", "on"].includes(value)) return true;
-    if (["0", "false", "no", "n", "off"].includes(value)) return false;
-    return undefined;
+    return parseBooleanSetting(env(name));
   }
 
   function parseIntEnv(name: string): number | undefined {
