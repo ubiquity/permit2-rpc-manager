@@ -1,5 +1,5 @@
 import { createHandler } from "./server.ts";
-import { createRuntime } from "./runtime.ts";
+import { createRuntime, parseBooleanEnvValue } from "./runtime.ts";
 import { SocketPeer } from "./infra/websocket.ts";
 import { WorkerTransport } from "./infra/worker-transport.ts";
 import { createHttpDiagnostics } from "./infra/worker-diagnostics-client.ts";
@@ -14,11 +14,10 @@ let advisoryState: RpcManagerState | undefined;
 
 /** Advisory endpoint diagnostics only; no authoritative state or scheduler. */
 function createCacheStore(version: string, transport: WorkerTransport): CacheStore {
-  const keyFor = (key: string, chainId: number) =>
-    new Request(`https://rpc.ubq.fi/__uos-worker-cache/${version}/${key}/${chainId}`);
+  const keyFor = (key: string, chainId: number) => new Request(`https://rpc.ubq.fi/__uos-worker-cache/${version}/${key}/${chainId}`);
   const loadChain = async (key: string, chainId: number): Promise<ChainCache | null> => {
     transport.countCacheCall();
-    return await (await caches.default.match(keyFor(key, chainId)))?.json<ChainCache>() ?? null;
+    return (await (await caches.default.match(keyFor(key, chainId)))?.json<ChainCache>()) ?? null;
   };
   return {
     loadChain,
@@ -29,7 +28,7 @@ function createCacheStore(version: string, transport: WorkerTransport): CacheSto
         Object.keys(rpcWhitelist.rpcs).map(async (id) => {
           const value = await loadChain(key, Number(id));
           if (value) result[Number(id)] = value;
-        }),
+        })
       );
       return result;
     },
@@ -39,10 +38,7 @@ function createCacheStore(version: string, transport: WorkerTransport): CacheSto
     async save(key, value, chainId) {
       const cacheKey = keyFor(key, chainId);
       transport.countCacheCall(cacheKey.url);
-      await caches.default.put(
-        cacheKey,
-        Response.json(value[chainId], { headers: { "cache-control": "public, max-age=14400" } }),
-      );
+      await caches.default.put(cacheKey, Response.json(value[chainId], { headers: { "cache-control": "public, max-age=14400" } }));
     },
   };
 }
@@ -51,45 +47,46 @@ export default {
   async fetch(request, env, ctx) {
     const transport = new WorkerTransport();
     const configuration = new Map<string, unknown>(Object.entries(env));
-    const validateSetting = configuration.get("RPC_VALIDATE_CHAIN_ID");
-    const validateChainId = typeof validateSetting !== "string" ||
-      !["false", "0", "no", "off"].includes(validateSetting.trim().toLowerCase());
+    const validateChainId = parseBooleanEnvValue(configuration.get("RPC_VALIDATE_CHAIN_ID")) ?? true;
     const diagnostics = createHttpDiagnostics(
       env.HTTP_DIAGNOSTICS,
       env.VERSION_METADATA.id,
       typeof request.cf?.colo === "string" ? request.cf.colo : "local",
       transport,
       validateChainId,
-      configuration.get("DISABLE_RPC_CACHE") === "true" || configuration.get("DISABLE_RPC_CACHE") === "1",
+      configuration.get("DISABLE_RPC_CACHE") === "true" || configuration.get("DISABLE_RPC_CACHE") === "1"
     );
-    const runtime = createRuntime((name) => {
-      const value = configuration.get(name);
-      return typeof value === "string" ? value : undefined;
-    }, {
-      cacheStore: createCacheStore(env.VERSION_METADATA.id, transport),
-      managerOptions: {
-        cacheStore: diagnostics.store,
-        diagnosticsResolver: diagnostics.resolver,
-        state: advisoryState,
-        fetcher: transport.fetch,
-        diagnosticFetch: transport.diagnosticFetch,
-        resumeDiagnostics: true,
+    const runtime = createRuntime(
+      (name) => {
+        const value = configuration.get(name);
+        return typeof value === "string" ? value : undefined;
       },
-      async readStaticTextAsset(name) {
-        const response = await env.ASSETS.fetch(new Request(new URL(`/${name}`, request.url)));
-        if (!response.ok) throw new Error("Static asset not found.");
-        return response.text();
-      },
-      isNotFoundError: (error) => error instanceof Error && error.message === "Static asset not found.",
-      openWebSocket: (url, timeoutMs) => transport.openWebSocket(url, timeoutMs),
-      upgradeWebSocket() {
-        const pair = new WebSocketPair();
-        pair[1].binaryType = "arraybuffer";
-        pair[1].accept();
-        return { socket: new SocketPeer(pair[1]), response: new Response(null, { status: 101, webSocket: pair[0] }) };
-      },
-      waitUntil: (promise) => ctx.waitUntil(promise),
-    });
+      {
+        cacheStore: createCacheStore(env.VERSION_METADATA.id, transport),
+        managerOptions: {
+          cacheStore: diagnostics.store,
+          diagnosticsResolver: diagnostics.resolver,
+          state: advisoryState,
+          fetcher: transport.fetch,
+          diagnosticFetch: transport.diagnosticFetch,
+          resumeDiagnostics: true,
+        },
+        async readStaticTextAsset(name) {
+          const response = await env.ASSETS.fetch(new Request(new URL(`/${name}`, request.url)));
+          if (!response.ok) throw new Error("Static asset not found.");
+          return response.text();
+        },
+        isNotFoundError: (error) => error instanceof Error && error.message === "Static asset not found.",
+        openWebSocket: (url, timeoutMs) => transport.openWebSocket(url, timeoutMs),
+        upgradeWebSocket() {
+          const pair = new WebSocketPair();
+          pair[1].binaryType = "arraybuffer";
+          pair[1].accept();
+          return { socket: new SocketPeer(pair[1]), response: new Response(null, { status: 101, webSocket: pair[0] }) };
+        },
+        waitUntil: (promise) => ctx.waitUntil(promise),
+      }
+    );
     advisoryState ??= runtime.manager.getState();
     const response = await createHandler(runtime.manager, runtime)(request);
     response.headers.set("x-uos-runtime", "cloudflare-workers");

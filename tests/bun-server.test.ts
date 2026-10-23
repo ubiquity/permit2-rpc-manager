@@ -1,3 +1,4 @@
+import { parseBooleanEnvValue } from "../packages/permit2-rpc-server/src/runtime.ts";
 import { expect, test } from "bun:test";
 import { startBunServer } from "../packages/permit2-rpc-server/src/bun-server.ts";
 
@@ -52,10 +53,14 @@ test("Bun WebSocket adapter queues requests and relays binary frames", async () 
   const next = () =>
     new Promise<MessageEvent>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Bun WebSocket deadline")), 3000);
-      client.addEventListener("message", (event) => {
-        clearTimeout(timer);
-        resolve(event);
-      }, { once: true });
+      client.addEventListener(
+        "message",
+        (event) => {
+          clearTimeout(timer);
+          resolve(event);
+        },
+        { once: true }
+      );
     });
   try {
     await new Promise<void>((resolve, reject) => {
@@ -75,4 +80,17 @@ test("Bun WebSocket adapter queues requests and relays binary frames", async () 
     if (previous === undefined) delete Bun.env.RPC_WSS_URL_1;
     else Bun.env.RPC_WSS_URL_1 = previous;
   }
+});
+
+test("parseBooleanEnvValue parses all supported true/false aliases and case/whitespace variants", () => {
+  for (const val of ["1", "true", "yes", "y", "on", " TRUE ", "\tYes\n", "Y", "ON"]) {
+    expect(parseBooleanEnvValue(val)).toBe(true);
+  }
+  for (const val of ["0", "false", "no", "n", "off", " FALSE ", "\tNo\n", "N", "  n  ", "OFF"]) {
+    expect(parseBooleanEnvValue(val)).toBe(false);
+  }
+  expect(parseBooleanEnvValue(undefined)).toBeUndefined();
+  expect(parseBooleanEnvValue(null)).toBeUndefined();
+  expect(parseBooleanEnvValue("")).toBeUndefined();
+  expect(parseBooleanEnvValue("maybe")).toBeUndefined();
 });
