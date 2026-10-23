@@ -17,6 +17,14 @@ export interface RuntimeOptions {
   waitUntil?: (promise: Promise<unknown>) => void;
 }
 
+export function parseBooleanEnvValue(raw: unknown): boolean | undefined {
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(value)) return true;
+  if (["0", "false", "no", "n", "off"].includes(value)) return false;
+  return undefined;
+}
+
 export function createRuntime(env: (name: string) => string | undefined, options: RuntimeOptions) {
   // Check environment variable to potentially disable cache
   const disableCacheEnv = env("DISABLE_RPC_CACHE");
@@ -27,12 +35,7 @@ export function createRuntime(env: (name: string) => string | undefined, options
   }
 
   function parseBoolEnv(name: string): boolean | undefined {
-    const raw = env(name);
-    if (raw === undefined) return undefined;
-    const value = raw.trim().toLowerCase();
-    if (["1", "true", "yes", "y", "on"].includes(value)) return true;
-    if (["0", "false", "no", "n", "off"].includes(value)) return false;
-    return undefined;
+    return parseBooleanEnvValue(env(name));
   }
 
   function parseIntEnv(name: string): number | undefined {
@@ -63,19 +66,13 @@ export function createRuntime(env: (name: string) => string | undefined, options
     const raw = env(name);
     if (!raw) return undefined;
     const normalized = raw.trim().toLowerCase();
-    if (
-      normalized === "debug" || normalized === "info" || normalized === "warn" || normalized === "error" ||
-      normalized === "none"
-    ) {
+    if (normalized === "debug" || normalized === "info" || normalized === "warn" || normalized === "error" || normalized === "none") {
       return normalized as Permit2RpcManagerOptions["logLevel"];
     }
     return undefined;
   }
 
-  function buildPermit2RpcManagerOptionsFromEnv(
-    initialRpcData: Permit2RpcManagerOptions["initialRpcData"],
-    disableCache: boolean,
-  ): Permit2RpcManagerOptions {
+  function buildPermit2RpcManagerOptionsFromEnv(initialRpcData: Permit2RpcManagerOptions["initialRpcData"], disableCache: boolean): Permit2RpcManagerOptions {
     const scoringV2: NonNullable<Permit2RpcManagerOptions["scoringV2"]> = {};
     const scoringV2Enabled = parseBoolEnv("RPC_SCORING_V2_ENABLED");
     if (scoringV2Enabled !== undefined) scoringV2.enabled = scoringV2Enabled;
@@ -159,10 +156,7 @@ export function createRuntime(env: (name: string) => string | undefined, options
   const wsLogger = (level: WsLogLevel, message: string, ...optionalParams: unknown[]) => {
     if (level === "debug" || level === "info") return;
     const logFn = console[level] || console.log;
-    logFn(
-      `[Permit2WSS:${level}] ${redactRpcDiagnostic(message)}`,
-      ...optionalParams.map((optionalParam) => redactRpcDiagnostic(optionalParam)),
-    );
+    logFn(`[Permit2WSS:${level}] ${redactRpcDiagnostic(message)}`, ...optionalParams.map((optionalParam) => redactRpcDiagnostic(optionalParam)));
   };
 
   const wsCandidateLimitRaw = Number.parseInt(env("WS_CANDIDATE_LIMIT") ?? "25", 10);
@@ -178,9 +172,7 @@ export function createRuntime(env: (name: string) => string | undefined, options
     store: options.cacheStore,
   });
   const wsLatencyTesterTimeoutMsRaw = Number.parseInt(env("WS_LATENCY_TIMEOUT_MS") ?? "5000", 10);
-  const wsLatencyTesterTimeoutMs = Number.isFinite(wsLatencyTesterTimeoutMsRaw) && wsLatencyTesterTimeoutMsRaw > 0
-    ? wsLatencyTesterTimeoutMsRaw
-    : 5000;
+  const wsLatencyTesterTimeoutMs = Number.isFinite(wsLatencyTesterTimeoutMsRaw) && wsLatencyTesterTimeoutMsRaw > 0 ? wsLatencyTesterTimeoutMsRaw : 5000;
   const wsLatencyTester = new WsLatencyTester(wsLatencyTesterTimeoutMs, wsLogger, options.openWebSocket);
   const wsSelector = new RpcSelector(wsDataSource, wsCacheManager, wsLatencyTester, wsLogger);
 
@@ -233,9 +225,11 @@ export function createRuntime(env: (name: string) => string | undefined, options
     isNotFoundError: options.isNotFoundError,
     upgradeWebSocket: options.upgradeWebSocket,
     openWebSocket: connect,
-    waitUntil: options.waitUntil ?? ((promise: Promise<unknown>) => {
-      promise.catch((error) => wsLogger("error", "WebSocket connection failed", error));
-    }),
+    waitUntil:
+      options.waitUntil ??
+      ((promise: Promise<unknown>) => {
+        promise.catch((error) => wsLogger("error", "WebSocket connection failed", error));
+      }),
     async connectFirstWebSocket(urls: string[], timeoutMs: number): Promise<SocketPeer> {
       let lastError: unknown;
       for (const url of urls) {
