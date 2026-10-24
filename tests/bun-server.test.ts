@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { startBunServer } from "../packages/permit2-rpc-server/src/bun-server.ts";
+import { parseBooleanEnvValue } from "../packages/permit2-rpc-server/src/runtime.ts";
 
 test("Bun listener serves assets, health, CORS and MCP without a Deno runtime", async () => {
   const server = startBunServer({ port: 0 });
@@ -75,4 +76,26 @@ test("Bun WebSocket adapter queues requests and relays binary frames", async () 
     if (previous === undefined) delete Bun.env.RPC_WSS_URL_1;
     else Bun.env.RPC_WSS_URL_1 = previous;
   }
+});
+
+test("parseBooleanEnvValue parses all supported true/false aliases, case, and whitespace variants", () => {
+  // True aliases
+  for (const val of ["1", "true", "yes", "y", "on", " TRUE ", "\tYes\n", "Y", "ON", "  1  "]) {
+    expect(parseBooleanEnvValue(val)).toBe(true);
+  }
+
+  // False aliases (specifically including 'n' and whitespace/case variants)
+  for (const val of ["0", "false", "no", "n", "off", " FALSE ", "\tNo\n", "N", "  n  ", "OFF", "  0  "]) {
+    expect(parseBooleanEnvValue(val)).toBe(false);
+  }
+
+  // Unrecognized, empty, or non-string inputs return undefined
+  expect(parseBooleanEnvValue(undefined)).toBeUndefined();
+  expect(parseBooleanEnvValue(null)).toBeUndefined();
+  expect(parseBooleanEnvValue("")).toBeUndefined();
+  expect(parseBooleanEnvValue("   ")).toBeUndefined();
+  expect(parseBooleanEnvValue("maybe")).toBeUndefined();
+  expect(parseBooleanEnvValue("unknown")).toBeUndefined();
+  expect(parseBooleanEnvValue(123)).toBeUndefined();
+  expect(parseBooleanEnvValue(true)).toBeUndefined();
 });
