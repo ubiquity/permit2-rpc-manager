@@ -63,7 +63,7 @@ export default{async fetch(request){
  return Response.json(Array.isArray(body)?body.map(result):result(body));
 }};`;
 
-  async function runtime(mode, action) {
+  async function runtime(mode, action, extraBindings = {}) {
     let version = randomUUID();
     const options = () =>
       convertV4MiniflareOptions({
@@ -78,7 +78,7 @@ export default{async fetch(request){
             compatibilityDate: "2026-10-12",
             compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
             outboundService: "upstream",
-            bindings: { VERSION_METADATA: { id: version } },
+            bindings: { VERSION_METADATA: { id: version }, ...extraBindings },
             durableObjects: {
               HTTP_DIAGNOSTICS: {
                 className: mode === "unknown" ? "UnknownReceiptObject" : mode === "invalid-receipt" ? "InvalidReceiptObject" : "HttpDiagnosticsObject",
@@ -327,6 +327,38 @@ export default{async fetch(request){
       JSON.stringify({ scenario: "native-status-priority-and-foreground-frontier", statuses: urls.slice(0, 3).map((url) => snapshot.latencyMap[url].status) })
     );
   });
+
+  for (const rawValidate of ["n", "  N  "]) {
+    await runtime(
+      "mixed",
+      async ({ mf, rpc, inspect, metrics }) => {
+        const response = await rpc({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] });
+        check(response.body.result, "0x1234");
+        const stored = await inspect();
+        check(stored.length, 1);
+        check(stored[0].rows[0].fingerprint.includes(":1:false:5000:permit2-sync-chain-v1"), true);
+        const snapshot = JSON.parse(stored[0].rows[0].snapshot);
+        const urls = whitelist.rpcs["1"];
+        check(snapshot.latencyMap[urls[0]].status, "wrong_bytecode");
+        check(snapshot.latencyMap[urls[1]].status, "syncing");
+        check(snapshot.latencyMap[urls[2]].status, "ok");
+        const native = await metrics();
+        for (const url of urls) check(native.checks[new URL(url).href], ["eth_getCode", "eth_syncing"]);
+        const callsBeforeHealth = native.calls;
+        const health = await mf.dispatchFetch("https://rpc.test/health");
+        check(health.status, 200);
+        check((await metrics()).calls, callsBeforeHealth);
+        check(Number(health.headers.get("x-uos-sql-rows-written")), 0);
+        const healthBody = await health.json();
+        check(healthBody.chains["1"].lastTested, snapshot.lastTested);
+        check(
+          healthBody.chains["1"].rpcs.slice(0, 3).map((entry) => entry.cacheStatus),
+          ["wrong_bytecode", "syncing", "ok"]
+        );
+      },
+      { RPC_VALIDATE_CHAIN_ID: rawValidate }
+    );
+  }
 
   for (const mode of ["per-item-reject", "redirect"])
     await runtime(mode, async ({ rpc }) => {

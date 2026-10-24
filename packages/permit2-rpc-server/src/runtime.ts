@@ -17,6 +17,22 @@ export interface RuntimeOptions {
   waitUntil?: (promise: Promise<unknown>) => void;
 }
 
+/**
+ * Parses a raw environment variable or configuration value into a boolean.
+ * Recognizes all standard true aliases ('1', 'true', 'yes', 'y', 'on') and
+ * false aliases ('0', 'false', 'no', 'n', 'off'), with whitespace trimming and
+ * case insensitivity.
+ * @param raw - The raw configuration or environment value to parse.
+ * @returns The parsed boolean, or undefined if unrecognized or not a string.
+ */
+export function parseBooleanEnvValue(raw: unknown): boolean | undefined {
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(value)) return true;
+  if (["0", "false", "no", "n", "off"].includes(value)) return false;
+  return undefined;
+}
+
 export function createRuntime(env: (name: string) => string | undefined, options: RuntimeOptions) {
   // Check environment variable to potentially disable cache
   const disableCacheEnv = env("DISABLE_RPC_CACHE");
@@ -27,12 +43,7 @@ export function createRuntime(env: (name: string) => string | undefined, options
   }
 
   function parseBoolEnv(name: string): boolean | undefined {
-    const raw = env(name);
-    if (raw === undefined) return undefined;
-    const value = raw.trim().toLowerCase();
-    if (["1", "true", "yes", "y", "on"].includes(value)) return true;
-    if (["0", "false", "no", "n", "off"].includes(value)) return false;
-    return undefined;
+    return parseBooleanEnvValue(env(name));
   }
 
   function parseIntEnv(name: string): number | undefined {
