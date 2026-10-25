@@ -3,6 +3,7 @@
     "1": [
       "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
       "https://ethereum-rpc.publicnode.com",
+      "https://1rpc.io/eth",
       "https://rpc.mevblocker.io",
       "https://rpc.flashbots.net",
       "https://virginia.rpc.blxrbdn.com",
@@ -16,13 +17,13 @@
       "https://eth.meowrpc.com",
       "https://eth.drpc.org",
       "https://mainnet.gateway.tenderly.co",
+      "https://virtual.mainnet.rpc.tenderly.co/5804dcf7-70e6-4988-b2b0-3672193e0c91",
       "https://gateway.tenderly.co/public/mainnet",
       "https://api.zan.top/eth-mainnet",
       "https://ethereum-mainnet.gateway.tatum.io",
       "https://public-eth.nownodes.io",
       "https://eth.blockrazor.xyz",
       "https://0xrpc.io/eth",
-      "https://eth.api.onfinality.io/public",
       "https://ethereum-json-rpc.stakely.io",
       "https://eth.api.pocket.network",
       "https://api-ethereum-mainnet-reth.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
@@ -32,10 +33,12 @@
       "https://rpc.mevblocker.io/noreverts",
       "https://rpc.mevblocker.io/fullprivacy",
       "https://xrpc.cl/eth",
-      "https://ethereum-rpc.blockreq.com/v1/rpc/public"
+      "https://ethereum-rpc.blockreq.com/v1/rpc/public",
+      "https://api.blockvectra.com/v1/eth_mainnet/public"
     ],
     "10": [
       "https://mainnet.optimism.io",
+      "https://1rpc.io/op",
       "https://optimism-public.nodies.app",
       "https://optimism.public.blockpi.network/v1/rpc/public",
       "https://optimism.api.onfinality.io/public",
@@ -46,8 +49,6 @@
       "https://gateway.tenderly.co/public/optimism",
       "https://optimism-mainnet.gateway.tatum.io",
       "https://public-op-mainnet.fastnode.io",
-      "https://api-optimism-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
-      "https://xrpc.cl/optimism",
       "https://optimism-rpc.blockreq.com/v1/rpc/public"
     ],
     "56": [
@@ -68,7 +69,6 @@
       "https://0.48.club",
       "https://bsc-mainnet.nodereal.io/v1/64a9df0874fb4a93b9d0a3849de012d3",
       "https://binance.nodereal.io",
-      "https://1rpc.io/bnb",
       "https://bsc.rpc.blxrbdn.com",
       "https://bnb.api.onfinality.io/public",
       "https://bsc-rpc.publicnode.com",
@@ -80,8 +80,10 @@
       "https://public-bsc.nownodes.io",
       "https://bsc.blockrazor.xyz",
       "https://bsc.api.pocket.network",
-      "https://api-bsc-mainnet-full.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
-      "https://bsc-rpc.blockreq.com/v1/rpc/public"
+      "https://public-bsc-mainnet.fastnode.io",
+      "https://rpc.backrunshield.com",
+      "https://bsc-rpc.blockreq.com/v1/rpc/public",
+      "https://api.blockvectra.com/v1/bsc_mainnet/public"
     ],
     "100": [
       "https://rpc.gnosischain.com",
@@ -90,6 +92,7 @@
       "https://gnosis.api.onfinality.io/public",
       "https://gnosis.drpc.org",
       "https://gnosis-rpc.publicnode.com",
+      "https://1rpc.io/gnosis",
       "https://gno-mainnet.gateway.tatum.io",
       "https://gnosis.api.pocket.network",
       "https://gnosis.oat.farm",
@@ -99,7 +102,6 @@
       "https://rpc-mainnet.matic.quiknode.pro",
       "https://1rpc.io/matic",
       "https://polygon-bor-rpc.publicnode.com",
-      "https://polygon.api.onfinality.io/public",
       "https://polygon.drpc.org",
       "https://polygon.gateway.tenderly.co",
       "https://gateway.tenderly.co/public/polygon",
@@ -107,12 +109,13 @@
       "https://polygon-mainnet.gateway.tatum.io",
       "https://poly.api.pocket.network",
       "https://api-polygon-mainnet-full.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
-      "https://xrpc.cl/polygon",
-      "https://polygon-bor-rpc.blockreq.com/v1/rpc/public"
+      "https://polygon-bor-rpc.blockreq.com/v1/rpc/public",
+      "https://api.blockvectra.com/v1/polygon_mainnet/public"
     ],
     "8453": [
       "https://mainnet.base.org",
       "https://base.public.blockpi.network/v1/rpc/public",
+      "https://1rpc.io/base",
       "https://base-public.nodies.app",
       "https://base.meowrpc.com",
       "https://base-mainnet.public.blastapi.io",
@@ -120,15 +123,15 @@
       "https://gateway.tenderly.co/public/base",
       "https://base-rpc.publicnode.com",
       "https://base.drpc.org",
-      "https://base.api.onfinality.io/public",
       "https://base-mainnet.gateway.tatum.io",
       "https://api.zan.top/base-mainnet",
       "https://base.api.pocket.network",
       "https://base.rpc.blxrbdn.com",
+      "https://api-base-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
       "https://rpc.baseazul.dev",
-      "https://xrpc.cl/base",
       "https://base-rpc.blockreq.com/v1/rpc/public",
-      "https://base.daybreak-rpc.network"
+      "https://base.daybreak-rpc.network",
+      "https://api.blockvectra.com/v1/base_mainnet/public"
     ],
     "42161": [
       "https://arb1.arbitrum.io/rpc",
@@ -144,40 +147,40 @@
       "https://arb-one-mainnet.gateway.tatum.io",
       "https://arb-one.api.pocket.network",
       "https://public-arb-mainnet.fastnode.io",
-      "https://xrpc.cl/arbitrum",
-      "https://arbitrum-one-rpc.blockreq.com/v1/rpc/public"
+      "https://arbitrum-one-rpc.blockreq.com/v1/rpc/public",
+      "https://api.blockvectra.com/v1/arb_mainnet/public"
     ],
     "42220": [
       "https://forno.celo.org",
       "https://rpc.ankr.com/celo",
       "https://celo-mainnet.gateway.tatum.io",
-      "https://celo.drpc.org",
       "https://celo-json-rpc.stakely.io",
       "https://celo.api.onfinality.io/public",
-      "https://api-celo-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
-      "https://celo-rpc.blockreq.com/v1/rpc/public"
+      "https://api-celo-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "43114": [
       "https://api.avax.network/ext/bc/C/rpc",
       "https://avalanche-c-chain-rpc.publicnode.com",
+      "https://1rpc.io/avax/c",
       "https://avalanche.api.onfinality.io/public/ext/bc/C/rpc",
       "https://api.zan.top/avax-mainnet/ext/bc/C/rpc",
       "https://avalanche.drpc.org",
       "https://avalanche-mainnet.gateway.tenderly.co",
       "https://spectrum-01.simplystaking.xyz/avalanche-mn-rpc/ext/bc/C/rpc",
       "https://avax.api.pocket.network",
-      "https://xrpc.cl/avalanche",
       "https://avalanche-rpc.blockreq.com/v1/rpc/public"
     ],
     "81457": [
       "https://rpc.blast.io",
       "https://blast-rpc.publicnode.com",
       "https://blast.drpc.org",
-      "https://blast.api.pocket.network"
+      "https://blast.api.pocket.network",
+      "https://api-blast-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "7777777": [
       "https://rpc.zora.energy",
-      "https://zora.drpc.org"
+      "https://zora.drpc.org",
+      "https://api-zora-mainnet.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ]
   },
   "wss": {
@@ -189,7 +192,9 @@
       "wss://optimism-rpc.publicnode.com",
       "wss://optimism.gateway.tenderly.co",
       "wss://optimism.drpc.org",
+      "wss://opt-mainnet.g.alchemy.com/v2/demo",
       "wss://gateway.tenderly.co/public/optimism",
+      "wss://api-optimism-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
       "wss://optimism-rpc.blockreq.com/v1/rpc/public"
     ],
     "56": [
@@ -227,14 +232,12 @@
     "42161": [
       "wss://arbitrum-one-rpc.publicnode.com",
       "wss://arbitrum.drpc.org",
-      "wss://arb-mainnet.g.alchemy.com/v2/demo",
       "wss://arbitrum.gateway.tenderly.co",
       "wss://arbitrum-one-rpc.blockreq.com/v1/rpc/public"
     ],
     "42220": [
-      "wss://celo.drpc.org",
       "wss://forno.celo.org/ws",
-      "wss://celo-rpc.blockreq.com/v1/rpc/public"
+      "wss://api-celo-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
     ],
     "43114": [
       "wss://avalanche-c-chain-rpc.publicnode.com",
@@ -246,8 +249,7 @@
       "wss://blast-rpc.publicnode.com",
       "wss://blast.drpc.org",
       "wss://rpc.blast.io",
-      "wss://blast.api.pocket.network",
-      "wss://api-blast-mainnet-archive.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c"
+      "wss://blast.api.pocket.network"
     ],
     "7777777": [
       "wss://zora.drpc.org",
