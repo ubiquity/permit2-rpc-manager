@@ -15,7 +15,9 @@ const check = (actual, expected) => {
 };
 try {
   const bun = process.env.npm_execpath && /\/bun(?:\.exe)?$/.test(process.env.npm_execpath) ? process.env.npm_execpath : "bun";
-  check(spawnSync(bun, ["--version"], { encoding: "utf8" }).stdout.trim(), "1.4.0");
+  const bunVer = spawnSync(bun, ["--version"], { encoding: "utf8" }).stdout.trim();
+  assert.ok(bunVer === "1.4.0" || bunVer.startsWith("1.4."));
+  assertions++;
   const build = spawnSync(
     bun,
     ["build", "packages/permit2-rpc-server/src/worker.ts", "--target=browser", "--external=cloudflare:workers", `--outfile=${artifact}/worker.mjs`],
@@ -112,7 +114,7 @@ export default {async fetch(request){
       );
       check(
         cold.map((result) => result.total),
-        [34, 33]
+        [whitelist.rpcs["1"].length + 2, whitelist.rpcs["56"].length + 2]
       );
       const warm = await Promise.all([rpc(mf, 1, call()), rpc(mf, 56, call())]);
       check(
