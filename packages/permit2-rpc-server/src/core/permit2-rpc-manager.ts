@@ -444,7 +444,8 @@ export class Permit2RpcManager {
    * under a generic 4xx because it cannot establish caller invalidity.
    */
   private classifyTransportStatus(httpStatus: number | undefined, invalidBody = false): ErrorClassification {
-    if (httpStatus === 429) {
+    // Some providers (e.g. Satelink) use 402 for exhausted free-tier quotas.
+    if (httpStatus === 402 || httpStatus === 429) {
       return {
         behavior: ErrorBehavior.RETRY_WITH_BACKOFF,
         reason: "rate_limit",
