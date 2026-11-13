@@ -63,7 +63,7 @@ export default{async fetch(request){
  return Response.json(Array.isArray(body)?body.map(result):result(body));
 }};`;
 
-  async function runtime(mode, action) {
+  async function runtime(mode, action, bindings = {}) {
     let version = randomUUID();
     const options = () =>
       convertV4MiniflareOptions({
@@ -78,7 +78,7 @@ export default{async fetch(request){
             compatibilityDate: "2026-10-12",
             compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
             outboundService: "upstream",
-            bindings: { VERSION_METADATA: { id: version } },
+            bindings: { ...bindings, VERSION_METADATA: { id: version } },
             durableObjects: {
               HTTP_DIAGNOSTICS: {
                 className: mode === "unknown" ? "UnknownReceiptObject" : mode === "invalid-receipt" ? "InvalidReceiptObject" : "HttpDiagnosticsObject",
@@ -245,6 +245,40 @@ export default{async fetch(request){
       })
     );
   });
+
+  for (const validateSetting of ["n", "N", " \tN\n"])
+    await runtime(
+      "batch",
+      async ({ mf, rpc, metrics, inspect }) => {
+        const cold = await rpc();
+        check(cold.body.result, "0x1");
+        check(cold.child, whitelist.rpcs["1"].length);
+        const native = await metrics();
+        for (const url of whitelist.rpcs["1"]) check(native.checks[new URL(url).href], ["eth_getCode", "eth_syncing"]);
+        const warm = await rpc();
+        check(warm.body.result, "0x1");
+        check(warm.child, 0);
+        check(warm.rowsWritten, 0);
+        const stored = (await inspect()).map(({ id, rows }) => ({ id, rows }));
+        check(stored.length, 1);
+        check(stored[0].rows.length, 1);
+        const snapshot = JSON.parse(stored[0].rows[0].snapshot);
+        check(Number.isFinite(snapshot.lastTested), true);
+        const before = (await metrics()).calls;
+        const health = await mf.dispatchFetch("https://rpc.test/health");
+        check(health.status, 200);
+        const chain = (await health.json()).chains["1"];
+        check(chain.lastTested, snapshot.lastTested);
+        check(chain.rpcs.map(({ cacheStatus }) => cacheStatus), whitelist.rpcs["1"].map(() => "ok"));
+        check((await metrics()).calls, before);
+        check(Number(health.headers.get("x-uos-front-subrequests")), 0);
+        check(Number(health.headers.get("x-uos-child-subrequests")), 0);
+        check(Number(health.headers.get("x-uos-sql-rows-written")), 0);
+        check((await inspect()).map(({ id, rows }) => ({ id, rows })), stored);
+        console.log(JSON.stringify({ scenario: "false-alias-read-only-health-retains-diagnostics", validateSetting, lastTested: chain.lastTested }));
+      },
+      { RPC_VALIDATE_CHAIN_ID: validateSetting }
+    );
 
   await runtime("batch", async ({ direct }) => {
     const count = whitelist.rpcs["1"].length,
