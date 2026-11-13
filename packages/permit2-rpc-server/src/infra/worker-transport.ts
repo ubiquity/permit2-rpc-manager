@@ -73,12 +73,19 @@ export class WorkerTransport {
     this.cacheUsed++;
   }
 
-  readonly fetch: typeof fetch = async (input, init) => {
+  readonly fetch: typeof fetch = (input, init) => this.fetchWhenAdmitted(input, init);
+
+  private async fetchWhenAdmitted(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+    admission?: Promise<void>,
+  ): Promise<Response> {
     let url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    let options = { ...init, redirect: "manual" as const };
+    let options: RequestInit = { ...init, redirect: "manual" };
     for (let redirects = 0;; redirects++) {
       this.checkBudget();
       this.used++;
+      if (admission) await admission;
       const response = await this.nativeFetch(url, options);
       if (![301, 302, 303, 307, 308].includes(response.status) || !response.headers.has("location")) return response;
       if (redirects >= 20) {
@@ -103,7 +110,7 @@ export class WorkerTransport {
       await response.body?.cancel();
       url = next.href;
     }
-  };
+  }
 
   /** Coalesce the existing bytecode/sync/chain checks; retain single-call fallback. */
   readonly diagnosticFetch: typeof fetch = (input, init) => {
@@ -150,12 +157,23 @@ export class WorkerTransport {
       }
       return;
     }
-    await Promise.all(entries.map(async (entry) => {
-      try {
-        entry.resolve(await this.fetch(url, entry.init));
-      } catch (error) {
-        entry.reject(error);
-      }
+    // Charge the attempted calls before admission, as before, so a bounded warmup can
+    // complete endpoints rather than spend its allowance on only their first methods.
+    // Actual I/O is serialized per endpoint, including response body consumption.
+    let admission = Promise.resolve();
+    await Promise.all(entries.map((entry) => {
+      const response = this.fetchWhenAdmitted(url, entry.init, admission);
+      admission = response.then(async (response) => {
+        const body = await response.arrayBuffer();
+        entry.resolve(
+          new Response(body.byteLength ? body : null, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          }),
+        );
+      }).catch(entry.reject);
+      return admission;
     }));
   }
 
