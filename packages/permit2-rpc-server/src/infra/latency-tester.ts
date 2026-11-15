@@ -60,15 +60,18 @@ export class LatencyTester {
   private log: LoggerFn;
   private validateChainId: boolean;
   private readonly fetcher: typeof fetch;
+  private readonly batchChecks: boolean;
 
   constructor(
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
     logger?: LoggerFn,
-    options: { validateChainId?: boolean; fetcher?: typeof fetch } = {},
+    options: { validateChainId?: boolean; fetcher?: typeof fetch; batchChecks?: boolean } = {},
   ) {
     this.timeoutMs = timeoutMs;
     this.fetcher = options.fetcher ?? ((input, init) => fetch(input, init));
     this.validateChainId = options.validateChainId ?? true;
+    // Only enable for a transport that coalesces these calls into one HTTP request.
+    this.batchChecks = options.batchChecks ?? false;
     // Use provided logger or a no-op function if none is given
     this.log = logger || (() => {});
   }
@@ -86,25 +89,22 @@ export class LatencyTester {
       params,
       id: `latency-test-${method}-${Date.now()}`,
     };
-    let response: Response;
     try {
-      response = await this.fetcher(url, {
+      const response = await this.fetcher(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
-    } catch (e) {
-      // Catch as unknown
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`HTTP error ${response.status} ${response.statusText}`);
+      }
+      return await response.json();
+    } finally {
+      // Hold the timeout through body consumption as well as response headers.
       clearTimeout(timeoutId);
-      throw e; // Re-throw network/abort errors
     }
-    clearTimeout(timeoutId);
-    if (!response.ok) {
-      // Include status text in the error message
-      throw new Error(`HTTP error ${response.status} ${response.statusText}`);
-    }
-    return await response.json();
   }
 
   /**
@@ -121,15 +121,23 @@ export class LatencyTester {
 
     try {
       const calls = [
-        this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]),
-        this._makeRpcCall(url, "eth_syncing", []),
+        () => this._makeRpcCall(url, "eth_getCode", [PERMIT2_ADDRESS, "latest"]),
+        () => this._makeRpcCall(url, "eth_syncing", []),
       ];
 
       if (this.validateChainId) {
-        calls.push(this._makeRpcCall(url, "eth_chainId", []));
+        calls.push(() => this._makeRpcCall(url, "eth_chainId", []));
       }
 
-      [getCodeResponse, syncingResponse, chainIdResponse] = await Promise.all(calls);
+      const responses: JsonRpcResponse[] = [];
+      if (this.batchChecks) {
+        responses.push(...await Promise.all(calls.map((call) => call())));
+      } else {
+        // A bounded queue of at most three checks, with one admitted request per endpoint.
+        // Other endpoints are still tested concurrently by testRpcUrls.
+        for (const call of calls) responses.push(await call());
+      }
+      [getCodeResponse, syncingResponse, chainIdResponse] = responses;
     } catch (e) {
       // Catch as unknown
       const err = e instanceof Error ? e : new Error(String(e)); // Ensure Error type

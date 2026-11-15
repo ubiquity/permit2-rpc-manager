@@ -245,6 +245,7 @@ export class HttpDiagnosticsObject extends DurableObject<Env> {
       new LatencyTester(request.timeoutMs, undefined, {
         validateChainId: request.validateChainId,
         fetcher: diagnosticFetch,
+        batchChecks: true,
       }),
       undefined,
       (url) => eligible.has(url),
