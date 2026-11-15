@@ -80,7 +80,7 @@ function markRpcHalfOpen(manager: Permit2RpcManager, rpcUrl: string): void {
   });
 }
 
-for (const httpStatus of [200, 400, 401, 403, 404, 408, 429, 500]) {
+for (const httpStatus of [200, 400, 401, 402, 403, 404, 408, 429, 500]) {
   for (const capabilityCode of [-32601, -32004]) {
     Deno.test(`method capability code ${capabilityCode} with HTTP ${httpStatus} fails over without endpoint penalties`, async () => {
       const unsupportedRpc = "https://unsupported.example";
@@ -154,7 +154,58 @@ for (const httpStatus of [200, 400, 401, 403, 404, 408, 429, 500]) {
   });
 }
 
-for (const status of [400, 404, 429]) {
+for (
+  const [bodyKind, body] of [
+    ["payment details", {
+      x402Version: 2,
+      accepts: [{ scheme: "exact", network: "eip155:8453", amount: "100000" }],
+      how_to_pay: { deposit_address: "0x0000000000000000000000000000000000000000" },
+      upgrade: { url: "https://limited.example/v1/machine/register" },
+    }],
+    ["JSON-RPC quota error", {
+      jsonrpc: "2.0",
+      id: 1,
+      error: { code: -32000, message: "Daily quota exhausted", data: { resets_at: "2026-11-02T00:00:00Z" } },
+    }],
+    ["JSON-RPC result", { jsonrpc: "2.0", id: 1, result: "must-not-succeed" }],
+  ] as const
+) {
+  Deno.test(`HTTP 402 with ${bodyKind} rotates and backs off as a rate limit`, async () => {
+    const limitedRpc = "https://limited.example";
+    const healthyRpc = "https://healthy.example";
+    const manager = createManager([limitedRpc, healthyRpc]);
+    const originalFetch = globalThis.fetch;
+    const calls: string[] = [];
+
+    globalThis.fetch = ((input) => {
+      const url = inputUrl(input);
+      calls.push(url);
+      return Promise.resolve(
+        url === limitedRpc
+          ? jsonResponse(body, { status: 402 })
+          : jsonResponse({ jsonrpc: "2.0", id: 1, result: "healthy-result" }),
+      );
+    }) as typeof fetch;
+
+    try {
+      assert.equal(await manager.send(1, "eth_blockNumber"), "healthy-result");
+      assert.deepEqual(calls, [limitedRpc, healthyRpc]);
+      const state = (manager as any).rpcHealthStates.get(limitedRpc);
+      assert.equal(state.failureReasons.get("rate_limit"), 1);
+      assert.ok(state.temporaryUnavailableUntil > Date.now());
+      const stats = (manager as any).rpcMetrics.getMethodStats(1, "eth_blockNumber", [limitedRpc]).get(limitedRpc);
+      assert.equal(stats.throttleRate, 1);
+
+      calls.length = 0;
+      assert.equal(await manager.send(1, "eth_blockNumber"), "healthy-result");
+      assert.deepEqual(calls, [healthyRpc], "the rate-limited endpoint must be skipped during backoff");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+for (const status of [400, 402, 404, 429]) {
   Deno.test(`non-JSON ${status} provider responses fail over`, async () => {
     const invalidJsonRpc = "https://invalid-json.example";
     const healthyRpc = "https://healthy-json.example";
@@ -175,7 +226,7 @@ for (const status of [400, 404, 429]) {
     try {
       assert.equal(await manager.send(1, "eth_blockNumber"), "healthy-result");
       assert.deepEqual(calls, [invalidJsonRpc, healthyRpc]);
-      if (status === 429) {
+      if (status === 402 || status === 429) {
         assert.ok((manager as any).rpcHealthStates.get(invalidJsonRpc).temporaryUnavailableUntil > Date.now());
       }
     } finally {
@@ -277,7 +328,7 @@ Deno.test("invalid params, invalid requests, and deterministic execution errors 
         { code: -32000, message: "execution reverted: deterministic contract failure" },
       ]
     ) {
-      for (const status of [429, 500]) {
+      for (const status of [402, 429, 500]) {
         const calls: string[] = [];
         (manager as any).rpcIndexMap.set(1, 0);
         globalThis.fetch = ((input) => {
