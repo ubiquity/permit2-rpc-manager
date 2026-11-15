@@ -6,6 +6,7 @@ import { WsLatencyTester } from "./infra/ws-latency-tester.ts";
 import { openWebSocket, type SocketPeer } from "./infra/websocket.ts";
 import { redactRpcDiagnostic } from "./core/rpc-endpoint-id.ts";
 import rpcWhitelist from "../rpc-whitelist.json" with { type: "json" };
+import { parseBoolean } from "./parse-boolean.ts";
 
 export interface RuntimeOptions {
   cacheStore?: CacheStore;
@@ -27,12 +28,7 @@ export function createRuntime(env: (name: string) => string | undefined, options
   }
 
   function parseBoolEnv(name: string): boolean | undefined {
-    const raw = env(name);
-    if (raw === undefined) return undefined;
-    const value = raw.trim().toLowerCase();
-    if (["1", "true", "yes", "y", "on"].includes(value)) return true;
-    if (["0", "false", "no", "n", "off"].includes(value)) return false;
-    return undefined;
+    return parseBoolean(env(name));
   }
 
   function parseIntEnv(name: string): number | undefined {
