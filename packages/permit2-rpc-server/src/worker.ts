@@ -53,7 +53,7 @@ export default {
     const configuration = new Map<string, unknown>(Object.entries(env));
     const validateSetting = configuration.get("RPC_VALIDATE_CHAIN_ID");
     const validateChainId = typeof validateSetting !== "string" ||
-      !["false", "0", "no", "off"].includes(validateSetting.trim().toLowerCase());
+          !["false", "0", "no", "n", "off"].includes(validateSetting.trim().toLowerCase());
     const diagnostics = createHttpDiagnostics(
       env.HTTP_DIAGNOSTICS,
       env.VERSION_METADATA.id,
